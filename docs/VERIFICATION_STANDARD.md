@@ -93,6 +93,45 @@ a softer INDEPENDENT. A `MEASUREMENT (own criterion)` row says something about
 reference. Do not let one appear in a table whose headline claims agreement,
 and never tick an acceptance criterion on one.
 
+### 2.2 The fourth relationship: two producers, neither of them us
+
+**Added 2026-09-19 (ADR-228, PR #235 review round 2 [P1-4]).**
+
+> **`REFERENCE_INTERNAL`** — two genuinely independent producers computed the
+> two operands, but **both of them are the reference** and this engine is absent
+> from the comparison entirely. Real evidence, which can genuinely disagree —
+> but evidence about *the reference*, never about us.
+
+The case that forced it: the wiring slice measured `mgcv`'s `te()` against
+`mgcv`'s own `s+s+ti` — first penalized (they differ at `3.72e-02`), then with
+`fx=TRUE` (they agree at `8.88e-16`). Both readings are real and both were
+load-bearing for that slice's conclusion. Polaris appears in neither.
+
+**Why `INDEPENDENT` was the wrong label**, even though §5 prescribed it and it is
+truthful about the producers: `is_parity_evidence` is `True` for `INDEPENDENT`,
+and the derived headline and the `parity evidence` column both key off it. So
+three rows whose own labels read *"Polaris absent"* rendered under **"Parity
+comparison — independently produced on both sides"** with `yes` beside them. The
+overstatement landed in the one line §3.3 makes load-bearing, which is the exact
+failure §1 exists to stop, one level up.
+
+**The distinguishing question:**
+
+> Is **this engine** one of the two producers?
+
+If yes, it is `INDEPENDENT`. If no — but there are still two real, separate
+producers — it is `REFERENCE_INTERNAL`. If there is no second producer at all,
+you are in §2.1's `MEASUREMENT (own criterion)` instead.
+
+**What it grants: nothing about us.** It is not a softer `INDEPENDENT`.
+`require_parity_evidence` rejects it, `is_parity_claim` is `False` when one is
+present, and no acceptance criterion may ever be ticked on one. What it *does*
+carry is real: unlike ECHO or TRANSPORT it has two producers that can disagree,
+so `ComparisonProvenance.has_two_producers` is `True` and the same-producer
+guard applies to it — and it is reported under its own heading rather than being
+folded in with harness checks, because calling it one would understate it in the
+opposite direction.
+
 ## 3. What you must do
 
 ### 3.1 Declare provenance in the type, at the producer
@@ -154,8 +193,10 @@ A human writing that line by hand is exactly the step that failed before.
 Wherever a parity claim is *asserted* — an acceptance check, a CI gate, a report
 that prints the word "parity" — pass the cited quantities through
 `require_parity_evidence(...)`. It raises `PolarisValidationError` naming each
-quantity that is not independently produced. A harness result then cannot
-silently satisfy a parity gate.
+quantity that is not parity evidence for **this engine** — every ECHO, TRANSPORT
+and `REFERENCE_INTERNAL` column, with both its producers. A harness result then
+cannot silently satisfy a parity gate, and neither can a measurement of the
+reference against itself (§2.2).
 
 ### 3.5 Write acceptance criteria that a harness cannot satisfy
 
@@ -196,7 +237,15 @@ Applying the standard to the `mgcv` parity epic, honestly:
 | Stage A, `raw`/`paraPen` path — `X`, `S` | ECHO — Python supplies them, mgcv is fitted on them | No-tampering check (slice 1) |
 | Stage A, `raw`/`paraPen` path — `rank` | **INDEPENDENT** — `numpy` vs `mgcv`'s rank determination | The one parity column Stage A has today |
 | Stage A, mgcv-native path — all columns | TRANSPORT — one producer, parsed by the other | Round-trip check (slice 1b) |
-| R-side internal guard (`smoothCon` vs `lpmatrix`/`m$smooth[[j]]`) | **INDEPENDENT**, entirely inside R | Real evidence about mgcv, none about Polaris |
+| R-side internal guard (`smoothCon` vs `lpmatrix`/`m$smooth[[j]]`) | **`REFERENCE_INTERNAL`**, entirely inside R | Real evidence about mgcv, none about Polaris |
+| mgcv `te()` vs mgcv `s+s+ti`, penalized and `fx=TRUE` (wiring slice 1) | **`REFERENCE_INTERNAL`** | Real, and decisive for that slice — but about mgcv, not us |
+
+> **This row read `INDEPENDENT` until 2026-09-19.** The *description* beside it
+> was already right — *"none about Polaris"* — but the label made
+> `is_parity_evidence` true and the derived headline said the opposite of the
+> description. §2.2 and ADR-228 record the fix. It is the standard's own §1
+> failure, in the standard's own table: a prose caveat that did not survive into
+> the line that travels.
 
 **The engine's *fitter* has genuine parity evidence; its *bases* have none yet.**
 Slice 2 — a Python `cr` basis built from knots and Wood's definition, compared

@@ -38,7 +38,7 @@ from polaris_re.analytics.gam_production_mi_conformance import (
     production_mi_model_spec,
 )
 from polaris_re.core.exceptions import PolarisValidationError
-from polaris_re.core.verification import require_parity_evidence
+from polaris_re.core.verification import evidence_headline, require_parity_evidence
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -136,12 +136,47 @@ def _synthetic_fit(
 # --------------------------------------------------------------------------
 
 
-def test_production_mi_claim_is_independent_on_every_declared_quantity() -> None:
-    """ADR-193's gate: a harness result must not be able to satisfy this."""
+def test_production_mi_claim_gates_on_its_parity_columns_only() -> None:
+    """ADR-193's gate: a harness result must not be able to satisfy this.
+
+    The four Polaris-vs-mgcv columns ARE parity evidence and pass the gate.
+    """
     require_parity_evidence(
-        PRODUCTION_MI_MODEL_CLAIM.quantities, claim=PRODUCTION_MI_MODEL_CLAIM.claim
+        PRODUCTION_MI_MODEL_CLAIM.parity_quantities, claim=PRODUCTION_MI_MODEL_CLAIM.claim
     )
-    assert PRODUCTION_MI_MODEL_CLAIM.is_parity_claim
+    assert len(PRODUCTION_MI_MODEL_CLAIM.parity_quantities) == 4
+
+
+def test_production_mi_claim_refuses_to_gate_on_the_reference_internal_columns() -> None:
+    """ADR-228: the three mgcv-vs-mgcv columns must NOT satisfy a parity gate.
+
+    Passing the FULL quantity set has to raise. Before ADR-228 these rows were
+    ``INDEPENDENT`` and this call SUCCEEDED — which is the defect that ADR fixes,
+    so this test is the regression guard for it.
+    """
+    assert len(PRODUCTION_MI_MODEL_CLAIM.reference_internal_quantities) == 3
+    assert not PRODUCTION_MI_MODEL_CLAIM.is_parity_claim
+    with pytest.raises(PolarisValidationError, match="REFERENCE_INTERNAL"):
+        require_parity_evidence(
+            PRODUCTION_MI_MODEL_CLAIM.quantities, claim=PRODUCTION_MI_MODEL_CLAIM.claim
+        )
+
+
+def test_production_mi_headline_does_not_fold_reference_internal_into_parity() -> None:
+    """The load-bearing line (VERIFICATION_STANDARD.md §3.3) must separate them.
+
+    This is the exact string PR #235 review round 2 [P1-4] caught overstating.
+    """
+    headline = evidence_headline(PRODUCTION_MI_MODEL_CLAIM)
+    assert headline.startswith("**Parity comparison, with reference-internal columns.**")
+    assert "**Reference-internal — NOT parity:**" in headline
+    assert "this engine is absent" in headline
+    # The three mgcv-vs-mgcv quantities must sit AFTER the reference-internal
+    # marker, never in the parity clause that precedes it.
+    parity_clause, _, internal_clause = headline.partition("**Reference-internal")
+    for label in ("localiser", "UNPENALIZED", "SPELLING"):
+        assert label not in parity_clause
+        assert label in internal_clause
 
 
 def test_fit_production_mi_case_signature_takes_no_r_fit_output() -> None:

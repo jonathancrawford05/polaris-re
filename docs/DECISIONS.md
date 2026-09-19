@@ -23013,3 +23013,115 @@ that changes the answer. Its §5 records this detour in full.
    inverted the answer here, and no revision of blocker A ever mentioned it.
 3. **A coverage question needs a coverage artifact.** Prose in a plan cannot be
    contradicted by anything; a table can.
+
+---
+
+## ADR-228: `ComparisonProvenance` gains `REFERENCE_INTERNAL` — two producers, neither of them us
+
+**Date:** 2026-09-19
+**Status:** Accepted
+**Supersedes:** nothing. **Amends:** ADR-193's three-way taxonomy, and
+`docs/VERIFICATION_STANDARD.md` §5's classification of the R-side internal guard.
+**Source:** PR #235 review round 2, finding [P1-4]. Raised on an APPROVED PR and
+deliberately **not** fixed there — a core contract affecting every claim in the
+epic does not belong bolted onto a retraction PR.
+
+### Context
+
+ADR-193 classifies comparisons three ways: `INDEPENDENT`, `ECHO`, `TRANSPORT`.
+`is_parity_evidence` is true for `INDEPENDENT` alone, and both the derived
+headline (`evidence_headline`) and the `parity evidence` column of every
+published table key off it.
+
+Production wiring slice 1 shipped three comparisons of **`mgcv` against
+`mgcv`**: the `te`-vs-`s+s+ti` localiser, the same pair unpenalized (`fx=TRUE`),
+and the ANOVA-spelling check. Each has two genuinely separate producers and each
+can genuinely disagree — the penalized pair does, at `3.72e-02`. Polaris is
+absent from all three.
+
+They were declared `INDEPENDENT`. That was what `VERIFICATION_STANDARD.md` §5
+prescribed (it filed the R-side `smoothCon`/`lpmatrix` guard the same way) and it
+was **truthful about the producers**. But it made `is_parity_evidence` true, so
+the rendered summary listed all seven quantities under
+
+> **Parity comparison** — independently produced on both sides: …
+
+and printed `yes` in the parity column of three rows whose own labels read
+*"R-INTERNAL, Polaris absent"*. The claim sentence said the right thing; the
+headline did not. §3.3 exists precisely so the headline cannot say something the
+author does not believe, and §1's failure — a prose caveat that does not survive
+into the line that travels — had reappeared inside the standard's own machinery.
+
+**The declaration was not wrong. The type could not express the distinction.**
+There was no way to say *"two independent producers, both of them the
+reference."*
+
+### Decision
+
+Add a fourth member, and split the predicate that was doing two jobs.
+
+1. **`ComparisonProvenance.REFERENCE_INTERNAL`** — two independent producers,
+   both of them the reference, this engine absent.
+2. **`is_parity_evidence`** keeps its narrow meaning: does this say something
+   about **our** engine? True for `INDEPENDENT` only.
+3. **`has_two_producers`** (new) — do two genuinely different producers exist?
+   True for `INDEPENDENT` and `REFERENCE_INTERNAL`. Structural checks about the
+   producers key off this, so `ComparedQuantity`'s same-producer guard now
+   catches a reference-internal row naming one producer twice, which it
+   previously let through.
+4. **`harness_quantities` narrows to ECHO/TRANSPORT.** It was "everything that is
+   not parity evidence", which would have swept reference-internal rows in and
+   labelled a real measurement a harness check — understating in the opposite
+   direction. New `reference_internal_quantities` carries them.
+5. **`evidence_headline` gains two branches:** an all-reference-internal claim
+   reads *"Reference-internal measurement — NOT parity"*, and a mixed one reads
+   *"Parity comparison, with reference-internal columns"* with the two sets named
+   separately rather than averaged into one verdict.
+6. `require_parity_evidence` rejects it, and `is_parity_claim` is `False` when
+   one is present.
+
+### Consequences
+
+- **`PRODUCTION_MI_MODEL_CLAIM.is_parity_claim` is now `False`** — 4 parity
+  columns, 3 reference-internal. This is the fix working, not a regression: the
+  four Polaris-vs-mgcv columns remain full parity evidence and still gate.
+- **It grants nothing.** Not a softer `INDEPENDENT`. No acceptance criterion may
+  be ticked on a reference-internal row, and none is.
+- **Every other claim in the epic is untouched** — all were `INDEPENDENT` with
+  Polaris as one producer, and stay that way.
+- The regression guard is
+  `test_production_mi_claim_refuses_to_gate_on_the_reference_internal_columns`:
+  passing the full quantity set to `require_parity_evidence` must raise. Before
+  this ADR it succeeded.
+
+### Registered follow-up, not fixed here
+
+**The notation-primer penalty-count probe is the same shape and is not yet
+covered.** `.github/workflows/mgcv-conformance.yml`'s *"Assert the notation
+primer's penalty counts against the pinned mgcv"* step publishes an
+`mgcv`-vs-`mgcv` result to the job summary under an **honest but hand-written**
+headline, with no `VerificationClaim` behind it. It is not a finding under
+ADR-193 — nothing it says is false, and it states "both sides are mgcv, Polaris
+absent" in three places — but it is exactly what `REFERENCE_INTERNAL` was built
+for, and §3.3 exists so that headline is *derived* rather than trusted to stay
+honest through future edits.
+
+This ADR's sweep covered `VerificationClaim`s in `analytics/` only, **not
+workflow-level hand-written summaries**, so that probe was never in scope.
+Raised by PR #236 review as a [P2] and deliberately left: giving it a declared
+claim means deciding how a workflow step (as opposed to a comparator module)
+owns one, which is its own small design question and does not belong in the
+change that introduces the enum member.
+
+### What this cost, recorded plainly
+
+The defect was **introduced by fixing a different one correctly.** Review round 1
+[P1-1] said the `unpenalized` and `anova_spelling` comparisons shipped with no
+declared `VerificationClaim`; declaring them was right. But declaring them as
+`INDEPENDENT` took a pre-existing one-row problem (the localiser, which had it
+since the original PR) to three, and put it in the load-bearing line.
+
+The lesson is not "declare less". It is that **a taxonomy with no cell for your
+case will borrow the nearest one**, and the nearest one carried a permission the
+case does not have. When a declaration feels like it needs a prose caveat beside
+it to be read correctly, the caveat is telling you the type is missing a member.

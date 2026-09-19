@@ -49,17 +49,20 @@ comparison separates three questions:
                                  4-term penalized HGAM?
 (2)  Polaris vs mgcv ``te``      does the decomposition reproduce a   INDEPENDENT (about Polaris)
                                  full tensor, under penalty?
-(3)  mgcv ``anova`` vs ``te``    are the two penalized forms the      INDEPENDENT, but entirely
-                                 same fit?                            inside R — real evidence
-                                                                      about ``mgcv``, **none**
+(3)  mgcv ``anova`` vs ``te``    are the two penalized forms the      REFERENCE_INTERNAL —
+                                 same fit?                            two real producers, but
+                                                                      BOTH are ``mgcv``: real
+                                                                      evidence about it, **none**
                                                                       about Polaris
 ===  ==========================  ===================================  ==============================
 
 (3) is the localiser — it separates "our engine is wrong" from "these are two
 different models" — and read against the probe's ``unpenalized`` block it is
 also what shows the difference to be purely a penalty effect. Its evidence class
-has precedent: ``docs/VERIFICATION_STANDARD.md`` §5 lists the R-side
-``smoothCon``/``lpmatrix`` guard the same way.
+is ``REFERENCE_INTERNAL`` (ADR-228, ``docs/VERIFICATION_STANDARD.md`` §2.2),
+which also covers the R-side ``smoothCon``/``lpmatrix`` guard §5 records. Both
+carried ``INDEPENDENT`` until 2026-09-19; that was truthful about the producers
+but let the derived headline call them parity.
 
 **The gate is ADR-221's, reused verbatim and never re-derived.** Anchor W5
 forbids this epic widening a tolerance, so :data:`_ETA_TOLERANCE` /
@@ -307,26 +310,23 @@ tolerances explicitly rather than leaving "agrees" undefined. **No unqualified
 touches conformance level 4's standing disagreement (ADR-190)."""
 
 
-# KNOWN GAP, registered by PR #235 review round 2 [P1-4]. The three R-INTERNAL
-# quantities below (mgcv on BOTH sides) are declared ``INDEPENDENT``, which is
-# what ``VERIFICATION_STANDARD.md`` Sec. 5 prescribes — it files the R-side
-# smoothCon/lpmatrix guard the same way — and it is truthful about the
-# PRODUCERS: two genuinely independent ones. But ``evidence_markdown`` derives
-# its headline clause and its "parity evidence" column from
-# ``provenance.is_parity_evidence``, which is True for INDEPENDENT, so the
-# rendered summary lists them under "Parity comparison" and prints "yes" for
-# them, while their own labels say "Polaris absent".
+# The three mgcv-vs-mgcv quantities below carry ``REFERENCE_INTERNAL``: two real,
+# genuinely independent producers, but BOTH of them are the reference and this
+# engine is absent. They can disagree — the ``te`` vs ``s+s+ti`` localiser does,
+# at 3.72e-02 — so they are real measurements, just not measurements OF US.
 #
-# The claim SENTENCE says the right thing ("R-INTERNAL quantities ... are
-# evidence about mgcv only"), so a reader of the whole summary is not misled;
-# a reader of the headline alone could be, in the direction of overstating.
+# PR #235 review round 2 [P1-4] is why this member exists. These rows shipped as
+# ``INDEPENDENT`` (which ``VERIFICATION_STANDARD.md`` Sec. 5 prescribed at the
+# time, and which was truthful about the producers), but ``is_parity_evidence``
+# is True for INDEPENDENT, so ``evidence_markdown`` listed them under "Parity
+# comparison" and printed "yes" against them — while their own labels said
+# "Polaris absent". The headline overstated in the one line
+# ``VERIFICATION_STANDARD.md`` Sec. 3.3 makes load-bearing. ADR-228.
 #
-# The fix is a fourth ``ComparisonProvenance`` member (REFERENCE_INTERNAL:
-# is_parity_evidence=False, its own headline clause) in ``core/verification.py``
-# — a CORE CONTRACT change affecting every claim in the epic, so it belongs in
-# its own change with maintainer sign-off, NOT bolted onto a retraction PR.
-# Until then: no acceptance criterion is ticked on any of these three rows, and
-# none may be cited as evidence about this engine.
+# Consequence to expect, and it is correct: this claim's ``is_parity_claim`` is
+# now False. Four columns are parity evidence for this engine and three are not,
+# so the headline reads "Parity comparison, with reference-internal columns"
+# rather than folding all seven into one verdict.
 PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
     claim=PRODUCTION_MI_CLAIM_SENTENCE,
     quantities=(
@@ -372,7 +372,7 @@ PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
             quantity="eta / edf_total (mgcv te vs mgcv s+s+ti — the R-internal localiser)",
             left_producer="mgcv gam(te(...)+s(duration_years), method='REML')",
             right_producer="mgcv gam(s(...)+s(...)+ti(...)+s(duration_years), method='REML')",
-            provenance=ComparisonProvenance.INDEPENDENT,
+            provenance=ComparisonProvenance.REFERENCE_INTERNAL,
         ),
         ComparedQuantity(
             quantity=(
@@ -384,7 +384,7 @@ PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
                 "mgcv gam(s(...,fx=TRUE)+s(...,fx=TRUE)+ti(...,fx=TRUE)+s(...,fx=TRUE), "
                 "method='REML')"
             ),
-            provenance=ComparisonProvenance.INDEPENDENT,
+            provenance=ComparisonProvenance.REFERENCE_INTERNAL,
         ),
         ComparedQuantity(
             quantity=(
@@ -393,27 +393,41 @@ PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
             ),
             left_producer="mgcv gam(s(...)+s(...)+ti(...)+s(...), method='REML')",
             right_producer="mgcv gam(ti(...)+ti(...)+ti(...)+s(...), method='REML')",
-            provenance=ComparisonProvenance.INDEPENDENT,
+            provenance=ComparisonProvenance.REFERENCE_INTERNAL,
         ),
     ),
 )
 """PLAN slice 1's provenance declaration (ADR-193).
 
-**Every quantity is INDEPENDENT, and this slice genuinely is a two-producer
-comparison** — unlike the several slices before it, which were correctly
-classed ``MEASUREMENT (own criterion)`` because no second producer's value sat
-opposite ours. Here Polaris's own fit sits opposite ``mgcv``'s own fit of the
-same recipe. The ADR-193 mechanical test applied to the producing function's
-signature: :func:`fit_production_mi_case` takes :class:`RProductionMIRecipe`,
-which structurally has no ``te``/``anova`` key, so it cannot read either of
-``mgcv``'s fits — a caller passing the wider :class:`RProductionMIPayload`
-still cannot make it see them.
+**Four of the seven quantities are INDEPENDENT, and those four genuinely are a
+two-producer comparison** — unlike the several slices before it, which were
+correctly classed ``MEASUREMENT (own criterion)`` because no second producer's
+value sat opposite ours. In those four, Polaris's own fit sits opposite
+``mgcv``'s own fit of the same recipe. The ADR-193 mechanical test applied to
+the producing function's signature: :func:`fit_production_mi_case` takes
+:class:`RProductionMIRecipe`, which structurally has no ``te``/``anova`` key,
+so it cannot read either of ``mgcv``'s fits — a caller passing the wider
+:class:`RProductionMIPayload` still cannot make it see them.
 
-**The last THREE quantities are INDEPENDENT but say nothing about Polaris.**
-Both producers are ``mgcv`` in each; they are evidence about ``mgcv``'s own
-formula forms, the same class ``docs/VERIFICATION_STANDARD.md`` §5 already
-records for the R-side ``smoothCon``/``lpmatrix`` guard. They must never be
-read as parity evidence for this engine.
+The remaining three are ``REFERENCE_INTERNAL``, so
+:attr:`~polaris_re.core.verification.VerificationClaim.is_parity_claim` is
+**False** for this claim and
+:func:`~polaris_re.core.verification.require_parity_evidence` **raises** on the
+full quantity set. Gate on
+:attr:`~polaris_re.core.verification.VerificationClaim.parity_quantities`.
+
+**The last THREE quantities are ``REFERENCE_INTERNAL`` and say nothing about
+Polaris.** Both producers are ``mgcv`` in each; they are evidence about
+``mgcv``'s own formula forms, the same class ``docs/VERIFICATION_STANDARD.md``
+§2.2/§5 records for the R-side ``smoothCon``/``lpmatrix`` guard. They must never
+be read as parity evidence for this engine — and since ADR-228 the *type*
+enforces that rather than this sentence merely asserting it: the derived
+headline names them under "Reference-internal — NOT parity" and the rendered
+table prints ``no`` in their parity column.
+
+*(They were declared ``INDEPENDENT`` until 2026-09-19, which was truthful about
+the producers but made ``is_parity_evidence`` true — so the headline folded them
+into "Parity comparison" while this very paragraph said otherwise. ADR-228.)*
 
 **The ``UNPENALIZED`` row was added 2026-09-18 (PR #235 review [P1-1]) and it
 carries the whole retraction.** Its ``8.88e-16`` is the measurement that voided
