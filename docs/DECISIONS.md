@@ -23274,4 +23274,15 @@ family cannot be registered without them.
 - A fifth `_FAMILY_LINKS` entry exists whose free-scale path is registered but
   unreachable. That is stated in the coverage table rather than left for a
   reader to discover, and closing it is slice 3's whole scope.
+- **`gaussian(identity)` is the SECOND such family, not the first**, and that
+  changes an argument written before it existed. `quasipoisson(log)` already
+  carried `dispersion_fixed=False`; `PLAN_mgcv_capability_ladder.md` §2.1 called
+  it *"the only registered family"* with a free scale, which this slice
+  falsified. The plan is amended in place. The L5-at-slice-3 argument survives
+  unchanged — `quasipoisson` was a live hole independently of Gaussian — but it
+  is now stronger: **L5 unblocks two registered families, not one.** That is
+  also the accurate shape for the `_FAMILY_LINKS` docstring's reach split: the
+  fault line is the free scale, not the count/binary divide (PR #237 review
+  [P1-C], which caught a first attempt at that paragraph sweeping
+  `quasipoisson` into the free-`sp` group).
 
