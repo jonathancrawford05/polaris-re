@@ -193,8 +193,10 @@ A human writing that line by hand is exactly the step that failed before.
 Wherever a parity claim is *asserted* — an acceptance check, a CI gate, a report
 that prints the word "parity" — pass the cited quantities through
 `require_parity_evidence(...)`. It raises `PolarisValidationError` naming each
-quantity that is not independently produced. A harness result then cannot
-silently satisfy a parity gate.
+quantity that is not parity evidence for **this engine** — every ECHO, TRANSPORT
+and `REFERENCE_INTERNAL` column, with both its producers. A harness result then
+cannot silently satisfy a parity gate, and neither can a measurement of the
+reference against itself (§2.2).
 
 ### 3.5 Write acceptance criteria that a harness cannot satisfy
 
