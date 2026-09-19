@@ -99,19 +99,27 @@ _FAMILY_LINKS: dict[tuple[str, str], Callable[[], Family]] = {
     ("binomial", "logit"): binomial_logit,
     ("binomial", "cloglog"): binomial_cloglog,
 }
-"""Every ``(family, link)`` combination built and verified against ``mgcv`` —
-slice 3 (ADR-195) for the four count/binary pairs, and ladder rung L1 (ADR-229,
-``PLAN_mgcv_capability_ladder.md`` slice 1) for ``gaussian(identity)``.
+"""Every ``(family, link)`` pair this module resolves.
 ``ModelSpec.family``/``.link`` are free-text strings (Anchor 3), but this module
 only ever resolves them to one of these — deliberately no "unknown but assume
 Poisson-shaped" fallback, since a silently-wrong family would fail nowhere near
 where the mistake was made.
 
-``gaussian``/``identity`` is listed first because it is the simplest: constant
-variance and a linear link collapse IRLS to one weighted least-squares solve.
-**It carries a free scale** (``dispersion_fixed=False``), so it is usable at
-FIXED ``sp`` only until ladder rung L5 lands — ``reml_score_general`` raises on
-a free scale, by design and with its own message."""
+**The four count/binary pairs are verified against ``mgcv``** (slice 3,
+ADR-195). **``gaussian``/``identity`` is NOT, yet** — it is ladder rung L1
+(``PLAN_mgcv_capability_ladder.md`` slice 1), whose build half is done and whose
+``mgcv`` measurement is not taken. It is verified against **closed forms**
+instead: unpenalized IRLS against ``lstsq`` and penalized against
+``(X'X + S)^-1 X'y``, both to ``1e-12`` (``tests/test_analytics/test_gam_family.py``).
+That is real verification and it is not mgcv parity; the slice's own ADR is owed
+when the measurement lands, and this docstring says so rather than citing a
+number that does not exist yet.
+
+It is listed first because it is the simplest: constant variance and a linear
+link collapse IRLS to one weighted least-squares solve. **It carries a free
+scale** (``dispersion_fixed=False``), so it is usable at FIXED ``sp`` only until
+ladder rung L5 lands — ``reml_score_general`` raises on a free scale, by design
+and with its own message."""
 
 
 PRODUCTION_LOG10_BOUNDS = (-2.0, 12.0)
