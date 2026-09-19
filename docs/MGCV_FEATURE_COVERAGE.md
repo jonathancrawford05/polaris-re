@@ -103,11 +103,25 @@ and `sz` already has its branch. So L3 needs a representation decision (widen
 plus `gaussian`/`identity` at L1 on 2026-09-19), deliberately with no fallback —
 an unrecognised pair raises rather than guessing. **Being in that dict means
 "expressible", not "verified against mgcv"** — the next pair added will sit
-there unmeasured until its own slice measures it. All five entries happen to be
-mgcv-verified today, but **not to the same reach**: the four count/binary pairs
-at free `sp` (ADR-195), `gaussian`/`identity` at **fixed `sp` only** (ADR-229).
-The docstring carries that split so it travels with the code; the Stage B column
-above is the authority.
+there unmeasured until its own slice measures it.
+
+All five entries happen to be mgcv-verified today, but **not to the same
+reach**, and the fault line is **the free scale**, not the count/binary divide:
+
+- **All five** at **fixed `sp`** — ADR-195 for the four count/binary pairs,
+  ADR-229 for `gaussian`/`identity`.
+- **`quasipoisson(log)` and `gaussian(identity)` stop there**, for the same
+  reason: both are `dispersion_fixed=False`, so `reml_score_general` raises
+  until **L5**. That is why the `quasipoisson` row above reads `⚠️ partial` and
+  why §2.3's scale-estimated-REML row names the two families together. **L5
+  unblocks two of them, not one.**
+- **Free-`sp` selection** is measured on `binomial(cloglog)` — the target
+  formula's own family — by the REML/selection work (ADR-210, ADR-217/218,
+  slices 5b/7b), **not** by ADR-195, which is the fixed-`sp` result (§2.3's
+  first row).
+
+The docstring carries that split so it travels with the code; the Stage B
+column above is the authority.
 
 ### 2.3 Fitting machinery
 

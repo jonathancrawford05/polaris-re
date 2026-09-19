@@ -83,12 +83,19 @@ renumbered rung, and the cure is to not renumber.
    **early**: blowing up at slice 3 means replanning with two rungs banked
    instead of four.
 
-2. **It closes a live hole, not a hypothetical one.** `quasipoisson` is the only
-   registered family with `dispersion_fixed=False` (`gam_family.py:264`; the
-   other three are `True`). It is marked **expressible** in the coverage table
-   and it **raises** at free `sp` today — the standing ⚠️ in
+2. **It closes a live hole, not a hypothetical one.** `quasipoisson` carries
+   `dispersion_fixed=False` (`gam_family.py:264`), is marked **expressible** in
+   the coverage table, and **raises** at free `sp` today — the standing ⚠️ in
    `MGCV_FEATURE_COVERAGE.md` §2.2/§2.3. L5 earns its slot independently of
    Gaussian.
+
+   > **Amended 2026-09-19 (slice 1, PR #237).** This read *"the only registered
+   > family with `dispersion_fixed=False`… the other three are `True`"*, which
+   > was true of a four-entry `_FAMILY_LINKS` and which **slice 1 itself
+   > falsified** by registering `gaussian`/`identity` as a second free-scale
+   > family. The argument is unaffected — `quasipoisson` is still a live hole
+   > whether or not Gaussian exists — but it is now **stronger**, because L5
+   > unblocks **two** registered families rather than one.
 
 Supporting this, on the repo's own record rather than on assertion: **`sz` is
 what a fixed-`sp` qualifier looks like when it lingers.** Stage A verified,
@@ -198,11 +205,13 @@ wait on slice 3.
 
 **Why pulled forward — §2.1 in one line:** it is on the critical path to L9/L10
 and it is the epic's least-measured estimate, so it is the one to hit early; and
-it closes a live hole rather than only Gaussian's. `quasipoisson` is the sole
-registered family with `dispersion_fixed=False` (`gam_family.py:264`), is marked
-expressible, and raises at free `sp` **today** — the standing ⚠️ in §2.2/§2.3 of
-the coverage file. Closing slice 1's own gap is a *consequence* of this slice,
-not the argument for its position.
+it closes a live hole rather than only Gaussian's. `quasipoisson` carries
+`dispersion_fixed=False` (`gam_family.py:264`), is marked expressible, and
+raises at free `sp` **today** — the standing ⚠️ in §2.2/§2.3 of the coverage
+file. Closing slice 1's own gap is a *consequence* of this slice, not the
+argument for its position. (This sentence called `quasipoisson` the **sole**
+such family until 2026-09-19; slice 1 registered `gaussian`/`identity` as a
+second one, so L5 now unblocks two. See §2.2's amendment note.)
 
 It unblocks four families at once — Gaussian, quasi-Poisson, Gamma, Tweedie —
 though only the first two are registered today.
