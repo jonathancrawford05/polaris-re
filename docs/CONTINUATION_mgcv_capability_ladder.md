@@ -3,7 +3,7 @@
 **Plan:** `docs/PLAN_mgcv_capability_ladder.md`
 **Created:** 2026-09-19, by the session that started slice 1 — as the plan's §3
 requires, and not before (the one-active-epic rule).
-**Status:** **ACTIVE.** Slice 1 in progress.
+**Status:** **ACTIVE.** Slice 1 complete; slice 2 (`bs="re"`) not started.
 
 ---
 
@@ -11,7 +11,7 @@ requires, and not before (the one-active-epic rule).
 
 | slice | rung | status |
 |---|---|---|
-| **1** | **L1** `gaussian(identity)` | **IN PROGRESS** — family built and closed-form verified; `mgcv` measurement NOT yet taken |
+| **1** | **L1** `gaussian(identity)` | **DONE** (2026-09-19, ADR-229) — family built, closed-form verified, and measured against `mgcv` at **tier 3**. **Fixed `sp` only** |
 | 2 | L2 `bs="re"` | not started |
 | 3 | L5 scale-estimated REML | not started |
 | 4 | L3 factor-`by` | not started |
@@ -19,9 +19,9 @@ requires, and not before (the one-active-epic rule).
 
 ---
 
-## Slice 1 — what has landed, and what has not
+## Slice 1 — what landed
 
-### Landed
+### Built
 
 - **`gam_family.gaussian_identity()`** — identity link, `V(mu) = 1`,
   `V'(mu) = 0`, `dispersion_fixed=False`.
@@ -46,24 +46,34 @@ requires, and not before (the one-active-epic rule).
   - the deviance's factor-of-2 convention, pinned so nobody "fixes" it;
   - `n_iter <= 2`, the property that makes L1 the diagnostic floor.
 
-### NOT landed — and slice 1 is not done without it
+### Measured
 
-- **No `mgcv` measurement has been taken.** The plan's acceptance for this slice
-  is Stage B `eta` + `edf_total` against `mgcv::gam(..., method="REML")` at
-  **fixed `sp`**, on ADR-221's committed criterion, **tier 3**. That needs an R
-  probe, a conformance module with a declared `VerificationClaim`, and a
-  `mgcv-conformance.yml` step.
-- **`MGCV_FEATURE_COVERAGE.md` §2.2's Stage B column is still `—`**, and stays
-  there until the measurement lands. (The row's `expressible?` column DID move
-  to **yes** on 2026-09-19 — that is a different claim from Stage B, and §6's
-  "the slice that changes the answer updates the table" applies to it. PR #237
-  review [P1-2]: holding the whole row was under-claiming in the opposite
-  direction from over-claiming Stage B.) When Stage B lands it must read
-  **"fixed `sp` only"** until slice 3.
+- **`scripts/gam_gaussian_probe.R`** — `gam_multiterm_probe.R`'s own three-term
+  design with `family = gaussian(link = "identity")` and nothing else changed,
+  so the family is the only unverified thing in the comparison.
+- **`src/polaris_re/analytics/gam_gaussian_conformance.py`** — a declared
+  `VerificationClaim`, both quantities `INDEPENDENT`, tolerances **imported**
+  from `gam_select_free_sp_conformance` and never redeclared.
+- **A `mgcv-conformance.yml` probe step + compare step + path filters**, so the
+  measurement re-runs on the pinned digest whenever either side changes.
+- **Tier 3 result:** `eta` `2.442e-14`, `edf_total` diff `-7.105e-15`, inside
+  ADR-221's `2e-2` / `1.0`. See ADR-229 and the ledger row.
+- **10 tests over the conformance module**, including the two that make the
+  independence claim checkable rather than asserted: stripping every
+  `mgcv`-produced key leaves the fit bit-identical, and `edf_total` moves with
+  the penalty.
+- **`MGCV_FEATURE_COVERAGE.md` §2.2 Stage B** now reads ✅ tier 3, **fixed `sp`
+  only** — the two claims in that row moved at different times on purpose:
+  `expressible?` when the registration landed, Stage B when this measurement
+  did. (PR #237 review [P1-2]: holding the whole row was under-claiming, the
+  opposite drift from over-claiming Stage B. Both are drift.)
 
 ---
 
-## Carried constraints — read before touching slice 1
+## Carried constraints — read before touching slice 2
+
+These were written for slice 1 and **all five still hold**; 1 and 3 are what
+slice 1's acceptance was actually held to.
 
 1. **Fixed `sp` only, and say so.** `gam_reml.reml_score_general` raises when
    `family.dispersion_fixed` is `False` (`gam_reml.py:263`), and Gaussian has a
@@ -96,9 +106,19 @@ its justification rewritten in `2dec2a4`.
 
 ## Where to pick up
 
-`docs/PLAN_mgcv_capability_ladder.md` §3, slice 1, **"Measure"**. The build half
-is done; the measurement half is untouched. Nearest template for the whole
-shape — R probe, conformance module, claim, workflow step — is
-`gam_multiterm_conformance.py` + `scripts/gam_multiterm_probe.R`, which fits at
-**fixed `sp`** and is therefore the right one to copy rather than any of the
-free-`sp` ones.
+`docs/PLAN_mgcv_capability_ladder.md` §3, **slice 2 — L2 `bs="re"`**. Slice 1 is
+closed (ADR-229).
+
+Nearest template for the whole shape — R probe, conformance module with a
+declared claim, workflow probe step + compare step + path filters, tier-3
+dispatch — is now **slice 1 itself**: `scripts/gam_gaussian_probe.R` +
+`src/polaris_re/analytics/gam_gaussian_conformance.py` +
+`tests/test_analytics/test_gam_gaussian_conformance.py`. It fits at **fixed
+`sp`**, which is the right shape to copy rather than any of the free-`sp` ones.
+
+One thing slice 1 did that is worth repeating at L2: `bs="re"`'s penalty is the
+identity and its `edf` has a closed form, so the comparison will likely also
+land near machine precision. **A near-exact agreement is a suspicion before it
+is a result** — slice 1's two independence tests (strip every `mgcv`-produced
+key; check the quantity moves with `sp`) are what make it reportable, and L2
+should carry the same pair.

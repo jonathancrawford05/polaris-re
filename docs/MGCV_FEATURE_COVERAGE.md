@@ -92,7 +92,7 @@ and `sz` already has its branch. So L3 needs a representation decision (widen
 | `quasipoisson(log)` | **yes** | ⚠️ partial | `reml_score_general` **raises** on `dispersion_fixed=False` — see §2.3 |
 | `binomial(logit)` | **yes** | ✅ tier 3 (ADR-195) | |
 | `binomial(cloglog)` | **yes** | ✅ tier 3 (ADR-195) | the target formula's own family |
-| **`gaussian(identity)`** | **yes** (2026-09-19, L1) | — **not measured** | **BUILT, NOT YET mgcv-VERIFIED.** `resolve_family("gaussian", "identity")` resolves; closed-form verified only (IRLS vs `lstsq` and vs the closed-form ridge, both `1e-12`). Stage B stays `—` until ladder slice 1's measurement half lands, and will read **fixed `sp` only** when it does — Gaussian has a free scale and `reml_score_general` raises on one until L5 |
+| **`gaussian(identity)`** | **yes** (2026-09-19, L1) | ✅ tier 3, **fixed `sp` only** (ADR-229) | `eta` `2.442e-14` and `edf_total` `-7.105e-15` against ADR-221's committed criterion, on the tier-3-verified three-term design with only the family changed. **FIXED `sp` ONLY**: Gaussian estimates its scale and `reml_score_general` raises on a free one until **L5** (slice 3), so free-`sp` selection under this family is neither measured nor claimed. Also closed-form verified (IRLS vs `lstsq` and vs the closed-form ridge, both `1e-12`) |
 | `Gamma`, `inverse.gaussian` | **NO** | — | |
 | `nb` / `negbin` | **NO** | — | |
 | `tw` (Tweedie) | **NO** | — | |
@@ -174,7 +174,7 @@ tackles simpler mgcv features first."*
 
 | # | rung | why here | rough size |
 |---|---|---|---|
-| **L1** | **`gaussian(identity)`** | The simplest family. Decouples every later basis check from IRLS confounds: at Gaussian identity the penalized fit is a single linear solve, so a basis disagreement cannot hide behind IRLS convergence. Also what every mgcv textbook check uses. | small |
+| **L1** ✅ | **`gaussian(identity)`** | **CLIMBED 2026-09-19 (ADR-229), fixed `sp` only.** The simplest family. Decouples every later basis check from IRLS confounds: at Gaussian identity the penalized fit is a single linear solve, so a basis disagreement cannot hide behind IRLS convergence. Also what every mgcv textbook check uses. | small |
 | **L2** | **`bs="re"`** | Named in the objective. The **cheapest basis in mgcv** — model matrix is the level indicators, penalty is the identity, **always exactly one smoothing parameter** regardless of level count — and the backbone of hierarchical structure. In actuarial terms this *is* credibility: Bühlmann-Straub is a random-effects model. Highest value-to-effort on the board. | small |
 | **L3** | **factor-`by`** (`s(x, by = fac)`) | Completes the `by` axis (numeric `by` already done). **Note it is not a term parameter but a term multiplier**: `s(x, by = f)` on a 3-level factor produces *three separate smooths*, each with its own `sp` (measured). | small–medium |
 | **L4** | **Unpenalized parametric block** | The target formula opens with `FaceSize + Smoke + FaceSize:Smoke`. Today `assemble_model_design` cannot carry unpenalized columns at all, so the target formula is inexpressible for this reason *as well*. (Was wiring slice 1c.) | small |

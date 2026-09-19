@@ -40,8 +40,25 @@ _YEAR_KNOTS = [1.0, 2.0, 3.0, 5.0, 10.0, 21.0]
 _SP = [2.0, 3.0, 1.5, 4.0]
 
 _MGCV_PRODUCED_KEYS = ("eta", "edf_total", "offset_gap", "coef", "converged")
-"""Every key in the payload that ``mgcv`` produced. The independence tests strip
-exactly these, so a new one cannot be added without the strip test noticing."""
+"""Every ``mgcv``-produced key :class:`RGaussianPayload` **declares**. The
+independence tests plant exactly these, so one cannot be added to the type
+without the strip test noticing."""
+
+_MGCV_DIAGNOSTIC_KEYS = (
+    "edf_per_smooth",
+    "scale",
+    "scale_estimated",
+    "mgcv_version",
+    "r_version",
+    "schema_version",
+)
+"""``mgcv``-produced keys the R probe ALSO writes but the payload type does not
+declare — diagnostics, never compared.
+
+They are named here rather than ignored because "the type has no ``eta`` key" is
+a claim about :class:`RGaussianPayload`, not about the JSON, and the JSON is what
+the round trip actually hands :func:`fit_gaussian_case`. The strip test plants
+these too, so the guarantee covers what the probe really exports."""
 
 
 def _recipe(n: int = 240, seed: int = 20260919) -> RGaussianRecipe:
@@ -98,6 +115,11 @@ def test_fit_signature_structurally_cannot_read_mgcvs_fit() -> None:
     payload_keys = set(RGaussianPayload.__annotations__)
     assert recipe_keys.isdisjoint(_MGCV_PRODUCED_KEYS)
     assert set(_MGCV_PRODUCED_KEYS) <= payload_keys
+    # The diagnostics are by construction NOT part of either type — that is what
+    # makes them diagnostics. Pinned so that promoting one to the payload without
+    # thinking about provenance fails here.
+    assert recipe_keys.isdisjoint(_MGCV_DIAGNOSTIC_KEYS)
+    assert payload_keys.isdisjoint(_MGCV_DIAGNOSTIC_KEYS)
 
 
 def test_the_fit_is_unchanged_when_every_mgcv_key_is_stripped() -> None:
@@ -108,9 +130,17 @@ def test_the_fit_is_unchanged_when_every_mgcv_key_is_stripped() -> None:
     read them either. Both ``eta`` and ``edf_total`` must be bit-identical with
     those keys absent.
 
-    This exists because the measured ``edf_total`` agreement is **exactly zero**
+    This exists because the tier-1 ``edf_total`` agreement was **exactly zero**
     — a number worth interrogating rather than celebrating. It is real, and this
-    is what makes that checkable rather than asserted.
+    is what makes that checkable rather than asserted. (Tier 3, on a different
+    ``mgcv`` build, reads ``-7.105e-15`` instead: the floating-point floor
+    without bit coincidence, which is what two independent implementations
+    should look like. See ADR-229.)
+
+    The planted values cover BOTH the keys the payload type declares and the
+    diagnostics the R probe additionally writes — the round trip hands this
+    function the real JSON, not a value of the declared type, so a guarantee
+    that stopped at the type would not cover what actually arrives.
     """
     recipe = _recipe()
     payload = typing.cast(
@@ -122,6 +152,13 @@ def test_the_fit_is_unchanged_when_every_mgcv_key_is_stripped() -> None:
             "offset_gap": 0.0,
             "coef": [0.0],
             "converged": True,
+            # Undeclared diagnostics the probe also exports (_MGCV_DIAGNOSTIC_KEYS).
+            "edf_per_smooth": [-999.0],
+            "scale": -999.0,
+            "scale_estimated": True,
+            "mgcv_version": "0.0.0",
+            "r_version": "not a version",
+            "schema_version": -1,
         },
     )
     with_payload = fit_gaussian_case(typing.cast(RGaussianRecipe, payload))
