@@ -91,9 +91,9 @@ The rejected-grid-point columns are the direct evidence for slice 4's first piec
 - **`mgcv` parity and coverage are different claims.** The row above says this band is the same object `mgcv` computes. It does not say that object is well-calibrated — that is what the coverage column measures, and the two could in principle disagree. Read them as two facts, not one.
 
 <!-- measurement-provenance
-fingerprint: 0184f9a5ada7db182bcf6ec26bfa3ae4aeded855898859fa0607cea5726e0efc
-generated: 2026-09-03
+fingerprint: adc51f52473c01ad490b9ad2598985d8284456da24252ef7f6eb1d7228ee0d98
+generated: 2026-09-19
 producer: scripts/unconditional_coverage_study.py
 method: regenerated
-head: b3a0c62
+head: 02f2fed
 -->
