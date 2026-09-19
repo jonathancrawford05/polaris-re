@@ -16,6 +16,7 @@ import statsmodels.api as sm
 from polaris_re.analytics.gam_family import (
     binomial_cloglog,
     binomial_logit,
+    gaussian_identity,
     poisson_log,
     quasipoisson_log,
     validate_family_inputs,
@@ -394,3 +395,139 @@ class TestValidateFamilyInputs:
         x = np.ones((3, 2))
         with pytest.raises(PolarisValidationError):
             validate_family_inputs(x, np.ones(3), np.array([1.0, -1.0, 1.0]), np.zeros(3))
+
+
+# --------------------------------------------------------------------------
+# gaussian(identity) — ladder rung L1 (docs/PLAN_mgcv_capability_ladder.md)
+#
+# CLOSED-FORM verification, per CLAUDE.md: at Gaussian identity the penalized
+# fit has an exact algebraic solution, so these do not compare against a
+# reference implementation at all — they compare against the algebra. That is
+# what makes L1 the right rung to stand every later basis check on.
+# --------------------------------------------------------------------------
+
+
+def _gaussian_design(seed: int = 20260919, n: int = 200, p: int = 5):
+    rng = np.random.default_rng(seed)
+    x = np.asarray(rng.normal(size=(n, p)), dtype=np.float64)
+    beta = np.asarray([1.0, -2.0, 0.5, 0.0, 3.0], dtype=np.float64)
+    y = np.asarray(x @ beta + rng.normal(scale=0.3, size=n), dtype=np.float64)
+    return x, y
+
+
+def test_gaussian_identity_link_is_the_identity_and_its_curvature_vanishes() -> None:
+    family = gaussian_identity()
+    eta = np.asarray([-3.0, -0.5, 0.0, 2.25, 40.0], dtype=np.float64)
+    np.testing.assert_allclose(family.link.linkinv(eta), eta, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(family.link.mu_eta(eta), np.ones_like(eta))
+    # g(mu) = mu is linear, so d2mu/deta2 is exactly zero — not merely small.
+    np.testing.assert_array_equal(family.link.d2mu_deta2(eta), np.zeros_like(eta))
+
+
+def test_gaussian_variance_is_constant_so_irls_weights_never_move() -> None:
+    """``V(mu) = 1`` is what collapses IRLS to one weighted least-squares solve."""
+    family = gaussian_identity()
+    mu = np.asarray([-10.0, 0.0, 1e6], dtype=np.float64)
+    np.testing.assert_allclose(family.variance(mu), np.ones_like(mu))
+
+
+def test_gaussian_estimates_its_scale() -> None:
+    """The ladder blocker, asserted rather than assumed.
+
+    ``dispersion_fixed=False`` is why L1 at FREE ``sp`` is blocked by L5:
+    ``gam_reml.reml_score_general`` raises on a free scale. If this ever flips
+    to ``True``, the plan's §2.2 argument is void and must be re-derived.
+    """
+    assert gaussian_identity().dispersion_fixed is False
+
+
+def test_gaussian_identity_observed_and_expected_hessian_weights_coincide() -> None:
+    """Identity is Gaussian's CANONICAL link, so Wood (2011) §3.2's
+    ``alpha_i = 1 + (y - mu)(V'/V + g''/g')`` collapses to 1 identically:
+    ``V' = 0`` and ``g'' = 0``."""
+    family = gaussian_identity()
+    rng = np.random.default_rng(7)
+    y = np.asarray(rng.normal(size=64), dtype=np.float64)
+    eta = np.asarray(rng.normal(size=64), dtype=np.float64)
+    weights = np.asarray(rng.uniform(0.5, 2.0, size=64), dtype=np.float64)
+    np.testing.assert_allclose(
+        family.observed_information_weight(y, eta, weights), weights, rtol=1e-15
+    )
+
+
+def test_gaussian_deviance_is_twice_the_weighted_residual_sum_of_squares() -> None:
+    """Pins the factor-of-2 convention so a later reader does not "fix" it.
+
+    ``Family.deviance`` applies the ``2 *`` of the exponential-family definition;
+    the Gaussian's own ``1/2`` is not carried here, so this returns ``2 * RSS``.
+    Only the IRLS convergence test consumes it, where a constant factor is inert.
+    """
+    family = gaussian_identity()
+    y = np.asarray([1.0, 2.0, 3.0], dtype=np.float64)
+    mu = np.asarray([1.5, 2.0, 2.0], dtype=np.float64)
+    weights = np.asarray([1.0, 1.0, 1.0], dtype=np.float64)
+    rss = float(np.sum((y - mu) ** 2))
+    assert family.deviance(y, mu, weights) == pytest.approx(2.0 * rss)
+
+
+def test_gaussian_unpenalized_irls_reproduces_ordinary_least_squares() -> None:
+    """CLOSED FORM #1: with ``S = 0`` the penalized fit IS the OLS solution."""
+    x, y = _gaussian_design()
+    fit = penalized_irls_general(
+        x=x, y=y, family=gaussian_identity(), penalty=np.zeros((x.shape[1], x.shape[1]))
+    )
+    expected, *_ = np.linalg.lstsq(x, y, rcond=None)
+    np.testing.assert_allclose(fit.coef, expected, rtol=0.0, atol=1e-12)
+
+
+def test_gaussian_penalized_irls_reproduces_the_closed_form_ridge() -> None:
+    """CLOSED FORM #2, and the one that actually exercises the penalty.
+
+    ``argmin ||y - X b||^2 + b' S b`` has the exact solution
+    ``(X'X + S)^-1 X'y``. Anything wrong in how the penalty enters the normal
+    equations shows up here, with no reference implementation involved.
+    """
+    x, y = _gaussian_design()
+    p = x.shape[1]
+    penalty = 2.0 * np.eye(p, dtype=np.float64)
+    fit = penalized_irls_general(x=x, y=y, family=gaussian_identity(), penalty=penalty)
+    expected = np.linalg.solve(x.T @ x + penalty, x.T @ y)
+    np.testing.assert_allclose(fit.coef, expected, rtol=0.0, atol=1e-12)
+
+
+@pytest.mark.parametrize("log_lambda", [-4.0, 0.0, 4.0, 8.0])
+def test_gaussian_ridge_closed_form_holds_across_the_penalty_range(log_lambda: float) -> None:
+    """The same identity over four decades of ``lambda``, since the outer search
+    will visit all of them and a penalty-scaling error need not show at 1.0."""
+    x, y = _gaussian_design()
+    p = x.shape[1]
+    penalty = (10.0**log_lambda) * np.eye(p, dtype=np.float64)
+    fit = penalized_irls_general(x=x, y=y, family=gaussian_identity(), penalty=penalty)
+    expected = np.linalg.solve(x.T @ x + penalty, x.T @ y)
+    np.testing.assert_allclose(fit.coef, expected, rtol=1e-10, atol=1e-12)
+
+
+def test_gaussian_irls_lands_on_the_solution_at_the_first_step() -> None:
+    """The property that makes L1 the diagnostic floor for every rung above it.
+
+    Constant weights and a linear link mean there is nothing to iterate: the
+    first solve is exact. ``n_iter == 2`` because the loop needs a second pass to
+    OBSERVE that nothing moved — so this asserts the bound, not a magic number,
+    and would catch a family that silently started iterating.
+    """
+    x, y = _gaussian_design()
+    fit = penalized_irls_general(
+        x=x, y=y, family=gaussian_identity(), penalty=np.eye(x.shape[1], dtype=np.float64)
+    )
+    assert fit.n_iter <= 2
+
+
+def test_gaussian_identity_resolves_through_the_model_family_registry() -> None:
+    """L1's user-visible deliverable: ``ModelSpec(family="gaussian", link="identity")``
+    now resolves, where it previously raised."""
+    from polaris_re.analytics.gam_model import resolve_family
+
+    family = resolve_family("gaussian", "identity")
+    assert family.name == "gaussian"
+    assert family.link.name == "identity"
+    assert family.dispersion_fixed is False
