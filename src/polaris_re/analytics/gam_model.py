@@ -65,6 +65,7 @@ from polaris_re.analytics.gam_family import (
     Family,
     binomial_cloglog,
     binomial_logit,
+    gaussian_identity,
     poisson_log,
     quasipoisson_log,
 )
@@ -92,16 +93,25 @@ __all__ = [
 ]
 
 _FAMILY_LINKS: dict[tuple[str, str], Callable[[], Family]] = {
+    ("gaussian", "identity"): gaussian_identity,
     ("poisson", "log"): poisson_log,
     ("quasipoisson", "log"): quasipoisson_log,
     ("binomial", "logit"): binomial_logit,
     ("binomial", "cloglog"): binomial_cloglog,
 }
-"""Every ``(family, link)`` combination slice 3 (ADR-195) built and verified
-against ``mgcv``. ``ModelSpec.family``/``.link`` are free-text strings (Anchor
-3), but this module only ever resolves them to one of these — deliberately no
-"unknown but assume Poisson-shaped" fallback, since a silently-wrong family
-would fail nowhere near where the mistake was made."""
+"""Every ``(family, link)`` combination built and verified against ``mgcv`` —
+slice 3 (ADR-195) for the four count/binary pairs, and ladder rung L1 (ADR-229,
+``PLAN_mgcv_capability_ladder.md`` slice 1) for ``gaussian(identity)``.
+``ModelSpec.family``/``.link`` are free-text strings (Anchor 3), but this module
+only ever resolves them to one of these — deliberately no "unknown but assume
+Poisson-shaped" fallback, since a silently-wrong family would fail nowhere near
+where the mistake was made.
+
+``gaussian``/``identity`` is listed first because it is the simplest: constant
+variance and a linear link collapse IRLS to one weighted least-squares solve.
+**It carries a free scale** (``dispersion_fixed=False``), so it is usable at
+FIXED ``sp`` only until ladder rung L5 lands — ``reml_score_general`` raises on
+a free scale, by design and with its own message."""
 
 
 PRODUCTION_LOG10_BOUNDS = (-2.0, 12.0)
