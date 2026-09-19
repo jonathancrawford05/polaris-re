@@ -47,6 +47,15 @@ def _transport(quantity: str = "penalty_S") -> ComparedQuantity:
     )
 
 
+def _reference_internal(quantity: str = "eta_localiser") -> ComparedQuantity:
+    return ComparedQuantity(
+        quantity=quantity,
+        left_producer="mgcv gam(te(x, z), method='REML')",
+        right_producer="mgcv gam(s(x) + s(z) + ti(x, z), method='REML')",
+        provenance=ComparisonProvenance.REFERENCE_INTERNAL,
+    )
+
+
 # --- the taxonomy ---------------------------------------------------------------------
 
 
@@ -54,6 +63,42 @@ def test_only_independent_provenance_is_parity_evidence() -> None:
     assert ComparisonProvenance.INDEPENDENT.is_parity_evidence
     assert not ComparisonProvenance.ECHO.is_parity_evidence
     assert not ComparisonProvenance.TRANSPORT.is_parity_evidence
+
+
+def test_reference_internal_has_two_producers_but_is_not_parity_evidence() -> None:
+    """ADR-228's whole point, in one assertion pair.
+
+    ``REFERENCE_INTERNAL`` is not a softer ``INDEPENDENT``: two real producers
+    computed it and it can genuinely disagree, but neither of them is this
+    engine, so it says nothing about our correctness.
+    """
+    ref = ComparisonProvenance.REFERENCE_INTERNAL
+    assert ref.has_two_producers
+    assert not ref.is_parity_evidence
+
+
+def test_has_two_producers_and_is_parity_evidence_ask_different_questions() -> None:
+    """The two predicates coincide everywhere EXCEPT reference-internal."""
+    for provenance in ComparisonProvenance:
+        if provenance is ComparisonProvenance.REFERENCE_INTERNAL:
+            continue
+        assert provenance.has_two_producers is provenance.is_parity_evidence
+
+
+def test_reference_internal_still_refuses_one_producer_named_twice() -> None:
+    """The same-producer guard keys on has_two_producers, not is_parity_evidence.
+
+    A reference-internal row naming one producer on both sides is exactly as
+    meaningless as an independent one doing it — and before ADR-228 widened the
+    predicate, this construction would have been accepted.
+    """
+    with pytest.raises(PolarisValidationError, match="REFERENCE_INTERNAL"):
+        ComparedQuantity(
+            quantity="eta",
+            left_producer="mgcv gam(te(x, z), method='REML')",
+            right_producer="mgcv gam(te(x, z), method='REML')",
+            provenance=ComparisonProvenance.REFERENCE_INTERNAL,
+        )
 
 
 # --- ComparedQuantity's own guards ----------------------------------------------------
@@ -162,7 +207,10 @@ def test_require_parity_evidence_refuses_echoed_evidence() -> None:
         require_parity_evidence((_independent("rank"), _echo("design_X")), claim="Stage A exact")
     message = str(excinfo.value)
     assert "'design_X' is ECHO" in message
-    assert "rank" not in message.split("produced:")[1]
+    # The detail must name the OFFENDERS only — a gate error that also lists the
+    # good columns is unreadable at the point it fires. Split on the claim text
+    # rather than on a phrase in the prose, which is free to be reworded.
+    assert "rank" not in message.split("Stage A exact")[-1]
 
 
 def test_require_parity_evidence_refuses_transported_evidence() -> None:
@@ -240,6 +288,74 @@ def test_headline_of_a_full_parity_claim_says_parity() -> None:
     headline = evidence_headline(claim)
     assert headline.startswith("**Parity comparison**")
     assert "NOT" not in headline
+
+
+# --- reference-internal columns in a headline (ADR-228) -------------------------------
+
+
+def test_headline_of_a_purely_reference_internal_claim_says_not_parity() -> None:
+    """Both operands are the reference, so the verdict cannot mention our engine
+    agreeing with anything."""
+    claim = VerificationClaim(
+        claim="Does mgcv's te() equal its own s+s+ti, penalized?",
+        quantities=(_reference_internal("eta"), _reference_internal("edf_total")),
+    )
+    headline = evidence_headline(claim)
+    assert headline.startswith("**Reference-internal measurement — NOT parity.**")
+    assert "engine is absent" in headline
+    # Not a harness check either — it has two real producers and can disagree.
+    assert "Harness check" not in headline
+
+
+def test_headline_separates_parity_columns_from_reference_internal_ones() -> None:
+    """The [P1-4] regression, at the core contract rather than at one call site.
+
+    Before ADR-228 these rows were ``INDEPENDENT``, ``is_parity_claim`` was True,
+    and the headline folded all four into "independently produced on both sides".
+    """
+    claim = VerificationClaim(
+        claim="Polaris vs mgcv, plus an mgcv-internal localiser.",
+        quantities=(
+            _independent("eta"),
+            _independent("edf_total"),
+            _reference_internal("eta_localiser"),
+        ),
+    )
+    assert not claim.is_parity_claim
+    headline = evidence_headline(claim)
+    assert headline.startswith("**Parity comparison, with reference-internal columns.**")
+    parity_clause, _, internal_clause = headline.partition("**Reference-internal")
+    assert "`eta`" in parity_clause and "`edf_total`" in parity_clause
+    assert "eta_localiser" not in parity_clause
+    assert "eta_localiser" in internal_clause
+
+
+def test_a_reference_internal_quantity_is_not_a_harness_quantity() -> None:
+    """They are excluded from parity for different reasons and must not merge.
+
+    ``harness_quantities`` was "everything not parity evidence" before ADR-228,
+    which would sweep this row in and label a real measurement a harness check.
+    """
+    claim = VerificationClaim(
+        claim="One of each.",
+        quantities=(_independent("rank"), _reference_internal("eta"), _echo("design_X")),
+    )
+    assert [q.quantity for q in claim.parity_quantities] == ["rank"]
+    assert [q.quantity for q in claim.reference_internal_quantities] == ["eta"]
+    assert [q.quantity for q in claim.harness_quantities] == ["design_X"]
+
+
+def test_reference_internal_columns_render_as_not_parity_evidence() -> None:
+    claim = VerificationClaim(
+        claim="mgcv against itself.",
+        quantities=(_independent("rank"), _reference_internal("eta")),
+    )
+    rows = [line for line in evidence_markdown(claim).splitlines() if line.startswith("| `")]
+    assert any("`rank`" in row and row.rstrip().endswith("| yes |") for row in rows)
+    assert any(
+        "`eta`" in row and "REFERENCE_INTERNAL" in row and row.rstrip().endswith("| no |")
+        for row in rows
+    )
 
 
 def test_evidence_markdown_carries_the_headline_claim_and_every_producer() -> None:

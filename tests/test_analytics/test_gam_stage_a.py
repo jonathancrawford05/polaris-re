@@ -1122,7 +1122,10 @@ def test_a_parity_claim_over_the_mgcv_native_path_is_refused() -> None:
     """The gate that would have caught slice 1b being reported as Stage-A parity."""
     cr_term = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(4,))
     extract = extract_smooth_terms((cr_term,), {"s(x)": _fake_smooth_r_term()})["s(x)"]
-    with pytest.raises(PolarisValidationError, match="not independently"):
+    # Match on the provenance the gate NAMES, not on the prose around it: the
+    # substantive assertion is that it identifies the offending columns, and the
+    # surrounding sentence is free to be reworded (it was, by ADR-228).
+    with pytest.raises(PolarisValidationError, match="'design_X' is TRANSPORT"):
         require_parity_evidence(extract.evidence.quantities, claim="Stage A exact for bs='cr'")
 
 

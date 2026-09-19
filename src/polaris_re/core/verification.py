@@ -3,13 +3,17 @@ Verification provenance — what makes a comparison *parity evidence* (ADR-193).
 
 A comparison between this engine and a reference implementation only demonstrates
 parity when **two independent producers** computed the compared quantity from the
-same recipe. Three relationships all render as a table of near-zero diffs, and
+same recipe. Four relationships all render as a table of near-zero diffs, and
 nothing in a rendered table distinguishes them:
 
 - ``INDEPENDENT`` — both sides computed the quantity from the same *recipe*
   (a spec, a set of knots, a formula), neither reading the other's output. This
   is the only relationship that demonstrates parity, and the only one that can
   produce a genuine disagreement.
+- ``REFERENCE_INTERNAL`` — two genuinely independent producers, but **both of
+  them are the reference** and this engine is absent from the comparison
+  entirely (``mgcv`` against ``mgcv``). Real evidence, and it can genuinely
+  disagree — but evidence about *the reference*, never about us.
 - ``ECHO`` — one side supplied the quantity and the other returned it. A real
   check (it proves the reference did not silently reparameterise or rescale what
   it was handed) but a *no-tampering* check, not a parity check.
@@ -52,17 +56,38 @@ class ComparisonProvenance(StrEnum):
     """How the two operands of a comparison came to exist."""
 
     INDEPENDENT = "INDEPENDENT"
+    REFERENCE_INTERNAL = "REFERENCE_INTERNAL"
     ECHO = "ECHO"
     TRANSPORT = "TRANSPORT"
 
     @property
     def is_parity_evidence(self) -> bool:
-        """Only an independent comparison demonstrates parity.
+        """Only an independent comparison demonstrates parity *for this engine*.
 
         ``ECHO`` and ``TRANSPORT`` comparisons are harness evidence: worth running
         and worth reporting, but never the basis of a parity claim.
+        ``REFERENCE_INTERNAL`` is neither harness nor parity — it is a real
+        measurement whose subject is the reference rather than us, so it is
+        excluded here for a different reason and by :meth:`has_two_producers`.
         """
         return self is ComparisonProvenance.INDEPENDENT
+
+    @property
+    def has_two_producers(self) -> bool:
+        """True when two genuinely different producers computed the two operands.
+
+        Distinct from :meth:`is_parity_evidence`, which asks the *narrower*
+        question "does this say something about **our** engine". ``INDEPENDENT``
+        and ``REFERENCE_INTERNAL`` both have two real producers and can both
+        genuinely disagree; only the first has this engine as one of them.
+
+        This is the predicate for structural checks about the producers — such as
+        refusing the same producer on both sides — which apply to both.
+        """
+        return self in (
+            ComparisonProvenance.INDEPENDENT,
+            ComparisonProvenance.REFERENCE_INTERNAL,
+        )
 
 
 class ComparedQuantity(PolarisBaseModel):
@@ -90,9 +115,14 @@ class ComparedQuantity(PolarisBaseModel):
         """Refuse the two ways a provenance declaration is self-evidently wrong.
 
         A blank producer defeats the whole point (the declaration is what a reader
-        audits), and naming the *same* producer on both sides while claiming
-        independence is the exact error this module exists to catch — caught at
+        audits), and naming the *same* producer on both sides while claiming two
+        producers is the exact error this module exists to catch — caught at
         construction, where the author is, rather than in review.
+
+        The same-producer check keys on :meth:`ComparisonProvenance.has_two_producers`,
+        not on ``is_parity_evidence``: a ``REFERENCE_INTERNAL`` row naming one
+        producer twice is just as meaningless as an ``INDEPENDENT`` one, even
+        though neither is parity evidence for this engine.
         """
         if not self.quantity.strip():
             raise PolarisValidationError("A ComparedQuantity needs a non-empty quantity name.")
@@ -102,13 +132,14 @@ class ComparedQuantity(PolarisBaseModel):
                 "unnamed producer cannot be audited, which is what the declaration is for."
             )
         if (
-            self.provenance.is_parity_evidence
+            self.provenance.has_two_producers
             and self.left_producer.strip() == self.right_producer.strip()
         ):
             raise PolarisValidationError(
-                f"ComparedQuantity {self.quantity!r} claims INDEPENDENT provenance but "
-                f"names the same producer on both sides ({self.left_producer!r}). One "
-                "producer compared against itself is TRANSPORT or ECHO, never parity."
+                f"ComparedQuantity {self.quantity!r} claims {self.provenance.value} "
+                f"provenance but names the same producer on both sides "
+                f"({self.left_producer!r}). One producer compared against itself is "
+                "TRANSPORT or ECHO, never two-producer evidence."
             )
         return self
 
@@ -156,9 +187,31 @@ class VerificationClaim(PolarisBaseModel):
         return tuple(q for q in self.quantities if q.provenance.is_parity_evidence)
 
     @property
+    def reference_internal_quantities(self) -> tuple[ComparedQuantity, ...]:
+        """The reference-vs-reference quantities — real, but not about us.
+
+        Kept separate from :attr:`harness_quantities` deliberately: these are not
+        harness checks. Two real producers computed them and they can genuinely
+        disagree — it is just that this engine is not one of the two, so they
+        carry no weight either way about *our* correctness.
+        """
+        return tuple(
+            q for q in self.quantities if q.provenance is ComparisonProvenance.REFERENCE_INTERNAL
+        )
+
+    @property
     def harness_quantities(self) -> tuple[ComparedQuantity, ...]:
-        """The echoed/transported quantities — real checks, but not parity."""
-        return tuple(q for q in self.quantities if not q.provenance.is_parity_evidence)
+        """The echoed/transported quantities — real checks, but not parity.
+
+        ECHO and TRANSPORT only. Before ``REFERENCE_INTERNAL`` existed this was
+        "everything that is not parity evidence", which swept reference-internal
+        rows in here and mislabelled them as harness checks.
+        """
+        return tuple(
+            q
+            for q in self.quantities
+            if q.provenance in (ComparisonProvenance.ECHO, ComparisonProvenance.TRANSPORT)
+        )
 
     @property
     def is_parity_claim(self) -> bool:
@@ -200,9 +253,11 @@ def require_parity_evidence(
             for q in offenders
         )
         raise PolarisValidationError(
-            f"Parity claim {claim!r} rests on evidence that is not independently "
-            f"produced: {detail}. An ECHO or TRANSPORT comparison cannot demonstrate "
-            "parity — see docs/VERIFICATION_STANDARD.md."
+            f"Parity claim {claim!r} rests on evidence that is not parity evidence "
+            f"for this engine: {detail}. An ECHO or TRANSPORT comparison cannot "
+            "demonstrate parity, and neither can a REFERENCE_INTERNAL one — the "
+            "latter has two real producers, but both of them are the reference and "
+            "this engine is absent. See docs/VERIFICATION_STANDARD.md."
         )
     return ordered
 
@@ -217,8 +272,32 @@ def evidence_headline(claim: VerificationClaim) -> str:
     """
     parity = ", ".join(f"`{q.quantity}`" for q in claim.parity_quantities)
     harness = ", ".join(f"`{q.quantity}` ({q.provenance.value})" for q in claim.harness_quantities)
+    internal = ", ".join(f"`{q.quantity}`" for q in claim.reference_internal_quantities)
+    internal_clause = (
+        f" **Reference-internal — NOT parity:** {internal}. Both operands are the "
+        "reference; this engine is absent, so these are evidence about the "
+        "reference and none about us."
+        if internal
+        else ""
+    )
     if claim.is_parity_claim:
         return f"**Parity comparison** — independently produced on both sides: {parity}."
+    if parity and not harness:
+        # Parity columns beside reference-internal ones. The distinction this
+        # branch exists for: `is_parity_claim` is False here, but calling the
+        # whole thing a "harness check" would be wrong in the other direction —
+        # the parity columns are real parity, and the rest are real measurements
+        # of the reference. Name both rather than averaging them.
+        return (
+            "**Parity comparison, with reference-internal columns.** Parity "
+            f"evidence for this engine: {parity}.{internal_clause}"
+        )
+    if not parity and not harness:
+        return (
+            "**Reference-internal measurement — NOT parity.** Every column has two "
+            f"real producers, but both of them are the reference: {internal}. This "
+            "engine is absent, so nothing here is evidence about it."
+        )
     if not parity:
         # What a zero actually proves differs by kind, so say only what holds:
         # a TRANSPORT column structurally cannot disagree, while an ECHO column
@@ -242,11 +321,11 @@ def evidence_headline(claim: VerificationClaim) -> str:
             )
         return (
             "**Harness check — NOT parity.** No column here is independently "
-            f"produced: {harness}. {proves}"
+            f"produced: {harness}. {proves}{internal_clause}"
         )
     return (
         f"**Harness check with one parity column — NOT basis parity.** Parity "
-        f"evidence: {parity}. Harness only: {harness}."
+        f"evidence: {parity}. Harness only: {harness}.{internal_clause}"
     )
 
 
