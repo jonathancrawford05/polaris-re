@@ -148,7 +148,7 @@ its code lands — see §4.
 > round 2, [P2-5] — the precedent was right but unstated, and an unstated
 > convention is the thing this epic's predecessor lost two weeks to.)
 
-### Slice 1 — L1 `gaussian(identity)` at fixed `sp`
+### Slice 1 — L1 `gaussian(identity)` at fixed `sp` — ✅ **DONE 2026-09-19 (ADR-229, PR #237)**
 
 **Why first.** At Gaussian identity the penalized fit is a **single linear
 solve**: no IRLS iteration at all. That makes it the one regime where a basis or

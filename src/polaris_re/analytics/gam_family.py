@@ -55,6 +55,7 @@ __all__ = [
     "Link",
     "binomial_cloglog",
     "binomial_logit",
+    "gaussian_identity",
     "poisson_log",
     "quasipoisson_log",
     "validate_family_inputs",
@@ -203,6 +204,82 @@ class Family:
         is a relative one, but wrong as a general deviance and load-bearing
         once slice 4's REML score needs the weighted definition)."""
         return float(2.0 * np.sum(weights * self._deviance_terms(y, mu)))
+
+
+def _gaussian_variance(mu: np.ndarray) -> np.ndarray:
+    """``V(mu) = 1`` — the whole point of the Gaussian case.
+
+    A constant variance function is what collapses IRLS to a single weighted
+    least-squares solve: the weights do not depend on ``mu``, so they do not
+    change between iterations and there is nothing to iterate.
+    """
+    return np.ones_like(mu)
+
+
+def _gaussian_variance_prime(mu: np.ndarray) -> np.ndarray:
+    """``V(mu) = 1``, so ``V'(mu) = 0`` everywhere.
+
+    With ``V' = 0`` and the identity link's ``g'' = 0``, Wood (2011) §3.2's
+    ``alpha_i = 1 + (y - mu)(V'/V + g''/g')`` is identically 1, so the observed
+    and expected Hessians coincide — as they must for a canonical link.
+    """
+    return np.zeros_like(mu)
+
+
+def _gaussian_deviance_terms(y: np.ndarray, mu: np.ndarray) -> np.ndarray:
+    """``(y - mu)^2`` per observation.
+
+    :meth:`Family.deviance` multiplies the weighted sum by 2, so the deviance
+    this yields is ``2 * sum(w (y-mu)^2)``. That is **twice** the residual sum of
+    squares, which is ``mgcv``'s own convention: ``gam(family=gaussian())$deviance``
+    returns the RSS, and the factor of 2 is the ``2 *`` in the exponential-family
+    deviance definition cancelling against the Gaussian's own ``1/2``. Do not
+    "fix" the factor here — it is the shared :meth:`Family.deviance` contract, and
+    only the IRLS convergence test consumes it, where a constant factor is inert.
+    """
+    residual = y - mu
+    return np.asarray(residual * residual, dtype=np.float64)
+
+
+def gaussian_identity() -> Family:
+    """Gaussian, identity link — the simplest family in the library, and L1 of
+    the capability ladder (``docs/PLAN_mgcv_capability_ladder.md``).
+
+    **Why this one first.** At Gaussian identity the penalized fit is a *single
+    linear solve*: ``V(mu) = 1`` and ``g'(mu) = 1``, so the IRLS weights are
+    constant and the working response is ``y`` itself. The **first** step already
+    lands on the exact solution — measured, unpenalized against ``lstsq`` and
+    penalized against the closed-form ridge ``(X'X + S)^-1 X'y``, both to
+    ``~1e-15``; :func:`~polaris_re.analytics.gam_fit.penalized_irls_general`
+    reports ``n_iter == 2`` because it takes a second pass to *observe* that
+    nothing moved, not because it refines anything.
+
+    That makes it the one regime where a basis or penalty disagreement against
+    ``mgcv`` cannot hide behind a convergence artifact — which is what makes
+    every rung above it cheaper to diagnose.
+
+    **Note the scale.** ``dispersion_fixed=False``: the Gaussian variance
+    ``sigma^2`` is estimated, not held at 1. This is the blocker
+    ``PLAN_mgcv_capability_ladder.md`` §2.2 names — ``gam_reml.reml_score_general``
+    raises on a free scale, so this family can be verified at **fixed** ``sp``
+    and nothing more until L5 lands. Slice 1's acceptance criteria say so rather
+    than claiming a rung it did not climb.
+    """
+    identity_link = Link(
+        "identity",
+        linkinv=lambda eta: eta,
+        mu_eta=lambda eta: np.ones_like(eta),
+        # g(mu) = mu is linear, so the second derivative vanishes identically.
+        d2mu_deta2=lambda eta: np.zeros_like(eta),
+    )
+    return Family(
+        "gaussian",
+        identity_link,
+        _gaussian_variance,
+        _gaussian_variance_prime,
+        dispersion_fixed=False,
+        deviance_terms=_gaussian_deviance_terms,
+    )
 
 
 def _poisson_variance(mu: np.ndarray) -> np.ndarray:

@@ -144,6 +144,13 @@ on:
       # never parity evidence (ADR-193) — but the primer cites it, so a change
       # to it has to re-run on the pinned digest to keep that citation tier 3.
       - "scripts/mgcv_penalty_count_probe.R"
+      # CAPABILITY LADDER rung L1 (docs/PLAN_mgcv_capability_ladder.md slice 1)
+      # — gaussian(identity) at fixed sp on the already-verified three-term
+      # design. The family producer itself is already listed above
+      # (gam_family.py), which is the module under test here; these two lines
+      # add the comparison's own halves, same reasoning as every slice above.
+      - "src/polaris_re/analytics/gam_gaussian_conformance.py"
+      - "scripts/gam_gaussian_probe.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -489,6 +496,25 @@ jobs:
             Rscript scripts/gam_production_mi_probe.R \
               gam_production_mi_probe.json
 
+      # CAPABILITY LADDER rung L1 (docs/PLAN_mgcv_capability_ladder.md slice 1):
+      # gaussian(identity) — the simplest family in mgcv, and until 2026-09-19
+      # absent from this engine's _FAMILY_LINKS entirely. Fit at a FIXED sp on
+      # the SAME three-term design gam_multiterm_probe.R (slice 5) already
+      # verified at tier 3, so the FAMILY is the only unverified thing in the
+      # comparison — a disagreement cannot be a basis or an assembly defect.
+      # Fixed sp is the rung's honest boundary, not a shortcut: at fixed sp the
+      # Gaussian fit is ordinary penalized least squares and the scale never
+      # enters it; the scale is what CHOOSES sp, which is rung L5's scope.
+      # Same DIAGNOSTIC contract as the probes above — the eta/edf comparison
+      # against the independent Python fit happens in the `compare` job below.
+      - name: Fit the three-term design under gaussian(identity) at fixed sp (ladder L1)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_gaussian_probe.R \
+              gam_gaussian_probe.json
+
       # Asserts every penalty-counting reading in docs/MGCV_NOTATION_PRIMER.md
       # sections 1, 3 and 4 against the pinned mgcv, so the primer's numbers are
       # tier 3 rather than recalled. BOTH SIDES ARE mgcv — Polaris is absent, so
@@ -603,6 +629,7 @@ jobs:
             gam_select_multiterm_probe.json
             gam_select_multiterm_free_sp_probe.json
             gam_production_mi_probe.json
+            gam_gaussian_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -1907,6 +1934,78 @@ jobs:
           PY
           if [ -f gam_production_mi_probe_report.md ]; then
             cat gam_production_mi_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # CAPABILITY LADDER rung L1 (docs/PLAN_mgcv_capability_ladder.md slice 1):
+      # compares the independent Python gaussian(identity) fit against job 1's
+      # native mgcv fit of the SAME three-term formula at the SAME fixed sp, on
+      # ADR-221's committed eta/edf criterion — IMPORTED, never redeclared
+      # (Anchor W5 forbids this epic re-gating anything). DIAGNOSTIC ONLY, same
+      # contract as the comparisons above; a disagreement is a result about the
+      # family, not a broken build.
+      - name: Compare the gaussian(identity) fixed-sp fit against the Python side (ladder L1)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_gaussian_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_gaussian_probe.json to compare ({exc}) — the R "
+                    "probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_gaussian_conformance import (
+              GAUSSIAN_CLAIM, compare_gaussian_case, fit_gaussian_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          c = compare_gaussian_case(fit_gaussian_case(r_payload), r_payload)
+
+          lines = [
+              "",
+              "### Capability ladder rung L1 — gaussian(identity) at fixed sp vs mgcv",
+              "",
+              evidence_markdown(GAUSSIAN_CLAIM),
+              "",
+              "| n | max abs eta diff | Polaris edf_total | mgcv edf_total | edf diff | agrees |",
+              "|---:|---:|---:|---:|---:|---|",
+              f"| {r_payload['n']} | {c['max_abs_eta_diff']:.3e} | "
+              f"{c['python_edf_total']:.6f} | {c['mgcv_edf_total']:.6f} | "
+              f"{c['edf_total_diff']:.3e} | {c['agrees']} |",
+              "",
+              "The gate is ADR-221's committed criterion — `max_abs_eta_diff < 2e-2` "
+              "AND `abs(edf_total_diff) < 1.0` — imported from "
+              "`gam_select_free_sp_conformance`, not redeclared here.",
+              "",
+              "The design is held IDENTICAL to the tier-3-verified three-term case "
+              "(`gam_multiterm_probe.R`, slice 5); only the family changed. So a "
+              "disagreement here cannot be a basis or an assembly defect.",
+              "",
+              f"**Offset tripwire** (reported, never gated): {c['offset_gap']:.3e}. "
+              "This recipe carries no offset, so the probe's `m$linear.predictors` "
+              "and `predict(type='link')` readings must coincide; a non-zero would "
+              "mean an offset had been added and `predict()` was dropping it — the "
+              "spurious `1.9751`-against-`2e-2` reading earlier in this epic.",
+              "",
+              "**FIXED sp only.** Gaussian estimates its scale and "
+              "`reml_score_general` raises on a free scale until ladder rung L5 "
+              "(slice 3), so free-sp selection under this family is NOT measured "
+              "here and NOT claimed. Coefficients are never compared (Anchor 2).",
+          ]
+          if not c["agrees"]:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_gaussian_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_gaussian_probe_report.md ]; then
+            cat gam_gaussian_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # PLAN slice 7b (ADR-218): does mgcv's OWN free-sp select=TRUE point

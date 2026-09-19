@@ -65,6 +65,7 @@ from polaris_re.analytics.gam_family import (
     Family,
     binomial_cloglog,
     binomial_logit,
+    gaussian_identity,
     poisson_log,
     quasipoisson_log,
 )
@@ -92,16 +93,40 @@ __all__ = [
 ]
 
 _FAMILY_LINKS: dict[tuple[str, str], Callable[[], Family]] = {
+    ("gaussian", "identity"): gaussian_identity,
     ("poisson", "log"): poisson_log,
     ("quasipoisson", "log"): quasipoisson_log,
     ("binomial", "logit"): binomial_logit,
     ("binomial", "cloglog"): binomial_cloglog,
 }
-"""Every ``(family, link)`` combination slice 3 (ADR-195) built and verified
-against ``mgcv``. ``ModelSpec.family``/``.link`` are free-text strings (Anchor
-3), but this module only ever resolves them to one of these — deliberately no
-"unknown but assume Poisson-shaped" fallback, since a silently-wrong family
-would fail nowhere near where the mistake was made."""
+"""Every ``(family, link)`` pair this module resolves.
+``ModelSpec.family``/``.link`` are free-text strings (Anchor 3), but this module
+only ever resolves them to one of these — deliberately no "unknown but assume
+Poisson-shaped" fallback, since a silently-wrong family would fail nowhere near
+where the mistake was made.
+
+**All five pairs are verified against ``mgcv``, but not to the same reach**, and
+the difference is the point of splitting this paragraph:
+
+* **The four count/binary pairs** — slice 3, ADR-195, at free ``sp``.
+* **``gaussian``/``identity``** — ladder rung L1, ADR-229, at **FIXED ``sp``
+  only** (see the free scale below). It is *also* verified against **closed
+  forms** — unpenalized IRLS against ``lstsq``, penalized against
+  ``(X'X + S)^-1 X'y``, both to ``1e-12``
+  (``tests/test_analytics/test_gam_family.py``) — which is real verification and
+  is not the same claim as mgcv parity.
+
+``docs/MGCV_FEATURE_COVERAGE.md`` §2.2 is the authority on the Stage B column;
+this docstring exists so the reach travels with the code rather than only with
+the table.
+
+``gaussian``/``identity`` is listed first because it is the simplest: constant
+variance and a linear link collapse IRLS to one weighted least-squares solve.
+**It carries a free scale** (``dispersion_fixed=False``), so it is usable — and
+measured — at FIXED ``sp`` only until ladder rung L5 lands:
+``reml_score_general`` raises on a free scale, by design and with its own
+message. Free-``sp`` selection under this family is therefore neither measured
+nor claimed anywhere."""
 
 
 PRODUCTION_LOG10_BOUNDS = (-2.0, 12.0)

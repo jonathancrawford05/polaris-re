@@ -23125,3 +23125,153 @@ The lesson is not "declare less". It is that **a taxonomy with no cell for your
 case will borrow the nearest one**, and the nearest one carried a permission the
 case does not have. When a declaration feels like it needs a prose caveat beside
 it to be read correctly, the caveat is telling you the type is missing a member.
+## ADR-229: Capability ladder rung L1 — `gaussian(identity)` reproduces `mgcv` at fixed `sp`; the rung is climbed, and its ceiling is named
+
+**Date:** 2026-09-19
+**Status:** Accepted
+**Supersedes:** nothing. **Extends:** ADR-195 (families/links verified against
+`mgcv`) with a fifth pair.
+**Epic:** `docs/PLAN_mgcv_capability_ladder.md`, slice 1.
+**Ledger:** one row, both quantities `INDEPENDENT`.
+
+### Context
+
+`docs/MGCV_FEATURE_COVERAGE.md` §2.2 listed `gaussian(identity)` as **NO** —
+"the simplest case, and absent". That is an awkward gap to carry: Gaussian
+identity is the family every `mgcv` textbook check uses, and it is the ladder's
+own diagnostic floor. At the identity link `g'(mu) = 1`, and for the Gaussian
+variance `V(mu) = 1`, so the IRLS weights are constant, the working response is
+`y` itself, and the penalized fit reduces to a single linear solve
+
+    beta_hat = (X'X + S_lambda)^-1 X'y
+
+with no iteration in the mathematics at all. That property is what makes L1
+useful to the rungs above it: any disagreement measured at L1 is a *design* or
+*penalty* disagreement, because there is no IRLS convergence behaviour left for
+it to hide behind.
+
+### Decision
+
+Build `gaussian_identity()`, register it in `_FAMILY_LINKS`, extend all four
+`gam_derivatives` registries for it, and **measure it against `mgcv` at tier 3**
+on the same three-term design the epic has already verified.
+
+### The design is held fixed on purpose
+
+`scripts/gam_gaussian_probe.R` is `scripts/gam_multiterm_probe.R` with one token
+changed: `family = gaussian(link = "identity")`. Every basis in that formula —
+`cr`, `cr` with a numeric `by`, `ti` — is already tier-3 verified (ADR-194,
+ADR-200, ADR-205), and the assembly itself is verified (ADR-208). So the
+**family is the only unverified thing in the comparison**, and a disagreement
+could not have been a basis or an assembly defect. Introducing a new design
+alongside a new family would have confounded the two and made a disagreement
+uninterpretable.
+
+### Result (tier 3 — pinned digest, R 4.6.1 / mgcv 1.9.4)
+
+Oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+run [35446265890](https://github.com/jonathancrawford05/polaris-re/actions/runs/35446265890).
+
+| quantity | reading | ADR-221's committed bound | headroom |
+|---|---|---|---|
+| `max_abs_eta_diff` | `2.442e-14` | `< 2e-2` | `8.19e11×` |
+| `edf_total_diff` | `-7.105e-15` | `abs(·) < 1.0` | `1.4e14×` |
+
+Polaris `edf_total` `55.972550`, `mgcv` `sum(m$edf)` `55.972550`.
+Offset tripwire `0.000e+00` (reported, never gated).
+
+Tier 1 (local apt R, mgcv 1.9.1) read `2.265e-14` and **exactly `0.0`** on the
+same recipe — a hypothesis that tier 3 then confirmed, and the two tiers
+agreeing across two `mgcv` minor versions is itself worth recording.
+
+**Note the one place the tiers differ, because it matters below:** tier 1's
+`edf_total` agreement is bit-exact; tier 3's is `-7.105e-15`, i.e. the two sides
+differ in the last few bits of a number near 56. That difference is the *good*
+outcome — see the next section.
+
+**No new tolerance was declared.** ADR-221's `eta`/`edf_total` criterion is
+imported from `gam_select_free_sp_conformance`, never restated. Anchor W5
+forbids this epic re-gating anything, and a rung that invented its own bound
+would be marking its own homework.
+
+### The exact-zero `edf` agreement was interrogated, not celebrated
+
+At tier 1, `edf_total_diff` came back **exactly** `0.0` — the two sides agreeing
+bit for bit on `55.9725502460819`. An exact zero between two supposedly
+independent producers is the signature of an echo, so it was treated as a
+suspicion rather than a triumph, and checked two ways:
+
+1. **Strip every `mgcv`-produced key** from the payload — `eta`, `edf_total`,
+   `offset_gap`, `coef`, `converged` — and re-fit. The Polaris number is
+   bit-identical. It cannot be reading what it is compared against.
+2. **Perturb `sp`.** A constant would survive check 1 and still be worthless;
+   moving the first block's `sp` from `2.0` to `20.0` moves `edf_total` from
+   `55.97` to `55.10`, in the direction a stiffer penalty requires.
+
+Both are now tests
+(`test_the_fit_is_unchanged_when_every_mgcv_key_is_stripped`,
+`test_edf_total_is_computed_and_moves_with_the_penalty`), so the independence
+claim is checkable by a later reader rather than asserted by this ADR. The
+structural guarantee — `fit_gaussian_case` takes `RGaussianRecipe`, which
+carries no `eta`/`edf_total` key — is a *type-level* claim, and Python does not
+enforce `TypedDict` at runtime; check 1 is the runtime complement to it.
+
+The near-exact agreement is, on reflection, what the mathematics predicts: at
+fixed `sp` under a constant-weight family, `tr(F)` is a deterministic function
+of `X` and `S_lambda` alone, with no iteration and no convergence tolerance
+anywhere in it. Two correct implementations of the same linear algebra on the
+same design have nothing left to differ about beyond floating-point
+association.
+
+**And tier 3 shows exactly that residue**: `-7.105e-15` on a quantity near `56`,
+about one part in `8e15` — a last-bits difference, not a zero. The two tiers
+between them make the stronger statement than either alone would. Tier 1's
+bit-exact zero needed the two checks above before it could be believed; tier 3,
+on a different `mgcv` build and a different machine, lands at the floating-point
+floor *without* coinciding bit for bit, which is what two independent
+implementations of the same algebra should look like. An echo would have
+reproduced the zero on both.
+
+### What this rung does NOT reach
+
+**Fixed `sp` only.** Gaussian estimates its scale (`dispersion_fixed=False`) and
+`gam_reml.reml_score_general` raises on a free scale (`gam_reml.py:263`), so
+free-`sp` selection under this family is blocked until rung **L5** (slice 3).
+
+That boundary is honest rather than a hedge, and the reason matters: **at a
+fixed `sp` the scale never enters the fit at all.** The Gaussian penalized fit
+is ordinary penalized least squares; the scale is what the REML criterion needs
+in order to *choose* `sp`, not what the fitter needs in order to fit at a given
+one. So this rung measures the whole of what L1 claims — the family's IRLS
+recursion, its variance and link derivatives, and their interaction with the
+penalty — and the one thing it cannot reach is precisely the thing L5 owns. The
+coverage table's Stage B cell says "fixed `sp` only" for that reason.
+
+Nothing here licenses a free-`sp` Gaussian claim anywhere, and
+`test_gaussian_estimates_its_scale` pins the premise: if it ever flips, the
+plan's §2.2 argument is void and must be re-derived rather than quietly kept.
+
+### The registry defect this slice created, and the guard that closes it
+
+Registering a family in `_FAMILY_LINKS` without extending the four
+`gam_derivatives` registries leaves `resolve_family()` succeeding while four
+downstream functions raise — a failure that would surface nowhere near the
+mistake, and would have surfaced at **slice 3**, when L5 lifts the free-scale
+block that currently keeps the path unreachable. That is the worst possible time
+to rediscover it.
+
+PR #237's review named two of the four registries; sweeping the module found the
+other two. The durable fix is not the four entries but
+`test_every_registered_family_link_has_its_derivative_entries`, which **walks
+`_FAMILY_LINKS`** and demands all four for every registered pair. The next
+family cannot be registered without them.
+
+### Consequences
+
+- `MGCV_FEATURE_COVERAGE.md` §2.2 moves `gaussian(identity)` Stage B from `—` to
+  tier 3, reading **fixed `sp` only** until slice 3.
+- The ladder's L1 rung is climbed; slice 2 (`bs="re"`) is next.
+- A fifth `_FAMILY_LINKS` entry exists whose free-scale path is registered but
+  unreachable. That is stated in the coverage table rather than left for a
+  reader to discover, and closing it is slice 3's whole scope.
+
