@@ -307,26 +307,23 @@ tolerances explicitly rather than leaving "agrees" undefined. **No unqualified
 touches conformance level 4's standing disagreement (ADR-190)."""
 
 
-# KNOWN GAP, registered by PR #235 review round 2 [P1-4]. The three R-INTERNAL
-# quantities below (mgcv on BOTH sides) are declared ``INDEPENDENT``, which is
-# what ``VERIFICATION_STANDARD.md`` Sec. 5 prescribes — it files the R-side
-# smoothCon/lpmatrix guard the same way — and it is truthful about the
-# PRODUCERS: two genuinely independent ones. But ``evidence_markdown`` derives
-# its headline clause and its "parity evidence" column from
-# ``provenance.is_parity_evidence``, which is True for INDEPENDENT, so the
-# rendered summary lists them under "Parity comparison" and prints "yes" for
-# them, while their own labels say "Polaris absent".
+# The three mgcv-vs-mgcv quantities below carry ``REFERENCE_INTERNAL``: two real,
+# genuinely independent producers, but BOTH of them are the reference and this
+# engine is absent. They can disagree — the ``te`` vs ``s+s+ti`` localiser does,
+# at 3.72e-02 — so they are real measurements, just not measurements OF US.
 #
-# The claim SENTENCE says the right thing ("R-INTERNAL quantities ... are
-# evidence about mgcv only"), so a reader of the whole summary is not misled;
-# a reader of the headline alone could be, in the direction of overstating.
+# PR #235 review round 2 [P1-4] is why this member exists. These rows shipped as
+# ``INDEPENDENT`` (which ``VERIFICATION_STANDARD.md`` Sec. 5 prescribed at the
+# time, and which was truthful about the producers), but ``is_parity_evidence``
+# is True for INDEPENDENT, so ``evidence_markdown`` listed them under "Parity
+# comparison" and printed "yes" against them — while their own labels said
+# "Polaris absent". The headline overstated in the one line
+# ``VERIFICATION_STANDARD.md`` Sec. 3.3 makes load-bearing. ADR-228.
 #
-# The fix is a fourth ``ComparisonProvenance`` member (REFERENCE_INTERNAL:
-# is_parity_evidence=False, its own headline clause) in ``core/verification.py``
-# — a CORE CONTRACT change affecting every claim in the epic, so it belongs in
-# its own change with maintainer sign-off, NOT bolted onto a retraction PR.
-# Until then: no acceptance criterion is ticked on any of these three rows, and
-# none may be cited as evidence about this engine.
+# Consequence to expect, and it is correct: this claim's ``is_parity_claim`` is
+# now False. Four columns are parity evidence for this engine and three are not,
+# so the headline reads "Parity comparison, with reference-internal columns"
+# rather than folding all seven into one verdict.
 PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
     claim=PRODUCTION_MI_CLAIM_SENTENCE,
     quantities=(
@@ -372,7 +369,7 @@ PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
             quantity="eta / edf_total (mgcv te vs mgcv s+s+ti — the R-internal localiser)",
             left_producer="mgcv gam(te(...)+s(duration_years), method='REML')",
             right_producer="mgcv gam(s(...)+s(...)+ti(...)+s(duration_years), method='REML')",
-            provenance=ComparisonProvenance.INDEPENDENT,
+            provenance=ComparisonProvenance.REFERENCE_INTERNAL,
         ),
         ComparedQuantity(
             quantity=(
@@ -384,7 +381,7 @@ PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
                 "mgcv gam(s(...,fx=TRUE)+s(...,fx=TRUE)+ti(...,fx=TRUE)+s(...,fx=TRUE), "
                 "method='REML')"
             ),
-            provenance=ComparisonProvenance.INDEPENDENT,
+            provenance=ComparisonProvenance.REFERENCE_INTERNAL,
         ),
         ComparedQuantity(
             quantity=(
@@ -393,7 +390,7 @@ PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
             ),
             left_producer="mgcv gam(s(...)+s(...)+ti(...)+s(...), method='REML')",
             right_producer="mgcv gam(ti(...)+ti(...)+ti(...)+s(...), method='REML')",
-            provenance=ComparisonProvenance.INDEPENDENT,
+            provenance=ComparisonProvenance.REFERENCE_INTERNAL,
         ),
     ),
 )
