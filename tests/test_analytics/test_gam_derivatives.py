@@ -33,6 +33,7 @@ from polaris_re.analytics.gam_derivatives import (
 from polaris_re.analytics.gam_family import (
     binomial_cloglog,
     binomial_logit,
+    gaussian_identity,
     poisson_log,
     quasipoisson_log,
 )
@@ -88,8 +89,12 @@ def test_second_deriv_mu_eta_refuses_an_underived_link() -> None:
 
 
 def test_variance_deriv_refuses_an_underived_family() -> None:
+    # Example changed from "gaussian" to "tweedie" on 2026-09-19: gaussian was
+    # REGISTERED at ladder rung L1, so it stopped being an underived family and
+    # this test started failing. The property under test is unchanged — an
+    # unregistered family must raise rather than guess — so only the stand-in moved.
     with pytest.raises(PolarisValidationError, match="no derivation recorded"):
-        variance_deriv("gaussian", np.zeros(3))
+        variance_deriv("tweedie", np.zeros(3))
 
 
 # --- alpha: the Fisher/Newton factor ----------------------------------------------
@@ -355,8 +360,9 @@ def test_variance_second_deriv_matches_a_difference_of_variance_deriv() -> None:
 
 
 def test_variance_second_deriv_refuses_an_underived_family() -> None:
+    # Same stand-in change as test_variance_deriv_refuses_an_underived_family.
     with pytest.raises(PolarisValidationError, match="no derivation recorded"):
-        variance_second_deriv("gaussian", np.zeros(3))
+        variance_second_deriv("tweedie", np.zeros(3))
 
 
 @pytest.mark.parametrize(
@@ -478,3 +484,71 @@ def test_dw_drho_observed_refuses_a_mismatched_deta_shape() -> None:
     y = np.zeros(10)
     with pytest.raises(PolarisValidationError, match="expected"):
         dw_drho_observed(family, y, eta, family.link.linkinv(eta), np.zeros((2, 9)))
+
+
+# --------------------------------------------------------------------------
+# gaussian(identity) — ladder rung L1 (PR #237 review [P1-3])
+#
+# Registering a family in `_FAMILY_LINKS` without its derivative entries left
+# `resolve_family("gaussian", "identity")` succeeding while these four raised.
+# No wrong numbers — they raise loudly — but the gap would have surfaced at
+# ladder slice 3, when L5 lifts the free-scale block that currently keeps this
+# path unreachable, which is the worst time to rediscover it.
+# --------------------------------------------------------------------------
+
+
+def test_identity_link_second_and_third_derivatives_vanish() -> None:
+    """``mu = eta`` is linear, so every derivative above the first is zero —
+    exactly, not approximately."""
+    eta = np.asarray([-2.0, 0.0, 0.5, 40.0], dtype=np.float64)
+    mu = eta.copy()
+    np.testing.assert_array_equal(second_deriv_mu_eta("identity", eta, mu), np.zeros_like(eta))
+    np.testing.assert_array_equal(third_deriv_mu_eta("identity", eta, mu), np.zeros_like(eta))
+
+
+def test_identity_second_derivative_matches_a_central_difference() -> None:
+    """The same independent check the other three links get: difference the
+    link's own ``mu_eta`` rather than trusting the analytic entry."""
+    family = gaussian_identity()
+    eta = np.asarray([-1.5, 0.0, 2.0], dtype=np.float64)
+    h = 1e-6
+    numerical = (family.link.mu_eta(eta + h) - family.link.mu_eta(eta - h)) / (2.0 * h)
+    np.testing.assert_allclose(second_deriv_mu_eta("identity", eta, eta), numerical, atol=1e-8)
+
+
+def test_gaussian_variance_derivatives_vanish() -> None:
+    """``V(mu) = 1`` is constant, so ``V' = V'' = 0``."""
+    mu = np.asarray([-5.0, 0.0, 1.0, 1e6], dtype=np.float64)
+    np.testing.assert_array_equal(variance_deriv("gaussian", mu), np.zeros_like(mu))
+    np.testing.assert_array_equal(variance_second_deriv("gaussian", mu), np.zeros_like(mu))
+
+
+def test_gaussian_identity_newton_alpha_is_exactly_one() -> None:
+    """Identity is Gaussian's canonical link, so the Newton and Fisher weights
+    coincide: ``alpha = 1 + (y-mu)(V'/V + g''/g')`` with ``V' = 0`` and
+    ``g'' = 0``. Independent of ``y``, which is the point — it holds however far
+    the residual is from zero."""
+    family = gaussian_identity()
+    rng = np.random.default_rng(20260919)
+    eta = np.asarray(rng.normal(size=48), dtype=np.float64)
+    y = np.asarray(rng.normal(scale=10.0, size=48), dtype=np.float64)
+    np.testing.assert_allclose(newton_alpha(family, y, eta, eta), np.ones(48), rtol=0.0, atol=0.0)
+
+
+def test_every_registered_family_link_has_its_derivative_entries() -> None:
+    """The guard for the defect itself, rather than for this one instance.
+
+    Registering a family in ``_FAMILY_LINKS`` without the matching derivative
+    entries is the mismatch that ``_FAMILY_LINKS``' own docstring warns "would
+    fail nowhere near where the mistake was made". This walks the registry, so a
+    future family cannot be added without them.
+    """
+    from polaris_re.analytics.gam_model import _FAMILY_LINKS
+
+    mu = np.asarray([0.3, 0.6], dtype=np.float64)
+    eta = np.asarray([0.1, 0.2], dtype=np.float64)
+    for family_name, link_name in _FAMILY_LINKS:
+        variance_deriv(family_name, mu)
+        variance_second_deriv(family_name, mu)
+        second_deriv_mu_eta(link_name, eta, mu)
+        third_deriv_mu_eta(link_name, eta, mu)

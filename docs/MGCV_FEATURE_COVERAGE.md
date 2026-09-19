@@ -92,15 +92,18 @@ and `sz` already has its branch. So L3 needs a representation decision (widen
 | `quasipoisson(log)` | **yes** | ⚠️ partial | `reml_score_general` **raises** on `dispersion_fixed=False` — see §2.3 |
 | `binomial(logit)` | **yes** | ✅ tier 3 (ADR-195) | |
 | `binomial(cloglog)` | **yes** | ✅ tier 3 (ADR-195) | the target formula's own family |
-| **`gaussian(identity)`** | **NO** | — | **the simplest case, and absent** |
+| **`gaussian(identity)`** | **yes** (2026-09-19, L1) | — **not measured** | **BUILT, NOT YET mgcv-VERIFIED.** `resolve_family("gaussian", "identity")` resolves; closed-form verified only (IRLS vs `lstsq` and vs the closed-form ridge, both `1e-12`). Stage B stays `—` until ladder slice 1's measurement half lands, and will read **fixed `sp` only** when it does — Gaussian has a free scale and `reml_score_general` raises on one until L5 |
 | `Gamma`, `inverse.gaussian` | **NO** | — | |
 | `nb` / `negbin` | **NO** | — | |
 | `tw` (Tweedie) | **NO** | — | |
 | `ocat`, `scat`, `betar`, `ziP` | **NO** | — | extended families |
 | location-scale (`gaulss`, `gammals`, …) | **NO** | — | multi-linear-predictor |
 
-`_FAMILY_LINKS` in `gam_model.py` is a four-entry dict, deliberately with no
-fallback — an unrecognised pair raises rather than guessing.
+`_FAMILY_LINKS` in `gam_model.py` is a **five**-entry dict (four since slice 3,
+plus `gaussian`/`identity` at L1 on 2026-09-19), deliberately with no fallback —
+an unrecognised pair raises rather than guessing. **Being in that dict means
+"expressible", not "verified against mgcv"**: its docstring splits the two
+claims, and the Stage B column above is the authority.
 
 ### 2.3 Fitting machinery
 

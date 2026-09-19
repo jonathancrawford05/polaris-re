@@ -207,6 +207,7 @@ def second_deriv_mu_eta(link_name: str, eta: np.ndarray, mu: np.ndarray) -> np.n
     differenced, so :func:`dw_deta` is analytic throughout — the finite-difference
     check in the tests is then an independent check *of* this, not its definition.
 
+    - ``identity``: ``μ = η`` is linear, so ``dμ/dη = 1`` and ``d²μ/dη² = 0``.
     - ``log``: ``μ = e^η`` so ``dμ/dη = d²μ/dη² = μ``.
     - ``logit``: ``dμ/dη = μ(1-μ)`` so ``d²μ/dη² = μ(1-μ)(1-2μ)``.
     - ``cloglog``: ``μ = 1 - exp(-e^η)``, ``dμ/dη = e^(η-e^η)``, so
@@ -214,6 +215,8 @@ def second_deriv_mu_eta(link_name: str, eta: np.ndarray, mu: np.ndarray) -> np.n
     """
     eta = np.asarray(eta, dtype=np.float64)
     mu = np.asarray(mu, dtype=np.float64)
+    if link_name == "identity":
+        return np.zeros_like(eta)
     if link_name == "log":
         return mu
     if link_name == "logit":
@@ -231,6 +234,7 @@ def second_deriv_mu_eta(link_name: str, eta: np.ndarray, mu: np.ndarray) -> np.n
 def variance_deriv(family_name: str, mu: np.ndarray) -> np.ndarray:
     """``dV/dμ`` — the analytic derivative of the family variance function.
 
+    - ``gaussian``: ``V = 1`` is constant, so ``V' = 0``.
     - ``poisson`` / ``quasipoisson``: ``V = μ`` so ``V' = 1``.
     - ``binomial``: ``V = μ(1-μ)`` so ``V' = 1 - 2μ``.
 
@@ -239,6 +243,8 @@ def variance_deriv(family_name: str, mu: np.ndarray) -> np.ndarray:
     why no ``φ`` appears here.
     """
     mu = np.asarray(mu, dtype=np.float64)
+    if family_name == "gaussian":
+        return np.zeros_like(mu)
     if family_name in ("poisson", "quasipoisson"):
         return np.ones_like(mu)
     if family_name == "binomial":
@@ -260,6 +266,7 @@ def third_deriv_mu_eta(link_name: str, eta: np.ndarray, mu: np.ndarray) -> np.nd
     of :func:`second_deriv_mu_eta` on all three links before being wired into
     anything (``tests/test_analytics/test_gam_derivatives.py``).
 
+    - ``identity``: ``m = 1`` is constant, so ``m' = m'' = 0``.
     - ``log``: ``m = m' = m'' = μ`` (every derivative of ``e^η`` is itself).
     - ``logit``: ``m' = m(1-2μ)`` (:func:`second_deriv_mu_eta`, since
       ``μ(1-μ) ≡ m``). Differentiating that product rule in ``η``:
@@ -272,6 +279,8 @@ def third_deriv_mu_eta(link_name: str, eta: np.ndarray, mu: np.ndarray) -> np.nd
     """
     eta = np.asarray(eta, dtype=np.float64)
     mu = np.asarray(mu, dtype=np.float64)
+    if link_name == "identity":
+        return np.zeros_like(eta)
     if link_name == "log":
         return mu
     if link_name == "logit":
@@ -292,6 +301,7 @@ def variance_second_deriv(family_name: str, mu: np.ndarray) -> np.ndarray:
     """``d²V/dμ²`` — PLAN slice 7d's other missing ingredient for
     ``d(alpha)/d(eta)``, alongside :func:`third_deriv_mu_eta`.
 
+    - ``gaussian``: ``V = 1`` is constant, so ``V' = V'' = 0``.
     - ``poisson`` / ``quasipoisson``: ``V = μ`` is linear, so ``V'' = 0``.
     - ``binomial``: ``V' = 1 - 2μ`` (:func:`variance_deriv`) is linear in
       ``μ``, so ``V'' = -2`` — a constant, not evaluated pointwise, but
@@ -299,7 +309,7 @@ def variance_second_deriv(family_name: str, mu: np.ndarray) -> np.ndarray:
       the other per-observation quantities without a special case.
     """
     mu = np.asarray(mu, dtype=np.float64)
-    if family_name in ("poisson", "quasipoisson"):
+    if family_name in ("gaussian", "poisson", "quasipoisson"):
         return np.zeros_like(mu)
     if family_name == "binomial":
         return np.full_like(mu, -2.0)

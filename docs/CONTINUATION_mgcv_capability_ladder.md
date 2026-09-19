@@ -28,7 +28,14 @@ requires, and not before (the one-active-epic rule).
 - **Registered** in `gam_model._FAMILY_LINKS` as `("gaussian", "identity")`, so
   `ModelSpec(family="gaussian", link="identity")` now resolves where it
   previously raised.
-- **12 closed-form tests** in `tests/test_analytics/test_gam_family.py`. These
+- **The four `gam_derivatives` registries extended** — `second_deriv_mu_eta`
+  and `third_deriv_mu_eta` for the `identity` link, `variance_deriv` and
+  `variance_second_deriv` for `gaussian` (all four vanish identically). PR #237
+  review [P1-3] caught two of these; sweeping found the other two. A new test
+  **walks `_FAMILY_LINKS`** and demands all four entries, so the next family
+  cannot be registered without them.
+- **13 collected closed-form tests** (10 functions, one parametrised ×4) in
+  `tests/test_analytics/test_gam_family.py`. These
   compare against **the algebra, not against a reference**:
   - unpenalized IRLS ≡ OLS (`lstsq`), to `1e-12`;
   - penalized IRLS ≡ the closed-form ridge `(X'X + S)^-1 X'y`, to `1e-12`, and
@@ -46,10 +53,13 @@ requires, and not before (the one-active-epic rule).
   **fixed `sp`**, on ADR-221's committed criterion, **tier 3**. That needs an R
   probe, a conformance module with a declared `VerificationClaim`, and a
   `mgcv-conformance.yml` step.
-- **`MGCV_FEATURE_COVERAGE.md` §2.2's `gaussian(identity)` row has NOT moved.**
-  Per the plan's §4 and the coverage file's §6, *a rung that lands without its
-  row moving has not landed.* The row moves in the same PR as the measurement,
-  and it must read **"fixed `sp` only"** until slice 3.
+- **`MGCV_FEATURE_COVERAGE.md` §2.2's Stage B column is still `—`**, and stays
+  there until the measurement lands. (The row's `expressible?` column DID move
+  to **yes** on 2026-09-19 — that is a different claim from Stage B, and §6's
+  "the slice that changes the answer updates the table" applies to it. PR #237
+  review [P1-2]: holding the whole row was under-claiming in the opposite
+  direction from over-claiming Stage B.) When Stage B lands it must read
+  **"fixed `sp` only"** until slice 3.
 
 ---
 
