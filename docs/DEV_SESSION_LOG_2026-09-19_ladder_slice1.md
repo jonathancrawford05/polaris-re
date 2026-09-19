@@ -159,6 +159,42 @@ plan's §2.2 argument is void and must be re-derived.
 
 ---
 
+## Verification
+
+Daily-dev step 4. **The baseline is the load-bearing line here** — it is what the
+next session diffs against, and the reason this section exists rather than
+leaving the number in a commit message where nobody looks for it (PR #237 review
+[P1-B]).
+
+| check | result |
+|---|---|
+| `uv run pytest tests/ -m "not slow"` | **3696 passed, 3 skipped, 128 deselected, 0 failed** |
+| collection, this branch | **3699 non-slow / 3827 total** |
+| collection, `0eba928` (the commit before the measurement half) | **3690 non-slow / 3817 total** |
+| delta | **+9 fast, +1 `@slow`** — exactly `test_gam_gaussian_conformance.py` |
+| `uv run ruff format src/ tests/` | clean |
+| `uv run ruff check src/ tests/` | All checks passed |
+| `uv run mypy` on `gam_gaussian_conformance.py` | **0 errors attributable to the file** |
+| `scripts/measurement_stamp.py check` | **5 ok, 1 unstamped (pre-existing backlog), 0 drifted** |
+| `scripts/gam_gaussian_probe.R`, tier 1 | `n=900, mgcv 1.9.1, edf_total=55.972550, offset_gap=0.000e+00` |
+| tier 3, run [35446265890](https://github.com/jonathancrawford05/polaris-re/actions/runs/35446265890) | `2.442e-14` / `-7.105e-15`, `agrees=True` |
+| CI on `b033e0a` | 8 success + `Upload coverage` skipped by design; `mergeable_state` clean |
+
+The delta reconciles **measured on both revisions with `--collect-only`**, not
+inferred — an off-by-one in a stated baseline defeats the next session's own
+reconciliation, which is how the "12 vs 13 tests" error earlier in this slice was
+caught.
+
+Two things the green checks do **not** establish, recorded so a later reader does
+not over-read them:
+
+1. **The conformance compare step is `continue-on-error: true`**, the house
+   contract throughout that workflow. A green check proves the step *ran*, not
+   that it *agreed*. The agreement above was read out of the run's own log.
+2. **`measurement_stamp.py` reports 1 unstamped** — `MEASUREMENT_engine_recursion_prework.md`,
+   a pre-existing backlog item whose producing scripts were never committed. Not
+   this slice's, and not regenerable.
+
 ## Where slice 2 picks up
 
 `docs/CONTINUATION_mgcv_capability_ladder.md`. Rung **L2**, `bs="re"` — random

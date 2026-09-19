@@ -102,8 +102,12 @@ and `sz` already has its branch. So L3 needs a representation decision (widen
 `_FAMILY_LINKS` in `gam_model.py` is a **five**-entry dict (four since slice 3,
 plus `gaussian`/`identity` at L1 on 2026-09-19), deliberately with no fallback —
 an unrecognised pair raises rather than guessing. **Being in that dict means
-"expressible", not "verified against mgcv"**: its docstring splits the two
-claims, and the Stage B column above is the authority.
+"expressible", not "verified against mgcv"** — the next pair added will sit
+there unmeasured until its own slice measures it. All five entries happen to be
+mgcv-verified today, but **not to the same reach**: the four count/binary pairs
+at free `sp` (ADR-195), `gaussian`/`identity` at **fixed `sp` only** (ADR-229).
+The docstring carries that split so it travels with the code; the Stage B column
+above is the authority.
 
 ### 2.3 Fitting machinery
 
