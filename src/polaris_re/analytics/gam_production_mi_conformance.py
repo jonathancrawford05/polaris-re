@@ -49,17 +49,20 @@ comparison separates three questions:
                                  4-term penalized HGAM?
 (2)  Polaris vs mgcv ``te``      does the decomposition reproduce a   INDEPENDENT (about Polaris)
                                  full tensor, under penalty?
-(3)  mgcv ``anova`` vs ``te``    are the two penalized forms the      INDEPENDENT, but entirely
-                                 same fit?                            inside R — real evidence
-                                                                      about ``mgcv``, **none**
+(3)  mgcv ``anova`` vs ``te``    are the two penalized forms the      REFERENCE_INTERNAL —
+                                 same fit?                            two real producers, but
+                                                                      BOTH are ``mgcv``: real
+                                                                      evidence about it, **none**
                                                                       about Polaris
 ===  ==========================  ===================================  ==============================
 
 (3) is the localiser — it separates "our engine is wrong" from "these are two
 different models" — and read against the probe's ``unpenalized`` block it is
 also what shows the difference to be purely a penalty effect. Its evidence class
-has precedent: ``docs/VERIFICATION_STANDARD.md`` §5 lists the R-side
-``smoothCon``/``lpmatrix`` guard the same way.
+is ``REFERENCE_INTERNAL`` (ADR-228, ``docs/VERIFICATION_STANDARD.md`` §2.2),
+which also covers the R-side ``smoothCon``/``lpmatrix`` guard §5 records. Both
+carried ``INDEPENDENT`` until 2026-09-19; that was truthful about the producers
+but let the derived headline call them parity.
 
 **The gate is ADR-221's, reused verbatim and never re-derived.** Anchor W5
 forbids this epic widening a tolerance, so :data:`_ETA_TOLERANCE` /
@@ -396,21 +399,35 @@ PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
 )
 """PLAN slice 1's provenance declaration (ADR-193).
 
-**Every quantity is INDEPENDENT, and this slice genuinely is a two-producer
-comparison** — unlike the several slices before it, which were correctly
-classed ``MEASUREMENT (own criterion)`` because no second producer's value sat
-opposite ours. Here Polaris's own fit sits opposite ``mgcv``'s own fit of the
-same recipe. The ADR-193 mechanical test applied to the producing function's
-signature: :func:`fit_production_mi_case` takes :class:`RProductionMIRecipe`,
-which structurally has no ``te``/``anova`` key, so it cannot read either of
-``mgcv``'s fits — a caller passing the wider :class:`RProductionMIPayload`
-still cannot make it see them.
+**Four of the seven quantities are INDEPENDENT, and those four genuinely are a
+two-producer comparison** — unlike the several slices before it, which were
+correctly classed ``MEASUREMENT (own criterion)`` because no second producer's
+value sat opposite ours. In those four, Polaris's own fit sits opposite
+``mgcv``'s own fit of the same recipe. The ADR-193 mechanical test applied to
+the producing function's signature: :func:`fit_production_mi_case` takes
+:class:`RProductionMIRecipe`, which structurally has no ``te``/``anova`` key,
+so it cannot read either of ``mgcv``'s fits — a caller passing the wider
+:class:`RProductionMIPayload` still cannot make it see them.
 
-**The last THREE quantities are INDEPENDENT but say nothing about Polaris.**
-Both producers are ``mgcv`` in each; they are evidence about ``mgcv``'s own
-formula forms, the same class ``docs/VERIFICATION_STANDARD.md`` §5 already
-records for the R-side ``smoothCon``/``lpmatrix`` guard. They must never be
-read as parity evidence for this engine.
+The remaining three are ``REFERENCE_INTERNAL``, so
+:attr:`~polaris_re.core.verification.VerificationClaim.is_parity_claim` is
+**False** for this claim and
+:func:`~polaris_re.core.verification.require_parity_evidence` **raises** on the
+full quantity set. Gate on
+:attr:`~polaris_re.core.verification.VerificationClaim.parity_quantities`.
+
+**The last THREE quantities are ``REFERENCE_INTERNAL`` and say nothing about
+Polaris.** Both producers are ``mgcv`` in each; they are evidence about
+``mgcv``'s own formula forms, the same class ``docs/VERIFICATION_STANDARD.md``
+§2.2/§5 records for the R-side ``smoothCon``/``lpmatrix`` guard. They must never
+be read as parity evidence for this engine — and since ADR-228 the *type*
+enforces that rather than this sentence merely asserting it: the derived
+headline names them under "Reference-internal — NOT parity" and the rendered
+table prints ``no`` in their parity column.
+
+*(They were declared ``INDEPENDENT`` until 2026-09-19, which was truthful about
+the producers but made ``is_parity_evidence`` true — so the headline folded them
+into "Parity comparison" while this very paragraph said otherwise. ADR-228.)*
 
 **The ``UNPENALIZED`` row was added 2026-09-18 (PR #235 review [P1-1]) and it
 carries the whole retraction.** Its ``8.88e-16`` is the measurement that voided

@@ -189,7 +189,7 @@ either `mgcv` fit even when handed the wider payload. A test asserts this.
 |---|---|---|---|
 | `eta`, `edf_total` vs `s+s+ti` | `fit_polaris_gam` at its own selected `log_lambda` | `mgcv` `gam(s+s+ti, method="REML")` | **INDEPENDENT** |
 | `eta`, `edf_total` vs `te()` | `fit_polaris_gam` at its own selected `log_lambda` | `mgcv` `gam(te()+s(), method="REML")` | **INDEPENDENT** |
-| `eta`/`edf_total`, `te` vs `s+s+ti` | `mgcv` | `mgcv` | **INDEPENDENT, entirely inside R** — real evidence about `mgcv`, **none** about Polaris (the category `VERIFICATION_STANDARD.md` §5 records for the R-side `smoothCon`/`lpmatrix` guard) |
+| `eta`/`edf_total`, `te` vs `s+s+ti` | `mgcv` | `mgcv` | ~~**INDEPENDENT, entirely inside R**~~ → **`REFERENCE_INTERNAL`** (ADR-228, 2026-09-19) — real evidence about `mgcv`, **none** about Polaris. The description was always right; the *label* made `is_parity_evidence` true, so the derived headline called it parity. `VERIFICATION_STANDARD.md` §2.2 |
 
 The third row is the localiser and must never be read as parity evidence for
 this engine. It is what separates *our engine is wrong* from *the re-expression

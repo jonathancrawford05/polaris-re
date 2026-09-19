@@ -23094,6 +23094,25 @@ Add a fourth member, and split the predicate that was doing two jobs.
   passing the full quantity set to `require_parity_evidence` must raise. Before
   this ADR it succeeded.
 
+### Registered follow-up, not fixed here
+
+**The notation-primer penalty-count probe is the same shape and is not yet
+covered.** `.github/workflows/mgcv-conformance.yml`'s *"Assert the notation
+primer's penalty counts against the pinned mgcv"* step publishes an
+`mgcv`-vs-`mgcv` result to the job summary under an **honest but hand-written**
+headline, with no `VerificationClaim` behind it. It is not a finding under
+ADR-193 — nothing it says is false, and it states "both sides are mgcv, Polaris
+absent" in three places — but it is exactly what `REFERENCE_INTERNAL` was built
+for, and §3.3 exists so that headline is *derived* rather than trusted to stay
+honest through future edits.
+
+This ADR's sweep covered `VerificationClaim`s in `analytics/` only, **not
+workflow-level hand-written summaries**, so that probe was never in scope.
+Raised by PR #236 review as a [P2] and deliberately left: giving it a declared
+claim means deciding how a workflow step (as opposed to a comparator module)
+owns one, which is its own small design question and does not belong in the
+change that introduces the enum member.
+
 ### What this cost, recorded plainly
 
 The defect was **introduced by fixing a different one correctly.** Review round 1
