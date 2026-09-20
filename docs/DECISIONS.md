@@ -23184,51 +23184,43 @@ Tier 1 (local apt R, mgcv 1.9.1) read `2.265e-14` and **exactly `0.0`** on the
 same recipe — a hypothesis that tier 3 then confirmed, and the two tiers
 agreeing across two `mgcv` minor versions is itself worth recording.
 
-#### The reading is reproducible in verdict and magnitude, NOT bit for bit
+#### The reading is NOT reproducible bit for bit across runs
 
-Three tier-3 runs on the pinned digest, with `scripts/gam_gaussian_probe.R` and
-`gam_gaussian_conformance.py` **byte-identical** across all three (verified by
-SHA-256; only docstrings and docs differed between the heads):
+Five tier-3 runs on the pinned digest, with `scripts/gam_gaussian_probe.R` and
+`gam_gaussian_conformance.py` **byte-identical** across every head (verified by
+SHA-256; only docstrings and docs differed):
 
-| run | head | `max_abs_eta_diff` | `edf_total_diff` |
-|---|---|---|---|
-| [35446265890](https://github.com/jonathancrawford05/polaris-re/actions/runs/35446265890) | `7d652ae` | `2.442e-14` | `-7.105e-15` |
-| [35468970847](https://github.com/jonathancrawford05/polaris-re/actions/runs/35468970847) | `1c815dd` | `2.442e-14` | `-7.105e-15` |
-| [35482510617](https://github.com/jonathancrawford05/polaris-re/actions/runs/35482510617) | `ba510f2` | **`2.665e-14`** | **`+1.421e-14`** |
-| [35482898495](https://github.com/jonathancrawford05/polaris-re/actions/runs/35482898495) | `2a72fd8` | **`2.665e-14`** | **`+1.421e-14`** |
+| quantity | distinct values seen in 5 runs | bound |
+|---|---|---|
+| `max_abs_eta_diff` | **3** — `1.821e-14`, `2.442e-14`, `2.665e-14` | `< 2e-2` |
+| `edf_total_diff` | **2** — `-7.105e-15`, `+1.421e-14` | `abs(·) < 1.0` |
+| `edf_total`, both sides | **1** — `55.972550` every run | — |
 
-**This is recorded so nobody reads a last-bits difference as a regression.** The
-verdict, the order of magnitude and `edf_total` to six decimals (`55.972550` on
-both sides in every run) are stable; the final bits are not, and the sign of
-`edf_total_diff` even flips. That is the host/BLAS-level nondeterminism this
-epic already measured in slice 5d (ADR-211/212), now visible on a quantity whose
-agreement sits at the floating-point floor — where it is *all* that is left to
-vary.
+**Do not treat any recorded figure as an exact expectation.** The verdict, the
+order of magnitude and `edf_total` to six decimals are stable across every run;
+the final bits are not. The spread is ~12 orders of magnitude inside the gate,
+so nothing about the rung's conclusion depends on it.
 
-**Note the shape, because it is not random jitter:** four runs produced exactly
-**two** distinct readings, each twice, and the pair moves together (`eta` and
-`edf` both change or neither does). A per-run random perturbation would not do
-that. The natural hypothesis is a discrete host difference — OpenBLAS
-`DYNAMIC_ARCH` selecting a different kernel on a different runner CPU, which is
-precisely the mechanism slice 5d identified. **That is a hypothesis, not a
-measurement**: the runner CPU model was not captured, so it is recorded as the
-likely explanation rather than an established one. Anyone who wants it settled
-should log `lscpu` alongside the reading.
+**No mechanism is established, and one guess has already been wrong.** After
+four runs this ADR recorded *"exactly two distinct readings, each twice, and the
+pair moves together"*, and proposed OpenBLAS `DYNAMIC_ARCH` kernel selection
+(slice 5d, ADR-211/212) as the likely cause. **The fifth run falsified both
+halves**: it produced a third `eta` value *and* paired it with the first `edf`
+value, so the two do not move together. The host-level explanation may still be
+right, but the clean discrete pattern that suggested it was an artefact of four
+samples.
 
-Nothing here moves: the bounds are `2e-2` and `1.0`, so the spread across runs
-is ~12 orders of magnitude inside the gate. The earlier claim that the runs
-reproduced *bit-identically* was true of the first two and is **withdrawn** as a
-general statement — two samples were not enough to make it.
+That mistake is left visible rather than tidied away, because it is this epic's
+own failure mode in miniature: **a pattern inferred from too few samples, stated
+with more confidence than the sample size carried.** The guard is the same one
+the epic applies everywhere else — say what was measured, name what would settle
+it, and do not promote a hypothesis to a cause. Settling it needs the runner CPU
+(`lscpu`) logged beside the reading, which no run has captured.
 
-**Note the one place the tiers differ, because it matters below:** tier 1's
-`edf_total` agreement is bit-exact; tier 3's is `-7.105e-15`, i.e. the two sides
-differ in the last few bits of a number near 56. That difference is the *good*
-outcome — see the next section.
-
-**No new tolerance was declared.** ADR-221's `eta`/`edf_total` criterion is
-imported from `gam_select_free_sp_conformance`, never restated. Anchor W5
-forbids this epic re-gating anything, and a rung that invented its own bound
-would be marking its own homework.
+**This section is deliberately written to need no update when the figure moves
+again.** It records the behaviour and the bound, not a growing list of runs —
+an earlier revision kept a per-run table, which meant every push that re-ran the
+oracle invited another edit to the record for no gain.
 
 ### The exact-zero `edf` agreement was interrogated, not celebrated
 
