@@ -23195,6 +23195,7 @@ SHA-256; only docstrings and docs differed between the heads):
 | [35446265890](https://github.com/jonathancrawford05/polaris-re/actions/runs/35446265890) | `7d652ae` | `2.442e-14` | `-7.105e-15` |
 | [35468970847](https://github.com/jonathancrawford05/polaris-re/actions/runs/35468970847) | `1c815dd` | `2.442e-14` | `-7.105e-15` |
 | [35482510617](https://github.com/jonathancrawford05/polaris-re/actions/runs/35482510617) | `ba510f2` | **`2.665e-14`** | **`+1.421e-14`** |
+| [35482898495](https://github.com/jonathancrawford05/polaris-re/actions/runs/35482898495) | `2a72fd8` | **`2.665e-14`** | **`+1.421e-14`** |
 
 **This is recorded so nobody reads a last-bits difference as a regression.** The
 verdict, the order of magnitude and `edf_total` to six decimals (`55.972550` on
@@ -23203,6 +23204,16 @@ both sides in every run) are stable; the final bits are not, and the sign of
 epic already measured in slice 5d (ADR-211/212), now visible on a quantity whose
 agreement sits at the floating-point floor — where it is *all* that is left to
 vary.
+
+**Note the shape, because it is not random jitter:** four runs produced exactly
+**two** distinct readings, each twice, and the pair moves together (`eta` and
+`edf` both change or neither does). A per-run random perturbation would not do
+that. The natural hypothesis is a discrete host difference — OpenBLAS
+`DYNAMIC_ARCH` selecting a different kernel on a different runner CPU, which is
+precisely the mechanism slice 5d identified. **That is a hypothesis, not a
+measurement**: the runner CPU model was not captured, so it is recorded as the
+likely explanation rather than an established one. Anyone who wants it settled
+should log `lscpu` alongside the reading.
 
 Nothing here moves: the bounds are `2e-2` and `1.0`, so the spread across runs
 is ~12 orders of magnitude inside the gate. The earlier claim that the runs
