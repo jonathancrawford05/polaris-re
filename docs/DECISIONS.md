@@ -23184,6 +23184,31 @@ Tier 1 (local apt R, mgcv 1.9.1) read `2.265e-14` and **exactly `0.0`** on the
 same recipe — a hypothesis that tier 3 then confirmed, and the two tiers
 agreeing across two `mgcv` minor versions is itself worth recording.
 
+#### The reading is reproducible in verdict and magnitude, NOT bit for bit
+
+Three tier-3 runs on the pinned digest, with `scripts/gam_gaussian_probe.R` and
+`gam_gaussian_conformance.py` **byte-identical** across all three (verified by
+SHA-256; only docstrings and docs differed between the heads):
+
+| run | head | `max_abs_eta_diff` | `edf_total_diff` |
+|---|---|---|---|
+| [35446265890](https://github.com/jonathancrawford05/polaris-re/actions/runs/35446265890) | `7d652ae` | `2.442e-14` | `-7.105e-15` |
+| [35468970847](https://github.com/jonathancrawford05/polaris-re/actions/runs/35468970847) | `1c815dd` | `2.442e-14` | `-7.105e-15` |
+| [35482510617](https://github.com/jonathancrawford05/polaris-re/actions/runs/35482510617) | `ba510f2` | **`2.665e-14`** | **`+1.421e-14`** |
+
+**This is recorded so nobody reads a last-bits difference as a regression.** The
+verdict, the order of magnitude and `edf_total` to six decimals (`55.972550` on
+both sides in every run) are stable; the final bits are not, and the sign of
+`edf_total_diff` even flips. That is the host/BLAS-level nondeterminism this
+epic already measured in slice 5d (ADR-211/212), now visible on a quantity whose
+agreement sits at the floating-point floor — where it is *all* that is left to
+vary.
+
+Nothing here moves: the bounds are `2e-2` and `1.0`, so the spread across runs
+is ~12 orders of magnitude inside the gate. The earlier claim that the runs
+reproduced *bit-identically* was true of the first two and is **withdrawn** as a
+general statement — two samples were not enough to make it.
+
 **Note the one place the tiers differ, because it matters below:** tier 1's
 `edf_total` agreement is bit-exact; tier 3's is `-7.105e-15`, i.e. the two sides
 differ in the last few bits of a number near 56. That difference is the *good*
