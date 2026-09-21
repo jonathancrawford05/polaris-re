@@ -23184,15 +23184,43 @@ Tier 1 (local apt R, mgcv 1.9.1) read `2.265e-14` and **exactly `0.0`** on the
 same recipe — a hypothesis that tier 3 then confirmed, and the two tiers
 agreeing across two `mgcv` minor versions is itself worth recording.
 
-**Note the one place the tiers differ, because it matters below:** tier 1's
-`edf_total` agreement is bit-exact; tier 3's is `-7.105e-15`, i.e. the two sides
-differ in the last few bits of a number near 56. That difference is the *good*
-outcome — see the next section.
+#### The reading is NOT reproducible bit for bit across runs
 
-**No new tolerance was declared.** ADR-221's `eta`/`edf_total` criterion is
-imported from `gam_select_free_sp_conformance`, never restated. Anchor W5
-forbids this epic re-gating anything, and a rung that invented its own bound
-would be marking its own homework.
+Five tier-3 runs on the pinned digest, with `scripts/gam_gaussian_probe.R` and
+`gam_gaussian_conformance.py` **byte-identical** across every head (verified by
+SHA-256; only docstrings and docs differed):
+
+| quantity | distinct values seen in 5 runs | bound |
+|---|---|---|
+| `max_abs_eta_diff` | **3** — `1.821e-14`, `2.442e-14`, `2.665e-14` | `< 2e-2` |
+| `edf_total_diff` | **2** — `-7.105e-15`, `+1.421e-14` | `abs(·) < 1.0` |
+| `edf_total`, both sides | **1** — `55.972550` every run | — |
+
+**Do not treat any recorded figure as an exact expectation.** The verdict, the
+order of magnitude and `edf_total` to six decimals are stable across every run;
+the final bits are not. The spread is ~12 orders of magnitude inside the gate,
+so nothing about the rung's conclusion depends on it.
+
+**No mechanism is established, and one guess has already been wrong.** After
+four runs this ADR recorded *"exactly two distinct readings, each twice, and the
+pair moves together"*, and proposed OpenBLAS `DYNAMIC_ARCH` kernel selection
+(slice 5d, ADR-211/212) as the likely cause. **The fifth run falsified both
+halves**: it produced a third `eta` value *and* paired it with the first `edf`
+value, so the two do not move together. The host-level explanation may still be
+right, but the clean discrete pattern that suggested it was an artefact of four
+samples.
+
+That mistake is left visible rather than tidied away, because it is this epic's
+own failure mode in miniature: **a pattern inferred from too few samples, stated
+with more confidence than the sample size carried.** The guard is the same one
+the epic applies everywhere else — say what was measured, name what would settle
+it, and do not promote a hypothesis to a cause. Settling it needs the runner CPU
+(`lscpu`) logged beside the reading, which no run has captured.
+
+**This section is deliberately written to need no update when the figure moves
+again.** It records the behaviour and the bound, not a growing list of runs —
+an earlier revision kept a per-run table, which meant every push that re-ran the
+oracle invited another edit to the record for no gain.
 
 ### The exact-zero `edf` agreement was interrogated, not celebrated
 
@@ -23274,4 +23302,15 @@ family cannot be registered without them.
 - A fifth `_FAMILY_LINKS` entry exists whose free-scale path is registered but
   unreachable. That is stated in the coverage table rather than left for a
   reader to discover, and closing it is slice 3's whole scope.
+- **`gaussian(identity)` is the SECOND such family, not the first**, and that
+  changes an argument written before it existed. `quasipoisson(log)` already
+  carried `dispersion_fixed=False`; `PLAN_mgcv_capability_ladder.md` §2.1 called
+  it *"the only registered family"* with a free scale, which this slice
+  falsified. The plan is amended in place. The L5-at-slice-3 argument survives
+  unchanged — `quasipoisson` was a live hole independently of Gaussian — but it
+  is now stronger: **L5 unblocks two registered families, not one.** That is
+  also the accurate shape for the `_FAMILY_LINKS` docstring's reach split: the
+  fault line is the free scale, not the count/binary divide (PR #237 review
+  [P1-C], which caught a first attempt at that paragraph sweeping
+  `quasipoisson` into the free-`sp` group).
 

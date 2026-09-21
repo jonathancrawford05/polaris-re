@@ -94,6 +94,15 @@ slice 1's acceptance was actually held to.
 5. **`REFERENCE_INTERNAL` exists now** (ADR-228, PR #236). Slice 1's comparison
    is Polaris-vs-`mgcv`, so its quantities are `INDEPENDENT` — but if any
    `mgcv`-vs-`mgcv` column is added, it takes the new member, not `INDEPENDENT`.
+6. **L5 now unblocks TWO families, not one** — and the reach split across the
+   registry is **the free scale, not the count/binary divide**.
+   `quasipoisson(log)` and `gaussian(identity)` both carry
+   `dispersion_fixed=False`; the other three are `True`. Slice 1 made Gaussian
+   the second such family and thereby falsified the plan's own *"the only
+   registered family"* wording, now amended. Slice 3 should size L5 against both.
+   Verify by execution rather than by reading — walking `_FAMILY_LINKS` and
+   printing `dispersion_fixed` is two lines, and it is how PR #237 review
+   [P1-C] was confirmed.
 
 ---
 

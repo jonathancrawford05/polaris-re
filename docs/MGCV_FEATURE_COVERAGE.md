@@ -92,7 +92,7 @@ and `sz` already has its branch. So L3 needs a representation decision (widen
 | `quasipoisson(log)` | **yes** | ⚠️ partial | `reml_score_general` **raises** on `dispersion_fixed=False` — see §2.3 |
 | `binomial(logit)` | **yes** | ✅ tier 3 (ADR-195) | |
 | `binomial(cloglog)` | **yes** | ✅ tier 3 (ADR-195) | the target formula's own family |
-| **`gaussian(identity)`** | **yes** (2026-09-19, L1) | ✅ tier 3, **fixed `sp` only** (ADR-229) | `eta` `2.442e-14` and `edf_total` `-7.105e-15` against ADR-221's committed criterion, on the tier-3-verified three-term design with only the family changed. **FIXED `sp` ONLY**: Gaussian estimates its scale and `reml_score_general` raises on a free one until **L5** (slice 3), so free-`sp` selection under this family is neither measured nor claimed. Also closed-form verified (IRLS vs `lstsq` and vs the closed-form ridge, both `1e-12`) |
+| **`gaussian(identity)`** | **yes** (2026-09-19, L1) | ✅ tier 3, **fixed `sp` only** (ADR-229) | `eta` and `edf_total` agree to **order `1e-14`** against ADR-221's committed criterion (`2e-2` / `1.0`), on the tier-3-verified three-term design with only the family changed. **No single figure is quoted here on purpose**: the reading is NOT bit-reproducible across oracle runs — five runs gave three distinct `max_abs_eta_diff` values and two distinct `edf_total_diff` values, while `edf_total` read `55.972550` on both sides every time. Treat a last-bits difference as host noise, not a regression; **ADR-229** has the numbers and the (unestablished) mechanism. **FIXED `sp` ONLY**: Gaussian estimates its scale and `reml_score_general` raises on a free one until **L5** (slice 3), so free-`sp` selection under this family is neither measured nor claimed. Also closed-form verified (IRLS vs `lstsq` and vs the closed-form ridge, both `1e-12`) |
 | `Gamma`, `inverse.gaussian` | **NO** | — | |
 | `nb` / `negbin` | **NO** | — | |
 | `tw` (Tweedie) | **NO** | — | |
@@ -103,11 +103,25 @@ and `sz` already has its branch. So L3 needs a representation decision (widen
 plus `gaussian`/`identity` at L1 on 2026-09-19), deliberately with no fallback —
 an unrecognised pair raises rather than guessing. **Being in that dict means
 "expressible", not "verified against mgcv"** — the next pair added will sit
-there unmeasured until its own slice measures it. All five entries happen to be
-mgcv-verified today, but **not to the same reach**: the four count/binary pairs
-at free `sp` (ADR-195), `gaussian`/`identity` at **fixed `sp` only** (ADR-229).
-The docstring carries that split so it travels with the code; the Stage B column
-above is the authority.
+there unmeasured until its own slice measures it.
+
+All five entries happen to be mgcv-verified today, but **not to the same
+reach**, and the fault line is **the free scale**, not the count/binary divide:
+
+- **All five** at **fixed `sp`** — ADR-195 for the four count/binary pairs,
+  ADR-229 for `gaussian`/`identity`.
+- **`quasipoisson(log)` and `gaussian(identity)` stop there**, for the same
+  reason: both are `dispersion_fixed=False`, so `reml_score_general` raises
+  until **L5**. That is why the `quasipoisson` row above reads `⚠️ partial` and
+  why §2.3's scale-estimated-REML row names the two families together. **L5
+  unblocks two of them, not one.**
+- **Free-`sp` selection** is measured on `binomial(cloglog)` — the target
+  formula's own family — by the REML/selection work (ADR-210, ADR-217/218,
+  slices 5b/7b), **not** by ADR-195, which is the fixed-`sp` result (§2.3's
+  first row).
+
+The docstring carries that split so it travels with the code; the Stage B
+column above is the authority.
 
 ### 2.3 Fitting machinery
 
