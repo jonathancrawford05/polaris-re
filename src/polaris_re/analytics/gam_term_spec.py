@@ -36,17 +36,21 @@ __all__ = [
     "TermSpec",
 ]
 
-SUPPORTED_BASES: tuple[str, ...] = ("cr", "ti", "sz", "raw")
+SUPPORTED_BASES: tuple[str, ...] = ("cr", "ti", "sz", "re", "raw")
 """The basis kinds PLAN §3 puts in scope, plus ``"raw"``.
 
 ``"cr"`` — Wood's cubic regression spline (slice 2). ``"ti"`` — tensor interaction with
 marginal main effects excluded (slice 5). ``"sz"`` — sum-to-zero factor-smooth
-interaction (slice 6). ``"raw"`` is not one of ``mgcv``'s basis classes: it names a term
-whose design and penalty are supplied directly, the existing tensor MI surface's own
-route through ``paraPen`` (ADR-189 decision 1). A ``"raw"`` term carries no ``k`` and no
-knots — the caller supplies the matrices, not a recipe for building them — which is why
-slice 1's harness can be proven against the already-verified tensor design without
-either side needing an ``mgcv`` smooth-class equivalent for it."""
+interaction (slice 6). ``"re"`` — the random-effect / level-indicator basis
+(capability ladder rung L2, ``docs/PLAN_mgcv_capability_ladder.md`` slice 2): design is
+the factor's own level-indicator matrix, penalty is the identity — see
+:mod:`polaris_re.analytics.gam_basis_re`. ``"raw"`` is not one of ``mgcv``'s basis
+classes: it names a term whose design and penalty are supplied directly, the existing
+tensor MI surface's own route through ``paraPen`` (ADR-189 decision 1). A ``"raw"`` term
+carries no ``k`` and no knots — the caller supplies the matrices, not a recipe for
+building them — which is why slice 1's harness can be proven against the
+already-verified tensor design without either side needing an ``mgcv`` smooth-class
+equivalent for it."""
 
 
 @dataclass(frozen=True)
@@ -82,11 +86,15 @@ class TermSpec:
             "``mgcv``'s default for this basis" rather than "no penalty" — every
             basis in :data:`SUPPORTED_BASES` other than an unpenalized parametric
             term is penalized.
-        n_levels: Number of factor levels for a ``basis="sz"`` term (``mgcv``'s
-            ``length(levels(fac))``) — an input, not derived from data, the same
-            Anchor-4 discipline ``k``/``knots`` already follow: a factor level
+        n_levels: Number of factor levels for a ``basis="sz"`` or ``basis="re"`` term
+            (``mgcv``'s ``length(levels(fac))``) — an input, not derived from data, the
+            same Anchor-4 discipline ``k``/``knots`` already follow: a factor level
             absent from one particular sample must not silently shrink the term.
-            Must be ``None`` for any other basis. Optional even for ``"sz"``:
+            Must be ``None`` for any other basis, and **required** (not optional) for
+            ``"re"`` — a ``"re"`` term's entire recipe is the factor and its level
+            count, so there is no narrower Stage-A harness for it to be optional
+            against the way ``"sz"``'s own harness (below) makes it optional there.
+            Optional even for ``"sz"``:
             :func:`~polaris_re.analytics.gam_stage_a.build_python_sz_term`'s
             narrower Stage-A harness takes ``n_levels`` as its own explicit
             argument (the R-side recipe's ``"n_levels"`` field) rather than
@@ -164,6 +172,29 @@ class TermSpec:
                     f"TermSpec {self.label!r} is basis='sz' with n_levels="
                     f"{self.n_levels!r}; sz needs at least 2 factor levels."
                 )
+        elif self.basis == "re":
+            # mgcv's own asymmetry the other way from sz: a "re" term names a
+            # single factor variable, carries no basis dimension of its own (its
+            # width IS n_levels — module gam_basis_re.py), and n_levels is
+            # REQUIRED rather than optional (there is no narrower harness for it
+            # to be optional against, unlike sz's build_python_sz_term).
+            if len(self.variables) != 1:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} is basis='re' with variables "
+                    f"{self.variables}; re names exactly one factor variable."
+                )
+            if self.k:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} is basis='re' and must not carry "
+                    f"k={self.k!r} — its width is n_levels (the factor's own "
+                    f"level count), not a smoothing k."
+                )
+            if self.n_levels is None or self.n_levels < 2:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} is basis='re' with n_levels="
+                    f"{self.n_levels!r}; re needs n_levels set, >= 2 (mgcv's "
+                    f"length(levels(fac)))."
+                )
         elif len(self.k) != len(self.variables):
             raise PolarisValidationError(
                 f"TermSpec {self.label!r} has {len(self.variables)} variable(s) but "
@@ -190,11 +221,11 @@ class TermSpec:
                 f"a numeric-by smooth and a factor-smooth are different mgcv "
                 f"constructions; a term is one or the other."
             )
-        if self.basis != "sz" and self.n_levels is not None:
+        if self.basis not in ("sz", "re") and self.n_levels is not None:
             raise PolarisValidationError(
                 f"TermSpec {self.label!r} has basis={self.basis!r} but sets "
-                f"n_levels={self.n_levels!r} — only a basis='sz' term has a "
-                f"factor-level count."
+                f"n_levels={self.n_levels!r} — only a basis='sz' or basis='re' "
+                f"term has a factor-level count."
             )
 
 
