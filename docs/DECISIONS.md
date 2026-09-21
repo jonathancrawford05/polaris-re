@@ -23314,3 +23314,196 @@ family cannot be registered without them.
   [P1-C], which caught a first attempt at that paragraph sweeping
   `quasipoisson` into the free-`sp` group).
 
+
+## ADR-230: Capability ladder rung L2 — `bs="re"` reproduces `mgcv` exactly at Stage A and at fixed AND free `sp`
+
+**Date:** 2026-09-21
+**Status:** Accepted
+**Supersedes:** nothing. **Extends:** ADR-193 (Stage-A parity), ADR-221 (the
+committed `eta`/`edf_total` gate, imported verbatim), ADR-229 (the ladder's
+first climbed rung).
+**Epic:** `docs/PLAN_mgcv_capability_ladder.md`, slice 2.
+**Ledger:** three rows — Stage A, Stage B fixed `sp`, Stage B free `sp` — all
+quantities `INDEPENDENT`.
+
+### Context
+
+`docs/MGCV_FEATURE_COVERAGE.md` §2.1 listed `bs="re"` as **NO** — absent, despite
+being named explicitly in the maintainer's own statement of the objective
+(`MGCV_FEATURE_COVERAGE.md` §1: *"including `ti`, `s(..., bs='re')`, etc."*). It
+is `mgcv`'s cheapest basis — the design is the factor's own level-indicator
+matrix, the penalty is the identity, and it carries exactly one smoothing
+parameter regardless of factor-level count (already asserted by
+`scripts/mgcv_penalty_count_probe.R` and `docs/MGCV_NOTATION_PRIMER.md` §4) —
+and, actuarially, it **is** a Bühlmann-Straub credibility model: the ridge
+penalty over level indicators, with the smoothing parameter estimated as the
+credibility constant rather than hand-set.
+
+### What was verified about `mgcv` before any code was written
+
+Read from `smoothCon()`'s own output, not assumed by analogy with `cr`/`ti`/`sz`
+(the plan's own instruction — "verify by reading what `smoothCon` actually
+returns rather than assuming symmetry with the `cr` basis's own
+constraint-absorption story"):
+
+```r
+sm_true  <- smoothCon(s(fac, bs="re"), data=df, absorb.cons=TRUE)[[1]]
+sm_false <- smoothCon(s(fac, bs="re"), data=df, absorb.cons=FALSE)[[1]]
+identical(sm_true$X, sm_false$X)   # TRUE — absorb.cons changes NOTHING
+nrow(sm_true$C)                     # 0 — no constraint is absorbed, ever
+sm_true$S[[1]]                      # exactly diag(n_levels)
+sm_true$rank                        # n_levels (full rank)
+```
+
+**`mgcv` absorbs no identifiability constraint on a `"re"` term, regardless of
+`absorb.cons`.** This is documented `mgcv` behaviour, not an accident of one
+probe: a random-effect smooth must stay free to shrink toward the overall mean
+under a large smoothing parameter, which a sum-to-zero constraint would
+prevent. So the Stage-A claim (below) names one `mgcv` producer, not two.
+
+### Build
+
+`polaris_re.analytics.gam_basis_re.re_basis(group, n_levels)` — the entire
+construction is two lines: a 0/1 level-indicator design and
+`numpy.eye(n_levels)`. No knot recipe, no rescaling, no constraint step — every
+one of `gam_basis_cr`'s four construction stages collapses to nothing here.
+Wired into `TermSpec` (`basis="re"`, one factor variable, no `k`, `n_levels`
+**required** — the mgcv asymmetry the OTHER way from `sz`, where `n_levels` is
+optional) and into `gam_model.assemble_model_design`'s dispatch, alongside
+`cr`/`ti`/`sz`.
+
+### The claim, written before the code (`docs/VERIFICATION_STANDARD.md` §3.2)
+
+**Stage A:** *"`polaris_re`'s `re` basis computes `design_X`/`penalty_S` from
+the factor's level indicators and the identity penalty; `mgcv` computes them
+via `smoothCon(s(fac, bs="re"), absorb.cons=...)`; compared on `design_X`,
+`penalty_S`, `rank`."* Carried verbatim as
+`gam_stage_a.RE_BASIS_CLAIM`.
+
+**Stage B fixed `sp`:** *"`polaris_re`'s `fit_polaris_gam`... under
+`gaussian(link='identity')` at a FIXED, externally-supplied `sp`... `mgcv`
+computes the identical model natively... compared on `eta` and `edf_total`
+against ADR-221's committed criterion."* Carried as
+`gam_re_conformance.RE_FIXED_SP_CLAIM`. Fixed `sp` for the same reason ladder
+rung L1 is fixed-`sp` only: Gaussian estimates its scale and
+`reml_score_general` raises on a free one until rung L5 (slice 3).
+
+**Stage B free `sp`:** the SAME two-term structure under `poisson(log)` instead
+of Gaussian — `poisson` carries `dispersion_fixed=True`, and its free-`sp`
+search is already verified elsewhere in this epic (ADR-196-199, the
+`binomial(cloglog)` free-`sp` claims), so the `"re"` term's own free-`sp`
+behaviour does **not** wait on rung L5, per the plan's own instruction for this
+slice. Carried as `gam_re_conformance.RE_FREE_SP_CLAIM`.
+
+Both Stage-B gates **import** `_AGREEMENT_TOLERANCE_ETA`/`_EDF` from
+`gam_select_free_sp_conformance` — never redeclared (Anchor W5).
+
+### Result (tier 3 — pinned digest, R 4.6.1 / mgcv 1.9.4)
+
+Oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+run [35553707543](https://github.com/jonathancrawford05/polaris-re/actions/runs/35553707543).
+
+**Stage A** (two isolated cases, 4 and 7 factor levels):
+
+| case | `max_abs_design_diff` | `max_abs_S_diff` | `rank_diff` |
+|---|---:|---:|---:|
+| `re-4level` | `0.000e+00` | `0.000e+00` | `0` |
+| `re-7level` | `0.000e+00` | `0.000e+00` | `0` |
+
+Exact agreement, at both level counts — the level-indicator matrix and the
+identity penalty admit no floating-point residue at all, unlike a spline basis
+built from a knot vector.
+
+**Stage B, fixed `sp`** (`gaussian(identity)`, `n=900`, `n_levels=6`):
+
+| quantity | reading | ADR-221's committed bound | headroom |
+|---|---|---|---|
+| `max_abs_eta_diff` | `2.176e-14` | `< 2e-2` | `9.2e11×` |
+| `edf_total_diff` | `1.066e-14` | `abs(·) < 1.0` | `9.4e13×` |
+
+Polaris `edf_total` `17.360907`, `mgcv` `17.360907`. Offset tripwire
+`0.000e+00`.
+
+**Stage B, free `sp`** (`poisson(log)`, `n=900`, `n_levels=6`, `p=19`,
+single-start — `fit_polaris_gam`'s own default, no `multistart` needed):
+
+| quantity | reading | ADR-221's committed bound | headroom |
+|---|---|---|---|
+| `max_abs_eta_diff` | `3.226e-05` | `< 2e-2` | `620×` |
+| `edf_total_diff` | `-1.0e-03` | `abs(·) < 1.0` | `~1000×` |
+
+`max_abs_log10_sp_diff` `0.0010` (reported, not the gate), `max_abs_term_edf_diff`
+`0.0010`, `at_bound=False`, `converged=True` on both sides. Offset tripwire
+`6.661e-16`.
+
+**Both regimes `agrees=True` at tier 3.** The free-`sp` margin is smaller than
+the fixed-`sp` margin by roughly nine orders of magnitude — expected: fixed
+`sp` is a single linear solve with no search involved, while free `sp` adds an
+independent nonlinear REML optimisation on each side, so its agreement rests on
+two outer searches landing at compatible optima rather than on shared
+arithmetic. Both margins are comfortably inside ADR-221's gate.
+
+### Suspicion, not just a check (the continuation's own instruction for this slice)
+
+Stage A's exact-zero agreement and Stage B's near-machine-precision fixed-`sp`
+agreement are both the signature of an echo before they are evidence of
+anything. Interrogated the same two ways ADR-229 used for its own near-exact
+`edf_total` reading:
+
+1. **Every `mgcv`-produced key stripped from the payload** (`eta`, `edf_total`,
+   `term_edf`, `offset_gap`, `coef`, `converged` for the fixed-`sp` recipe;
+   plus `sp` for the free-`sp` recipe) — the Polaris fit is bit-identical with
+   or without them present, both regimes
+   (`test_..._fit_is_unchanged_when_every_mgcv_key_is_stripped`, both fixed and
+   free `sp`). Structurally enforced too: `RReFixedSpRecipe`/`RReFreeSpRecipe`
+   carry none of these keys, so a caller cannot even pass them through.
+2. **`edf_total` moves with the `"re"` block's own penalty**
+   (`test_fixed_sp_edf_total_moves_with_the_re_blocks_own_penalty`): raising
+   the `"re"` block's fixed `sp` from `1.2` to `50.0` strictly reduces
+   `edf_total`, so the comparison is not vacuously insensitive to the term
+   under test.
+
+The mathematics explains why Stage A and fixed-`sp` Stage B land where they do:
+the `"re"` basis has **no continuous construction step at all** — no knot
+placement, no quadrature, no eigendecomposition — so there is nothing left for
+two implementations to differ about beyond an integer indexing convention, and
+both sides use the same 0-indexed factor-level convention (`sz`'s own
+`group` convention, reused verbatim). At fixed `sp` under Gaussian identity,
+the fit is the same single linear solve ADR-229 already characterised, now
+over a design one of whose blocks has zero construction residue rather than a
+spline's floating-point one.
+
+### Provenance summary (ADR-193 gate)
+
+- Stage A `design_X`, `penalty_S`, `rank`: **INDEPENDENT** —
+  `build_python_re_term` takes only `(group, n_levels, term)`, never the R
+  payload's `X`/`S`/`rank`.
+- Stage B (both regimes) `eta`, `edf_total` (free `sp` additionally
+  `log10(sp)` per block and per-term `edf`): **INDEPENDENT** —
+  `fit_re_fixed_sp_case`/`fit_re_free_sp_case` take only
+  `RReFixedSpRecipe`/`RReFreeSpRecipe`, which structurally exclude every
+  `mgcv`-produced key.
+- No `REFERENCE_INTERNAL` or `MEASUREMENT (own criterion)` quantity appears in
+  this slice — every comparison has Polaris as one of its two producers.
+
+### Consequences
+
+- `MGCV_FEATURE_COVERAGE.md` §2.1's `re` row moves from **NO** to **yes**,
+  Stage A ✅ tier 3 (exact), Stage B ✅ tier 3 **fixed AND free `sp`** — the
+  first basis in this epic to land both `sp` regimes in the SAME slice that
+  introduced it, because `poisson(log)`'s free-`sp` search was already
+  verified and did not need rung L5 first.
+- The ladder's L2 rung is climbed; slice 3 (L5, scale-estimated REML) is next.
+- `SUPPORTED_BASES` is now `("cr", "ti", "sz", "re", "raw")`; `TermSpec`'s
+  `n_levels` field is shared by `"sz"` (optional) and `"re"` (required) with
+  the asymmetry stated in both the field docstring and the validation error
+  text.
+
+### What remains, named rather than attempted
+
+- **Factor-`by`** (`s(x, by=fac)`, ladder L3) is a different construction —
+  one smooth per factor level, each with its own `sp` — and is not touched by
+  this slice.
+- **`bs="fs"`** (ladder L6) shares `"re"`'s hierarchical-structure motivation
+  but is a genuinely different penalty count (`1 + M`, not `1`) and margin
+  structure; out of scope here, per `MGCV_FEATURE_COVERAGE.md` §5.

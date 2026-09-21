@@ -174,7 +174,7 @@ the family rather than introducing a new design at the same time.
 **Explicitly NOT claimed:** free `sp`. Blocked by slice 3; the coverage row says
 "fixed `sp` only" until then, the way `sz`'s row already does.
 
-### Slice 2 — L2 `bs="re"`
+### Slice 2 — L2 `bs="re"` — ✅ **DONE 2026-09-21 (ADR-230)**
 
 **Why this is the highest value-to-effort item on the board.** It is named in
 objective item 1. It is the **cheapest basis in mgcv**: the model matrix is the
@@ -200,6 +200,22 @@ fixed-dispersion family (Poisson-log or binomial), so this slice does **not**
 wait on slice 3.
 
 **Acceptance:** ADR-221, tier 3, both `sp` regimes.
+
+**Landed:** Stage A exact (`0.000e+00` on `design_X`/`penalty_S`, `rank_diff
+= 0`, at both 4 and 7 factor levels) — `mgcv` was confirmed first, by direct
+probe, to absorb NO identifiability constraint on `bs="re"` regardless of
+`absorb.cons` (`nrow($C) == 0`, bit-identical `$X` either way), so the claim
+names one `mgcv` producer, not two. Stage B fixed `sp` (`gaussian(identity)`,
+matching slice 1's own regime): `max_abs_eta_diff = 2.176e-14`,
+`edf_total_diff = 1.066e-14`. Stage B free `sp` (`poisson(log)`, chosen so
+this half does not wait on slice 3): `max_abs_eta_diff = 3.226e-05`,
+`max_abs_log10_sp_diff = 0.0010`, `edf_total_diff = -0.0010`, single-start
+sufficed. All tier 3, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+run 35553707543. See ADR-230 for the full measurement and the two
+independence tests (strip every `mgcv` key; `edf_total` moves with the `re`
+block's own penalty) that make the near-machine-precision fixed-`sp` reading
+reportable rather than merely green.
 
 ### Slice 3 — L5 Scale-estimated REML
 
