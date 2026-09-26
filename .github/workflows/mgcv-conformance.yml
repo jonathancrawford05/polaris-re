@@ -162,6 +162,15 @@ on:
       - "scripts/gam_re_probe.R"
       - "scripts/gam_re_free_sp_probe.R"
       - "src/polaris_re/analytics/gam_term_spec.py"
+      # CAPABILITY LADDER rung L5 (docs/PLAN_mgcv_capability_ladder.md slice
+      # 3) — scale-estimated REML. gam_reml.py's own free-scale branch is
+      # already listed above (it is the module under test for every REML
+      # slice); these lines add the score-level comparison (both free-scale
+      # families) and the fit-level free-sp re-run that lifts ladder slice
+      # 1's own "fixed sp only" qualifier.
+      - "src/polaris_re/analytics/gam_free_scale_reml_conformance.py"
+      - "scripts/gam_free_scale_reml_score_probe.R"
+      - "scripts/gam_gaussian_free_sp_probe.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -556,6 +565,39 @@ jobs:
             Rscript scripts/gam_re_free_sp_probe.R \
               gam_re_free_sp_probe.json
 
+      # CAPABILITY LADDER rung L5 (docs/PLAN_mgcv_capability_ladder.md slice
+      # 3) — scale-estimated REML, the SCORE-level measurement. A shared
+      # two-block design fitted under BOTH gaussian(identity) and
+      # quasipoisson(log) at three fixed (sp1, sp2) points via method="REML",
+      # so m$gcv.ubre reports the free-scale REML criterion at each exact
+      # point (no optimisation runs). Same DIAGNOSTIC contract as every probe
+      # above — the score comparison against the independent Python
+      # gam_reml.reml_score_general (free-scale branch) happens in the
+      # `compare` job below.
+      - name: Fit a shared two-block design under gaussian and quasipoisson at fixed sp (ladder L5, score)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_free_scale_reml_score_probe.R \
+              gam_free_scale_reml_score_probe.json
+
+      # CAPABILITY LADDER rung L5, the FIT-level re-run: the IDENTICAL
+      # three-term design ladder L1 (ADR-229) verified at fixed sp, now fit
+      # at FREE sp under gaussian(identity) — unblocked by this slice's own
+      # free-scale REML branch (before it existed, reml_score_general raised
+      # unconditionally on this family, so select_lambdas_continuous had no
+      # criterion to search). This is the measurement that lifts ladder
+      # slice 1's own "fixed sp only" qualifier. Same DIAGNOSTIC contract as
+      # every probe above.
+      - name: Fit the three-term design under gaussian(identity) at free sp (ladder L5, fit)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_gaussian_free_sp_probe.R \
+              gam_gaussian_free_sp_probe.json
+
       # Asserts every penalty-counting reading in docs/MGCV_NOTATION_PRIMER.md
       # sections 1, 3 and 4 against the pinned mgcv, so the primer's numbers are
       # tier 3 rather than recalled. BOTH SIDES ARE mgcv — Polaris is absent, so
@@ -673,6 +715,8 @@ jobs:
             gam_gaussian_probe.json
             gam_re_probe.json
             gam_re_free_sp_probe.json
+            gam_free_scale_reml_score_probe.json
+            gam_gaussian_free_sp_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -2266,6 +2310,162 @@ jobs:
             cat gam_re_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # CAPABILITY LADDER rung L5 (docs/PLAN_mgcv_capability_ladder.md slice
+      # 3) — the SCORE-level comparison: the independent Python
+      # gam_reml.reml_score_general (free-scale branch) against job 1's
+      # native mgcv gcv.ubre, at three fixed (sp1, sp2) points, for BOTH
+      # gaussian(identity) (ABSOLUTE score) and quasipoisson(log) (PAIRWISE
+      # DIFFERENCES only — see gam_free_scale_reml_conformance's own
+      # docstring for why the two families are held to different
+      # conventions).
+      - name: Compare the free-scale REML score against the Python side (ladder L5, score)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import numpy as np
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_free_scale_reml_score_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_free_scale_reml_score_probe.json to compare ({exc}) "
+                    "— the R probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_free_scale_reml_conformance import (
+              FREE_SCALE_REML_SCORE_CLAIM, compare_free_scale_absolute,
+              compare_free_scale_pairwise,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          x = np.asarray(r_payload["X"], dtype=np.float64)
+          s1 = np.asarray(r_payload["S1"], dtype=np.float64)
+          s2 = np.asarray(r_payload["S2"], dtype=np.float64)
+
+          absolute = compare_free_scale_absolute(x, s1, s2, r_payload)
+          pairwise = compare_free_scale_pairwise(x, s1, s2, r_payload)
+
+          lines = [
+              "",
+              "### Capability ladder rung L5 — scale-estimated REML score vs mgcv",
+              "",
+              evidence_markdown(FREE_SCALE_REML_SCORE_CLAIM),
+              "",
+              "**gaussian(identity), ABSOLUTE score:**",
+              "",
+              "| sp | python score | mgcv gcv.ubre | diff | agrees |",
+              "|---|---:|---:|---:|---|",
+          ]
+          for c in absolute:
+              lines.append(
+                  f"| {c['sp']} | {c['python_score']:.10f} | {c['r_score']:.10f} | "
+                  f"{c['diff']:.3e} | {c['agrees']} |"
+              )
+          lines += [
+              "",
+              "**quasipoisson(log), PAIRWISE score differences** (quasi-likelihood "
+              "has no proper saturated log-likelihood, so its own additive "
+              "convention offset is not compared — same convention "
+              "`gam_reml_conformance` already uses for the known-scale binomial "
+              "case, ADR-196):",
+              "",
+              "| point A | point B | python diff | mgcv diff | residual | agrees |",
+              "|---|---|---:|---:|---:|---|",
+          ]
+          for c in pairwise:
+              lines.append(
+                  f"| {c['point_a']} | {c['point_b']} | {c['python_diff']:.10f} | "
+                  f"{c['r_diff']:.10f} | {c['residual']:.3e} | {c['agrees']} |"
+              )
+          lines += [
+              "",
+              "This is the criterion measurement Anchor 1 requires BEFORE any "
+              "search is built on it — the fit-level free-sp re-run below is "
+              "what actually removes ladder slice 1's own qualifier.",
+          ]
+          if not all(c["agrees"] for c in absolute) or not all(c["agrees"] for c in pairwise):
+              lines.insert(2, "**Disagreement — see the tables. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_free_scale_reml_score_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_free_scale_reml_score_probe_report.md ]; then
+            cat gam_free_scale_reml_score_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # CAPABILITY LADDER rung L5, the FIT-level re-run — compares the
+      # independent Python free-sp fit (gaussian identity, this slice's own
+      # free-scale REML branch) against job 1's native mgcv free-sp REML fit
+      # of the IDENTICAL three-term design ladder L1 (ADR-229) verified at
+      # fixed sp. THIS is the measurement that lifts ladder slice 1's own
+      # "fixed sp only" qualifier — ADR-221's committed eta/edf criterion,
+      # imported, never redeclared.
+      - name: Compare the gaussian(identity) free-sp fit against the Python side (ladder L5, fit)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_gaussian_free_sp_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_gaussian_free_sp_probe.json to compare ({exc}) — "
+                    "the R probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_gaussian_conformance import (
+              GAUSSIAN_FREE_SP_CLAIM, compare_gaussian_free_sp_case,
+              fit_gaussian_free_sp_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          fit = fit_gaussian_free_sp_case(r_payload)
+          c = compare_gaussian_free_sp_case(fit, r_payload)
+
+          lines = [
+              "",
+              "### Capability ladder rung L5 — gaussian(identity) at FREE sp vs mgcv "
+              "(lifts ladder slice 1's own qualifier)",
+              "",
+              evidence_markdown(GAUSSIAN_FREE_SP_CLAIM),
+              "",
+              "| n | p | max abs eta diff | max abs log10(sp) diff | edf_total diff | "
+              "max abs per-term edf diff | at bound | converged | agrees |",
+              "|---:|---:|---:|---:|---:|---:|---|---|---|",
+              f"| {r_payload['n']} | {len(r_payload['coef'])} | "
+              f"{c['max_abs_eta_diff']:.3e} | {c['max_abs_log10_sp_diff']:.4f} | "
+              f"{c['edf_total_diff']:+.4f} | {c['max_abs_term_edf_diff']:.4f} | "
+              f"{c['at_bound']} | {c['converged']} | {c['agrees']} |",
+              "",
+              "**This is the same recipe as ladder L1 (ADR-229), only the fitting "
+              "regime changed** — from a caller-supplied fixed sp to mgcv's own "
+              "free-sp REML selection, now reachable because this slice's "
+              "free-scale REML branch gives `select_lambdas_continuous` a "
+              "criterion to search. The gate is ADR-221's committed criterion, "
+              "imported and never redeclared (Anchor W5). `sp` is a COMPARED "
+              "QUANTITY here, not a shared input — reported, not gated. "
+              "Coefficients are NOT compared (Anchor 2).",
+              "",
+              f"**Offset tripwire** (reported, never gated): {c['offset_gap']:.3e}.",
+          ]
+          if not c["agrees"]:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_gaussian_free_sp_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_gaussian_free_sp_probe_report.md ]; then
+            cat gam_gaussian_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # PLAN slice 7b (ADR-218): does mgcv's OWN free-sp select=TRUE point
       # score better, under our OWN criterion (ADR-217's fixed-sp fix),
       # than our best-of-9 multistart result reaches — same discriminator
@@ -2687,3 +2887,7 @@ jobs:
             gam_re_probe_report.md
             gam_re_free_sp_probe.json
             gam_re_free_sp_probe_report.md
+            gam_free_scale_reml_score_probe.json
+            gam_free_scale_reml_score_probe_report.md
+            gam_gaussian_free_sp_probe.json
+            gam_gaussian_free_sp_probe_report.md

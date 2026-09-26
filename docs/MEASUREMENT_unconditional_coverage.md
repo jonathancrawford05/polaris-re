@@ -91,9 +91,10 @@ The rejected-grid-point columns are the direct evidence for slice 4's first piec
 - **`mgcv` parity and coverage are different claims.** The row above says this band is the same object `mgcv` computes. It does not say that object is well-calibrated — that is what the coverage column measures, and the two could in principle disagree. Read them as two facts, not one.
 
 <!-- measurement-provenance
-fingerprint: 0ee2233073b257e9ff96a5ea76b3308decfd51afe3ec804bdc54f339e5aac0c5
-generated: 2026-09-19
+fingerprint: 5d69ecf2417e9415e491a1c1c5cd2de5f3a2165c40b81b0805ff074fbcdcbe4d
+generated: 2026-09-26
 producer: scripts/unconditional_coverage_study.py
-method: regenerated
-head: 7d56326
+method: asserted
+head: 84e8e2d
+note: PLAN_mgcv_capability_ladder.md slice 3 (L5): gam_family.py changed (Gaussian-only _gaussian_deviance_terms factor-of-2 fix, ADR-231) and gam_reml.py changed (new free-scale branch). Neither touches this study's measured path: unconditional_coverage_study.py imports only experience_gam_penalized/gam_uncertainty_mi, whose only gam_family dependency is poisson_log() (gam_uncertainty_mi.py:71) - Poisson's own deviance terms are untouched by this slice. The closure hash moved because it hashes gam_family.py's file content, not per-function; the measured Poisson-only path is unaffected.
 -->

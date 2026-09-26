@@ -227,18 +227,35 @@ def _gaussian_variance_prime(mu: np.ndarray) -> np.ndarray:
 
 
 def _gaussian_deviance_terms(y: np.ndarray, mu: np.ndarray) -> np.ndarray:
-    """``(y - mu)^2`` per observation.
+    """``0.5 * (y - mu)^2`` per observation.
 
-    :meth:`Family.deviance` multiplies the weighted sum by 2, so the deviance
-    this yields is ``2 * sum(w (y-mu)^2)``. That is **twice** the residual sum of
-    squares, which is ``mgcv``'s own convention: ``gam(family=gaussian())$deviance``
-    returns the RSS, and the factor of 2 is the ``2 *`` in the exponential-family
-    deviance definition cancelling against the Gaussian's own ``1/2``. Do not
-    "fix" the factor here — it is the shared :meth:`Family.deviance` contract, and
-    only the IRLS convergence test consumes it, where a constant factor is inert.
+    **Corrected, PLAN slice 3 (L5 scale-estimated REML), ADR-231.** An earlier
+    revision returned bare ``(y - mu)^2`` with a comment claiming the ``2 *``
+    :meth:`Family.deviance` applies "cancels against the Gaussian's own
+    ``1/2``" to reproduce ``mgcv``'s convention — that arithmetic is backwards:
+    bare ``(y-mu)^2`` times :meth:`Family.deviance`'s ``2 *`` gives
+    ``2 * sum(w (y-mu)^2)``, TWICE ``mgcv``'s own
+    ``gam(family=gaussian())$deviance`` (measured directly against ``mgcv``,
+    tier 1: ``m$deviance`` equals the plain RSS, not ``2 * RSS`` —
+    ``docs/CONFORMANCE_LEDGER.md``). The standard exponential-family deviance
+    ``D = 2*phi*(l_sat - l(mu))`` reduces to exactly ``sum(w (y-mu)^2)`` for
+    Gaussian (the likelihood's own ``-0.5(y-mu)^2/phi`` already carries the
+    ``1/2`` that must be halved-and-doubled away), so this function must
+    supply the missing ``0.5 *`` itself rather than rely on an external factor
+    that never arrives.
+
+    This was harmless everywhere the deviance was previously used **only** for
+    the IRLS convergence test (a positive scalar's own constant multiple is
+    inert there) — which is why it shipped unnoticed at ADR-229 (L1, fixed
+    `sp` only, where the REML score never runs for Gaussian). It became
+    load-bearing the moment :func:`~polaris_re.analytics.gam_reml.reml_score_general`
+    started using ``family.deviance`` as Wood (2011) eq. (4)'s ``D(beta_hat)``
+    for a free-scale family: a wrong-by-2x deviance feeds a wrong-by-2x
+    penalized deviance into ``phi_hat = Dp / (n - Mp)``, corrupting every
+    downstream term.
     """
     residual = y - mu
-    return np.asarray(residual * residual, dtype=np.float64)
+    return np.asarray(0.5 * residual * residual, dtype=np.float64)
 
 
 def gaussian_identity() -> Family:

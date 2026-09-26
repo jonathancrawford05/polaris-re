@@ -24,10 +24,15 @@ import pytest
 from polaris_re.analytics.experience_mgcv_conformance import rscript_mgcv_available
 from polaris_re.analytics.gam_gaussian_conformance import (
     GAUSSIAN_CLAIM,
+    GAUSSIAN_FREE_SP_CLAIM,
+    RGaussianFreeSpPayload,
+    RGaussianFreeSpRecipe,
     RGaussianPayload,
     RGaussianRecipe,
     compare_gaussian_case,
+    compare_gaussian_free_sp_case,
     fit_gaussian_case,
+    fit_gaussian_free_sp_case,
     gaussian_model_spec,
 )
 from polaris_re.core.exceptions import PolarisValidationError
@@ -284,3 +289,62 @@ def test_round_trip_against_mgcv(tmp_path: Path) -> None:
     # The offset tripwire: this recipe carries no offset, so the probe's two eta
     # readings must coincide. A non-zero would mean predict() was dropping one.
     assert result["offset_gap"] == 0.0
+
+
+# --------------------------------------------------------------------------
+# FREE sp — capability ladder rung L5 (PLAN_mgcv_capability_ladder.md slice 3).
+# Removes THIS module's own "fixed sp only" qualifier from slice 1.
+# --------------------------------------------------------------------------
+
+
+def test_free_sp_claim_is_independent_on_every_declared_quantity() -> None:
+    require_parity_evidence(GAUSSIAN_FREE_SP_CLAIM.quantities, claim=GAUSSIAN_FREE_SP_CLAIM.claim)
+    assert GAUSSIAN_FREE_SP_CLAIM.is_parity_claim
+
+
+def test_free_sp_fit_signature_structurally_cannot_read_mgcvs_fit() -> None:
+    """ADR-193's mechanical test, applied at the type — the free-sp sibling of
+    :func:`test_fit_signature_structurally_cannot_read_mgcvs_fit`."""
+    hints = typing.get_type_hints(fit_gaussian_free_sp_case)
+    assert hints["r_case"] is RGaussianFreeSpRecipe
+
+    recipe_keys = set(RGaussianFreeSpRecipe.__annotations__)
+    payload_only_keys = {"eta", "sp", "edf_total", "term_edf", "offset_gap", "coef", "converged"}
+    payload_keys = set(RGaussianFreeSpPayload.__annotations__)
+    assert recipe_keys.isdisjoint(payload_only_keys)
+    assert payload_only_keys <= payload_keys
+    assert "sp" not in recipe_keys  # free sp is what this measures, not a shared input
+
+
+def test_free_sp_claim_sentence_names_its_tolerances() -> None:
+    claim = GAUSSIAN_FREE_SP_CLAIM.claim
+    assert "2e-2" in claim
+    assert "1.0" in claim
+    assert "IMPORTED and not redeclared" in claim
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not rscript_mgcv_available(), reason="Rscript with mgcv not available")
+def test_free_sp_round_trip_against_mgcv(tmp_path: Path) -> None:
+    """Tier 1: run the free-sp probe and measure against it. The deliverable
+    that lifts slice 1's own "fixed sp only" qualifier
+    (``PLAN_mgcv_capability_ladder.md`` slice 3's own acceptance)."""
+    out = tmp_path / "gam_gaussian_free_sp_probe.json"
+    subprocess.run(
+        ["Rscript", str(REPO_ROOT / "scripts" / "gam_gaussian_free_sp_probe.R"), str(out)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    payload = typing.cast(RGaussianFreeSpPayload, json.loads(out.read_text()))
+
+    result = compare_gaussian_free_sp_case(fit_gaussian_free_sp_case(payload), payload)
+    assert result["agrees"], result
+    # The offset tripwire: this recipe carries no offset. Unlike the fixed-sp
+    # probe's exact 0.0 (a single linear solve), mgcv's free-sp REML fit goes
+    # through its own internal outer-iteration code path before
+    # m$linear.predictors/predict() are compared, so this is float round-trip
+    # noise rather than an exact bit match — still ~1e12x smaller than
+    # ADR-221's eta tolerance, and nowhere near the ~2 the epic's own false
+    # 1.9751-against-2e-2 reading (the trap this tripwire exists to catch).
+    assert result["offset_gap"] < 1e-9

@@ -67,6 +67,75 @@ against ``float128`` truth it is slightly less accurate than the naive form
 with a separate fix. See ``scripts/gam_penalty_sqrt_form_diagnostic.py``
 (the diagnostic this ports) and ``docs/PLAN_mgcv_parity_engine.md`` slice 7h.
 
+**PLAN slice 3 (ladder), L5 scale-estimated REML: the free-scale criterion,
+Wood (2011) §2 eq. (4) profiled over the unknown scale.** The known-scale
+formula above needs ``phi`` supplied (``gamma``, held fixed). When
+``family.dispersion_fixed`` is ``False`` (Gaussian, quasi-Poisson), ``phi`` is
+instead estimated as PART of the criterion, per the paper's own §2, "There are
+two approaches to the estimation of phi: (i) estimate phi as part of lr
+maximization, ...". Route (i) is what this module implements. Differentiating
+the paper's own eq. (4) — quoted here as printed (p.4):
+
+    ``-lr = Dp/(2*phi) - ls(phi) + K - (Mp/2)*log(2*pi*phi)``
+
+w.r.t. ``phi`` at fixed ``beta_hat``/``S`` (both are ``phi``-independent: the
+penalized-IRLS normal equations ``(X'WX+S)beta=X'Wz`` never contain ``phi`` —
+it multiplies the working-response/prior terms identically and cancels out of
+their stationarity condition) and setting the derivative to zero gives, for
+Gaussian's ``ls(phi) = -0.5*n*log(2*pi*phi)``:
+
+    ``phi_hat = Dp / (n - Mp)``
+
+where ``Mp`` is Wood's own null-space dimension of ``S`` (``p - r``, the paper
+states ``Mp is the dimension of the null space of S``) — **not** ``p``. This
+is the classical REML residual-variance estimator (Patterson & Thompson,
+1971; Harville, 1974): "restricted" because the denominator counts only the
+UNPENALIZED/null-space dimension, never the full coefficient count, which is
+the whole reason REML gives an unbiased scale estimate a plain ML denominator
+of ``n`` does not. Substituting ``phi_hat`` back and dropping the
+``phi``-independent constant ``Mp*log(2*pi)`` (paper's own term, unaffected by
+``phi`` or ``lambda`` — the same kind of constant this module already drops
+from the known-scale formula above) gives the criterion this function
+computes for a free-scale family:
+
+    ``V = 0.5*(n-Mp)*(1 + log(phi_hat)) + K + 0.5*(n-Mp)*log(2*pi)``
+
+with ``K = 0.5*log|X'WX+S| - 0.5*log|S|+`` — **exactly** the paper's own ``K``
+(§2: ``K = (log|X'WX+S| - log|S|+)/2``), computed identically to the
+known-scale branch above (same ``logdet_h``/``logdet_s``/``rank_s``, same
+observed-Hessian ``W``, same Appendix B determinant). Only the OUTER
+combination changes; nothing about how the penalty determinant or the
+Hessian is formed does.
+
+**Verified directly against ``mgcv``'s own reported REML score
+(``m$gcv.ubre``) before being wired in, not merely derived on paper** — see
+``docs/CONFORMANCE_LEDGER.md`` and ADR-231: this formula reproduces
+``m$gcv.ubre`` to float round-trip precision (~1e-13), including the additive
+``log(2*pi)`` constant (an exact match, not merely a matching SHAPE), across
+both an unpenalized Gaussian case (``Mp=p``, ``r=0``) and a penalized one
+(``r=6``, ``Mp=2``) at four widely-spread fixed ``sp`` values. Quasi-Poisson
+carries a small, nearly-``lambda``-independent additive residual against
+``m$gcv.ubre`` (~276 on one measured case, stable to ~1 part in ``4e5`` across
+a 2000x ``sp`` spread) — quasi-likelihood has no proper saturated
+log-likelihood, so ``ls(phi)`` is not uniquely defined for it the way it is
+for Gaussian, and the same residual-but-correct-shape pattern is exactly what
+ADR-196 already found and accepted for the known-scale Poisson criterion's
+own convention offset ("what matters for an optimiser is the criterion's
+SHAPE ... cancels any purely additive offset regardless of source"). This
+module's own free-``sp`` acceptance criterion is therefore the fitted
+``eta``/``edf_total`` agreement (ADR-221), not the score's absolute value, for
+BOTH free-scale families — matching every other Stage-B/Stage-C claim in this
+epic.
+
+**``gamma`` is NOT extended to a free-scale family here, and that is a marked
+scope boundary, not an oversight.** The known-scale formula's ``gamma``
+literally substitutes for a FIXED ``phi`` (Wood's own smoothness-inflation
+device); a free-scale family estimates its own ``phi_hat`` from the data, and
+no derivation in this module establishes what ``gamma`` should do to that
+estimation. Passing ``gamma != 1.0`` to a ``dispersion_fixed=False`` family
+therefore raises rather than silently reusing the known-scale substitution —
+CLAUDE.md: mark the uncertainty, do not guess a formula.
+
 **PLAN slice 5c, Defects A and B: two more terms of this SAME formula, found
 on the N=4/``ti()``-sharing-a-span structure ADR-208's amendment localised an
 ``sp``-dependent criterion discrepancy to.**
@@ -219,11 +288,21 @@ def reml_score_general(
     at the supplied ``coef``, so callers own convergence: this function does
     not fit anything.
 
+    **Free-scale families** (``dispersion_fixed=False`` — Gaussian,
+    quasi-Poisson) use a DIFFERENT combination of the same ``Dₚ``/``logdet_h``/
+    ``logdet_s``/``rank_s`` quantities computed below — Wood (2011) §2 eq. (4)
+    profiled over the unknown ``phi`` rather than evaluated at a caller-supplied
+    one. See the module docstring's "PLAN slice 3 (ladder), L5" section for the
+    derivation and its direct empirical confirmation against ``mgcv``'s own
+    ``m$gcv.ubre``. ``gamma`` is REJECTED (raises) for a free-scale family —
+    see the module docstring's own scope note.
+
     Args:
         y: response, ``(n,)`` — counts, or a proportion for binomial.
         x: design matrix, ``(n, p)``.
-        family: the distribution/link pair (:mod:`gam_family`). Must have
-            ``dispersion_fixed=True`` — see the module docstring.
+        family: the distribution/link pair (:mod:`gam_family`). Either
+            ``dispersion_fixed`` value is accepted — see the module
+            docstring's two branches.
         coef: the converged penalized-IRLS coefficients at this ``S``.
         penalty_blocks: one independently-scaled ``(p, p)`` penalty block per
             smoothing parameter, already padded to the full design width
@@ -251,24 +330,29 @@ def reml_score_general(
         The REML score, lower is better.
 
     Raises:
-        PolarisValidationError: if ``family.dispersion_fixed`` is ``False``,
-            ``gamma`` is not positive, ``penalty_blocks`` is empty, or
-            ``lambdas`` does not have one entry per block. (PR #215 review
-            [P2-1]: an earlier revision let ``penalty_blocks[0]``/``zip``
-            raise the bare ``IndexError``/``ValueError`` this validation now
-            pre-empts, before ever reaching
+        PolarisValidationError: if ``gamma`` is not positive; if ``gamma !=
+            1.0`` is supplied together with a ``dispersion_fixed=False``
+            family (undefined — see the module docstring); if there are too
+            few residual degrees of freedom to estimate a free scale
+            (``n <= Mp``); if ``penalty_blocks`` is empty; or if ``lambdas``
+            does not have one entry per block. (PR #215 review [P2-1]: an
+            earlier revision let ``penalty_blocks[0]``/``zip`` raise the bare
+            ``IndexError``/``ValueError`` this validation now pre-empts,
+            before ever reaching
             :func:`~polaris_re.analytics.gam_reml_appendix_b.appendix_b_transform`'s
             own — correct, but unreachable for these two cases.)
     """
-    if not family.dispersion_fixed:
-        raise PolarisValidationError(
-            f"reml_score_general: family {family.name!r} estimates its own "
-            "dispersion (dispersion_fixed=False). The known-scale REML formula "
-            "this function implements does not apply to it — see the module "
-            "docstring for why quasi-Poisson's REML criterion is out of scope."
-        )
     if gamma <= 0.0:
         raise PolarisValidationError(f"gamma must be positive, got {gamma}.")
+    if not family.dispersion_fixed and gamma != 1.0:
+        raise PolarisValidationError(
+            f"reml_score_general: family {family.name!r} estimates its own "
+            "dispersion (dispersion_fixed=False), and this module has no "
+            "derivation for what 'gamma' should do to a free-scale criterion "
+            "(the known-scale formula's gamma literally substitutes for a "
+            "FIXED phi, which does not apply once phi is itself estimated). "
+            f"Only the default gamma=1.0 is supported here; got {gamma}."
+        )
     if not penalty_blocks:
         raise PolarisValidationError("reml_score_general: penalty_blocks must be non-empty.")
     if len(lambdas) != len(penalty_blocks):
@@ -332,11 +416,31 @@ def reml_score_general(
     appendix_b = appendix_b_transform(penalty_blocks, lambdas)
     logdet_s = appendix_b.logdet_s_plus
     rank_s = appendix_b.rank
+    p = x.shape[1]
+    k_term = 0.5 * float(logdet_h) - 0.5 * logdet_s
 
-    # No `gamma == 1.0` short-circuit, matching `experience_gam_penalized.reml_score`
-    # (PR #190 review [P2]): `np.log(1.0)` is exactly `0.0`, so the criterion is
-    # bit-identical at the default without a float-equality guard.
-    scale = float(x.shape[1] - rank_s) * float(np.log(gamma))
+    if family.dispersion_fixed:
+        # No `gamma == 1.0` short-circuit, matching
+        # `experience_gam_penalized.reml_score` (PR #190 review [P2]):
+        # `np.log(1.0)` is exactly `0.0`, so the criterion is bit-identical at
+        # the default without a float-equality guard.
+        scale = float(p - rank_s) * float(np.log(gamma))
+        return float(0.5 * penalized_deviance / gamma + k_term - 0.5 * scale)
+
+    # Free-scale branch (PLAN slice 3, ladder L5) — see the module docstring's
+    # "PLAN slice 3 (ladder), L5" section for the derivation and its
+    # empirical confirmation against mgcv's own `m$gcv.ubre`.
+    null_space_dim = float(p - rank_s)  # Wood's own "Mp": the null space of S.
+    residual_df = float(n) - null_space_dim  # n - Mp
+    if residual_df <= 0.0:
+        raise PolarisValidationError(
+            "reml_score_general: cannot estimate a free scale — "
+            f"n={n} does not exceed the null-space dimension Mp={null_space_dim:.1f} "
+            f"(p={p}, rank(S)={rank_s})."
+        )
+    phi_hat = penalized_deviance / residual_df
     return float(
-        0.5 * penalized_deviance / gamma + 0.5 * float(logdet_h) - 0.5 * logdet_s - 0.5 * scale
+        0.5 * residual_df * (1.0 + np.log(phi_hat))
+        + k_term
+        + 0.5 * residual_df * np.log(2.0 * np.pi)
     )

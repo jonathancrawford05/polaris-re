@@ -455,19 +455,26 @@ def test_gaussian_identity_observed_and_expected_hessian_weights_coincide() -> N
     )
 
 
-def test_gaussian_deviance_is_twice_the_weighted_residual_sum_of_squares() -> None:
-    """Pins the factor-of-2 convention so a later reader does not "fix" it.
+def test_gaussian_deviance_is_the_weighted_residual_sum_of_squares() -> None:
+    """PLAN slice 3 (L5), ADR-231: pins the CORRECTED convention.
 
-    ``Family.deviance`` applies the ``2 *`` of the exponential-family definition;
-    the Gaussian's own ``1/2`` is not carried here, so this returns ``2 * RSS``.
-    Only the IRLS convergence test consumes it, where a constant factor is inert.
+    ``Family.deviance`` applies the ``2 *`` of the exponential-family
+    definition; ``_gaussian_deviance_terms`` now supplies the Gaussian
+    likelihood's own missing ``0.5 *`` so the two cancel, reproducing
+    ``mgcv``'s own ``gam(family=gaussian())$deviance`` — measured directly
+    against ``mgcv``, tier 1: ``m$deviance`` equals the plain RSS
+    (``docs/CONFORMANCE_LEDGER.md``). An earlier revision of this test pinned
+    ``2 * RSS`` as deliberate; that was the bug this correction fixes, found
+    when :func:`~polaris_re.analytics.gam_reml.reml_score_general` started
+    using ``family.deviance`` as Wood (2011) eq. (4)'s ``D(beta_hat)`` for a
+    free-scale family, where the factor of 2 stopped being inert.
     """
     family = gaussian_identity()
     y = np.asarray([1.0, 2.0, 3.0], dtype=np.float64)
     mu = np.asarray([1.5, 2.0, 2.0], dtype=np.float64)
     weights = np.asarray([1.0, 1.0, 1.0], dtype=np.float64)
     rss = float(np.sum((y - mu) ** 2))
-    assert family.deviance(y, mu, weights) == pytest.approx(2.0 * rss)
+    assert family.deviance(y, mu, weights) == pytest.approx(rss)
 
 
 def test_gaussian_unpenalized_irls_reproduces_ordinary_least_squares() -> None:

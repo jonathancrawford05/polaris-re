@@ -15,10 +15,13 @@ import pytest
 from polaris_re.analytics.gam_family import (
     binomial_cloglog,
     binomial_logit,
+    gaussian_identity,
     poisson_log,
     quasipoisson_log,
 )
+from polaris_re.analytics.gam_fit import penalized_irls_general
 from polaris_re.analytics.gam_reml import penalty_block_square_roots, reml_score_general
+from polaris_re.analytics.gam_reml_appendix_b import appendix_b_transform
 from polaris_re.core.exceptions import PolarisValidationError
 
 
@@ -465,7 +468,13 @@ class TestPenaltyBlockSquareRoots:
 
 
 class TestRejectsWhatItMustReject:
-    def test_rejects_a_family_with_estimated_dispersion(self, rng: np.random.Generator) -> None:
+    def test_rejects_a_free_scale_family_with_non_default_gamma(
+        self, rng: np.random.Generator
+    ) -> None:
+        """PLAN slice 3 (L5): a free-scale family no longer raises unconditionally
+        (that was the blocker this slice closes) — but ``gamma != 1.0`` still
+        raises, since this module has no derivation for what ``gamma`` should do
+        to a free-scale criterion (module docstring)."""
         n, p = 80, 4
         x = _design(rng, n, p)
         beta_true = rng.normal(scale=0.2, size=p)
@@ -474,7 +483,9 @@ class TestRejectsWhatItMustReject:
         penalty = np.zeros((p, p))
 
         with pytest.raises(PolarisValidationError, match="dispersion_fixed=False"):
-            reml_score_general(y, x, quasipoisson_log(), beta_true, (penalty,), np.array([1.0]))
+            reml_score_general(
+                y, x, quasipoisson_log(), beta_true, (penalty,), np.array([1.0]), gamma=1.4
+            )
 
     def test_rejects_nonpositive_gamma(self, rng: np.random.Generator) -> None:
         n, p = 50, 3
@@ -486,3 +497,111 @@ class TestRejectsWhatItMustReject:
             reml_score_general(
                 y, x, poisson_log(), np.zeros(p), (penalty,), np.array([1.0]), gamma=0.0
             )
+
+    def test_rejects_a_free_scale_family_with_no_residual_degrees_of_freedom(
+        self, rng: np.random.Generator
+    ) -> None:
+        """``n <= Mp`` (null-space dimension) leaves nothing to estimate ``phi``
+        from — raises rather than dividing by a non-positive residual df."""
+        n, p = 3, 3  # unpenalized: Mp = p = 3 = n
+        x = _design(rng, n, p)
+        y = rng.normal(size=n)
+        penalty = np.zeros((p, p))
+        coef = np.linalg.lstsq(x, y, rcond=None)[0]
+
+        with pytest.raises(PolarisValidationError, match="cannot estimate a free scale"):
+            reml_score_general(y, x, gaussian_identity(), coef, (penalty,), np.array([1.0]))
+
+
+class TestFreeScaleBranch:
+    """PLAN slice 3 (ladder), L5 — the profiled free-scale criterion.
+
+    Self-consistency checks, mirroring this module's own known-scale test
+    classes: does the score match the closed-form REML variance estimator in
+    the unpenalized case, does the formula's own algebra (as coded) reproduce
+    a from-scratch NumPy evaluation. The actual `mgcv` parity claim is
+    `scripts/gam_free_scale_reml_score_probe.R` /
+    `gam_free_scale_reml_conformance.py` (`docs/VERIFICATION_STANDARD.md`).
+    """
+
+    def test_unpenalized_phi_hat_is_the_classical_reml_variance_estimator(
+        self, rng: np.random.Generator
+    ) -> None:
+        """No penalty (``S=0``): the classical result is
+        ``phi_hat = RSS / (n - p)`` — REML's own unbiased variance estimator,
+        distinct from the ``RSS / n`` a plain-ML estimate would give. This is
+        the ``r=0``, ``Mp=p`` corner of the derivation and needs no
+        eigendecomposition to check by hand."""
+        n, p = 60, 4
+        x = _design(rng, n, p)
+        beta_true = rng.normal(scale=0.5, size=p)
+        y = x @ beta_true + rng.normal(scale=0.3, size=n)
+        coef = np.linalg.lstsq(x, y, rcond=None)[0]
+        rss = float(np.sum((y - x @ coef) ** 2))
+        penalty = np.zeros((p, p))
+
+        score = reml_score_general(y, x, gaussian_identity(), coef, (penalty,), np.array([1.0]))
+
+        phi_hat = rss / (n - p)
+        _, logdet_xtx = np.linalg.slogdet(x.T @ x)
+        expected = (
+            0.5 * (n - p) * (1.0 + np.log(phi_hat))
+            + 0.5 * logdet_xtx
+            + 0.5 * (n - p) * np.log(2.0 * np.pi)
+        )
+        np.testing.assert_allclose(score, expected, rtol=1e-12)
+
+    def test_matches_a_from_scratch_evaluation_of_the_same_algebra(
+        self, rng: np.random.Generator
+    ) -> None:
+        """A penalized case (``r > 0``), evaluated independently in NumPy from
+        the module docstring's own stated formula — a regression net for a
+        dropped term or a wrong ``0.5``, not independent of a bug shared by
+        both call sites (the `mgcv`-side conformance module is what earns the
+        closed-form label; this is `TestMatchesWoodsFormulaDirectly`'s own
+        precedent, applied to the free-scale branch)."""
+        n, p = 100, 5
+        x = _design(rng, n, p)
+        d = np.diff(np.eye(p - 1), n=2, axis=0)
+        block = np.zeros((p, p))
+        block[1:, 1:] = d.T @ d
+        lam = 3.5
+        beta_true = rng.normal(scale=0.4, size=p)
+        y = x @ beta_true + rng.normal(scale=0.25, size=n)
+        fit = penalized_irls_general(x, y, family=gaussian_identity(), penalty=lam * block)
+        coef = fit.coef
+
+        score = reml_score_general(y, x, gaussian_identity(), coef, (block,), np.array([lam]))
+
+        deviance = float(np.sum((y - x @ coef) ** 2))
+        penalty_quad = float(lam * coef @ block @ coef)
+        dp = deviance + penalty_quad
+        ab = appendix_b_transform((block,), np.array([lam]))
+        r = ab.rank
+        mp = p - r
+        phi_hat = dp / (n - mp)
+        logdet_h = np.linalg.slogdet(x.T @ x + lam * block)[1]
+        expected = (
+            0.5 * (n - mp) * (1.0 + np.log(phi_hat))
+            + 0.5 * logdet_h
+            - 0.5 * ab.logdet_s_plus
+            + 0.5 * (n - mp) * np.log(2.0 * np.pi)
+        )
+        np.testing.assert_allclose(score, expected, rtol=1e-10)
+
+    def test_quasipoisson_free_scale_branch_runs_and_is_finite(
+        self, rng: np.random.Generator
+    ) -> None:
+        """Smoke test that the SAME branch (only ``family.deviance`` differs)
+        produces a finite score for the epic's other free-scale family."""
+        n, p = 80, 4
+        x = _design(rng, n, p)
+        beta_true = rng.normal(scale=0.2, size=p)
+        mu_true = np.exp(x @ beta_true)
+        y = rng.poisson(mu_true).astype(np.float64)
+        penalty = np.zeros((p, p))
+        family = quasipoisson_log()
+        fit = penalized_irls_general(x, y, family=family, penalty=penalty)
+
+        score = reml_score_general(y, x, family, fit.coef, (penalty,), np.array([1.0]))
+        assert np.isfinite(score)
