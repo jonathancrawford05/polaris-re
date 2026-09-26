@@ -179,21 +179,28 @@ than registering a follow-up letter-suffix slice.
 
 ### Measured
 
-- **Gaussian score, ABSOLUTE, 3 fixed `(sp1,sp2)` points**: diffs
-  `-8.5e-14`/`-7.1e-14`/`-1.6e-13` against scores of order `~70` — float
-  round-trip precision, first measurement, no iteration needed.
-- **Quasi-Poisson score, PAIRWISE, 3 pairs**: residuals `-1.4e-14`/
-  `-2.8e-14`/`-1.4e-14`, same order, first measurement.
-- **Gaussian free-sp FIT** (ladder slice 1's own recipe, now free `sp`):
-  `max_abs_eta_diff=1.874e-05`, `edf_total_diff=-0.000999`,
-  `max_abs_term_edf_diff=0.001486`, `at_bound=False`, `converged=True` both
-  sides, `agrees=True` — first measurement, no iteration needed.
-  `max_abs_log10_sp_diff=0.8245` (reported, not gated) — two blocks land at
-  very large `sp` on both sides, consistent with `mgcv` shrinking a
-  low-signal term toward its null space.
-- **All of the above at tier 3** — run and digest recorded in ADR-231 (see
-  that ADR for the exact run URL and oracle digest this PR's own CI dispatch
-  produced).
+- **Gaussian score, ABSOLUTE, 3 fixed `(sp1,sp2)` points, TIER 3**: diffs
+  `0.000e+00`/`4.263e-14`/`-7.105e-14` against scores of order `~70` — float
+  round-trip precision, first measurement, no iteration needed. Tier 1 read
+  `-8.5e-14`/`-7.1e-14`/`-1.6e-13` on the same recipe — same verdict, same
+  order of magnitude.
+- **Quasi-Poisson score, PAIRWISE, 3 pairs, TIER 3**: residuals
+  `4.263e-14`/`2.842e-14`/`-1.421e-14`, same order, first measurement. Tier 1
+  read `-1.4e-14`/`-2.8e-14`/`-1.4e-14` on the same recipe.
+- **Gaussian free-sp FIT** (ladder slice 1's own recipe, now free `sp`),
+  TIER 3, `n=900`, `p=86`: `max_abs_eta_diff=2.933e-04`,
+  `edf_total_diff=-0.0206`, `max_abs_term_edf_diff=0.0207`,
+  `at_bound=False`, `converged=True` both sides, `agrees=True` — first
+  measurement, no iteration needed. `max_abs_log10_sp_diff=0.6301` (reported,
+  not gated), offset tripwire `3.553e-15` — two blocks land at very large
+  `sp` on both sides, consistent with `mgcv` shrinking a low-signal term
+  toward its null space. Tier 1 read `max_abs_eta_diff=1.874e-05`,
+  `edf_total_diff=-0.000999`, `max_abs_log10_sp_diff=0.8245` on the same
+  recipe — same verdict, same order of magnitude.
+- **Both tiers agree in verdict and order of magnitude** — run
+  [36242943352](https://github.com/jonathancrawford05/polaris-re/actions/runs/36242943352),
+  oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+  (build 8), R 4.6.1 / mgcv 1.9.4. Full figures in ADR-231.
 - **`MGCV_FEATURE_COVERAGE.md`**: §2.2 Gaussian row moves to fixed AND free
   `sp` tier 3; §2.3 quasi-Poisson row moves to score-level tier 3; §2.3's
   "Scale-estimated REML" row moves from NO to tier 3; the L5 ladder row

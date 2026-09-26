@@ -23638,7 +23638,7 @@ internally-profiled scale (route (i)), and the two are different quantities
 that need not agree — this is stated so a later session does not read a
 `phi_hat`-vs-`m$scale` mismatch as a defect.
 
-### Committed measurement
+### Committed measurement — TIER 3, pinned digest
 
 `FREE_SCALE_REML_SCORE_CLAIM` (`gam_free_scale_reml_conformance.py`) declares
 Gaussian's score `INDEPENDENT` and ABSOLUTE, quasi-Poisson's `INDEPENDENT`
@@ -23649,17 +23649,29 @@ fixed `sp`, now fit at FREE `sp` via `PolarisGAM`
 (`gam_model.fit_polaris_gam`), compared against `mgcv`'s own free-sp REML
 fit of the same formula.
 
+Oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(build 8), R 4.6.1 / mgcv 1.9.4, CI run
+[36242943352](https://github.com/jonathancrawford05/polaris-re/actions/runs/36242943352):
+
 | quantity | reading | tier |
 |---|---:|---|
-| Gaussian `gaussian_reml_score` (3 fixed points, ABSOLUTE) | `-8.5e-14` / `-7.1e-14` / `-1.6e-13` (score order `~70`) | tier 1 |
-| Quasi-Poisson `..._pairwise_diff` (3 pairs) | `-1.4e-14` / `-2.8e-14` / `-1.4e-14` | tier 1 |
-| Gaussian free-sp fit `max_abs_eta_diff` | `1.874e-05` | tier 1 |
-| Gaussian free-sp fit `edf_total_diff` | `-0.000999` | tier 1 |
-| Gaussian free-sp fit `max_abs_log10_sp_diff` (reported, not gated) | `0.8245` | tier 1 |
+| Gaussian `gaussian_reml_score` (3 fixed points, ABSOLUTE) | `0.000e+00` / `4.263e-14` / `-7.105e-14` (score order `~70`) | **tier 3** |
+| Quasi-Poisson `..._pairwise_diff` (3 pairs) | `4.263e-14` / `2.842e-14` / `-1.421e-14` | **tier 3** |
+| Gaussian free-sp fit `max_abs_eta_diff` (`n=900`, `p=86`) | `2.933e-04` | **tier 3** |
+| Gaussian free-sp fit `edf_total_diff` | `-0.0206` | **tier 3** |
+| Gaussian free-sp fit `max_abs_term_edf_diff` | `0.0207` | **tier 3** |
+| Gaussian free-sp fit `max_abs_log10_sp_diff` (reported, not gated) | `0.6301` | **tier 3** |
+| Gaussian free-sp fit offset tripwire (reported, not gated) | `3.553e-15` | **tier 3** |
 
 `agrees=True` on every gated quantity, first measurement, no iteration
-needed. Per `ROUTINE_MGCV_PARITY.md`, these are tier-1 hypotheses; see the
-amendment below for the tier-3 confirmation.
+needed. **Tier 1 (R 4.3.3 / mgcv 1.9.1, local apt) agreed on the same recipes
+first** (score diffs `-8.5e-14`/`-7.1e-14`/`-1.6e-13` absolute,
+`-1.4e-14`/`-2.8e-14`/`-1.4e-14` pairwise; fit `max_abs_eta_diff=1.874e-05`,
+`edf_total_diff=-0.000999`) — tier 3's own last-bits differ, as the routine's
+tier discipline predicts (different `mgcv` release, different BLAS), but the
+verdict and order of magnitude are identical across both. Required levels
+1-3 of the existing ten-cell suite also still agree on this run — no
+regression from this slice's own edits.
 
 ### Consequences
 
