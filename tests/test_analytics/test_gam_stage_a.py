@@ -33,11 +33,13 @@ from polaris_re.analytics.gam_stage_a import (
     CR_BASIS_CLAIM,
     CR_BY_BASIS_CLAIM,
     RAW_PATH_CLAIM,
+    RE_BASIS_CLAIM,
     SMOOTH_PATH_CLAIM,
     SZ_BASIS_CLAIM,
     TI_BASIS_CLAIM,
     TermExtract,
     build_python_cr_term,
+    build_python_re_term,
     build_python_sz_term,
     build_python_ti_term,
     compare_term_extract,
@@ -660,7 +662,9 @@ def test_the_r_extractor_agrees_with_the_python_side_on_every_smooth_design(
     # ti() cases below — so a future extract_smooth_* case added to the R script
     # without a matching entry here fails loudly instead of silently going
     # uncompared by every gating test.
-    assert set(smooth_designs) == set(_SMOOTH_CASES) | set(_TI_CASES) | set(_SZ_CASES)
+    assert set(smooth_designs) == set(_SMOOTH_CASES) | set(_TI_CASES) | set(_SZ_CASES) | set(
+        _RE_CASES
+    )
 
     # Only the single-variable cr cases named in _SMOOTH_CASES: the ti cases carry
     # no single "knots" list (each margin has its own, module docstring), and
@@ -751,7 +755,9 @@ def test_the_python_cr_basis_agrees_with_smoothcon_on_every_smooth_design(
     # ti() cases below — so a future extract_smooth_* case added to the R script
     # without a matching entry here fails loudly instead of silently going
     # uncompared by every gating test.
-    assert set(smooth_designs) == set(_SMOOTH_CASES) | set(_TI_CASES) | set(_SZ_CASES)
+    assert set(smooth_designs) == set(_SMOOTH_CASES) | set(_TI_CASES) | set(_SZ_CASES) | set(
+        _RE_CASES
+    )
 
     # Only the single-variable cr cases: the ti cases (_TI_CASES) are
     # test_the_python_ti_basis_agrees_with_smoothcon_on_every_ti_design's own scope.
@@ -1085,6 +1091,104 @@ def test_the_python_sz_basis_agrees_with_smoothcon_on_every_sz_design(
             )
 
     assert not failures, "Stage-A sz basis parity disagreed:\n" + "\n".join(failures)
+
+
+# --- build_python_re_term, the independent Python producer (ladder slice 2, bs="re") --
+
+
+def test_build_python_re_term_builds_a_term_extract() -> None:
+    rng = np.random.default_rng(21)
+    n = 200
+    group = rng.integers(0, 4, size=n)
+    term = TermSpec(label="s(GroupFac)", variables=("GroupFac",), basis="re", n_levels=4)
+    extract = build_python_re_term(group, 4, term)
+    assert extract.label == "s(GroupFac)"
+    assert (extract.index_start, extract.index_end) == (0, 4)
+    assert extract.design.shape == (n, 4)
+    assert len(extract.s) == 1
+    np.testing.assert_array_equal(extract.s[0], np.eye(4))
+    assert extract.rank == (4,)
+    assert extract.knots is None
+    assert extract.evidence is RE_BASIS_CLAIM
+
+
+def test_build_python_re_term_refuses_a_non_re_basis() -> None:
+    group = np.zeros(50, dtype=np.int64)
+    cr_term = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(8,))
+    with pytest.raises(PolarisValidationError, match="basis='re'"):
+        build_python_re_term(group, 2, cr_term)
+
+
+def test_the_python_re_basis_declares_every_quantity_independent() -> None:
+    rng = np.random.default_rng(22)
+    group = rng.integers(0, 3, size=100)
+    term = TermSpec(label="s(GroupFac)", variables=("GroupFac",), basis="re", n_levels=3)
+    extract = build_python_re_term(group, 3, term)
+    assert extract.evidence.is_parity_claim
+    assert all(
+        q.provenance is ComparisonProvenance.INDEPENDENT for q in extract.evidence.quantities
+    )
+    assert "Parity comparison" in evidence_headline(extract.evidence)
+    require_parity_evidence(extract.evidence.parity_quantities, claim="re basis parity")
+
+
+_RE_CASES: dict[str, int] = {
+    "re-4level": 4,
+    "re-7level": 7,
+}
+"""The ``n_levels`` recipe for ``gam_term_extract.R``'s two isolated ``re``
+cases — named explicitly, same discipline as ``_SZ_CASES`` above."""
+
+
+@pytest.mark.skipif(not rscript_mgcv_available(), reason="R with mgcv is not installed here")
+def test_the_python_re_basis_agrees_with_smoothcon_on_every_re_design(
+    tmp_path,
+) -> None:  # pragma: no cover
+    """Capability ladder slice 2's Stage-A parity result:
+    :func:`build_python_re_term` — the bare level-indicator matrix and the
+    identity penalty (``gam_basis_re`` module docstring) — agrees with
+    ``mgcv``'s own ``smoothCon(s(fac, bs="re"), absorb.cons=TRUE)`` at both a
+    4-level and a 7-level factor.
+
+    A disagreement here is a real result about the construction, not a broken
+    round trip.
+    """
+    out_path = tmp_path / "gam_term_extract.json"
+    done = subprocess.run(
+        [
+            "Rscript",
+            str(REPO_ROOT / "scripts" / "gam_term_extract.R"),
+            str(REPO_ROOT / "data" / "mgcv_exchange" / "synthetic"),
+            str(out_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    r_payload = json.loads(out_path.read_text())
+    smooth_designs = r_payload["smooth_designs"]
+    assert set(_RE_CASES) <= set(smooth_designs)
+
+    failures: list[str] = []
+    for label, n_levels in _RE_CASES.items():
+        r_term = smooth_designs[label]
+        term = TermSpec(label=label, variables=("fac",), basis="re", n_levels=n_levels)
+        group = np.asarray(r_term["group"], dtype=np.int64)
+        python_term = build_python_re_term(group, n_levels, term)
+        assert python_term.evidence is RE_BASIS_CLAIM
+        require_parity_evidence(
+            python_term.evidence.quantities, claim=f"{label}: Stage-A re basis parity"
+        )
+        comparison = compare_term_extract(python_term, r_term)
+        if not comparison.agrees:
+            failures.append(
+                f"{label}: max_X_diff={comparison.max_abs_design_diff:.3e} "
+                f"max_S_diff={comparison.max_abs_s_diff} rank_diff={comparison.rank_diff}"
+            )
+
+    assert not failures, "Stage-A re basis parity disagreed:\n" + "\n".join(failures)
 
 
 # --- Provenance: what these comparisons are evidence OF (ADR-193) ----------------------

@@ -61,7 +61,7 @@ confirmed on the pinned oracle digest, per `ROUTINE_MGCV_PARITY.md`.
 | `ti` | tensor interaction, margins constrained out | **yes** | ✅ tier 3 (ADR-205) | ✅ tier 3 fixed + free `sp` | best-verified after `cr` |
 | `sz` | sum-to-zero factor-smooth interaction | **yes** | ✅ tier 3 (ADR-215) | ✅ fixed `sp` only (ADR-217) | free-`sp` search never exercised on this block shape. **DEPRIORITISED to L11** (maintainer, 2026-09-16: "not absolutely necessary") — its penalty count grows with factor levels, unlike `fs` |
 | `raw` | caller supplies design + penalty | n/a | n/a | n/a | not an mgcv basis; the `paraPen` escape hatch |
-| **`re`** | **random effect (identity penalty)** | **NO** | — | — | **named in the objective; the backbone of HGAMs** |
+| **`re`** | **random effect (identity penalty)** | **yes** (2026-09-21, L2) | ✅ tier 3, exact (ADR-230) | ✅ tier 3, **fixed AND free `sp`** (ADR-230) | Stage A `max_abs_X_diff`/`max_abs_S_diff` exactly `0.000e+00` at both 4 and 7 levels — `absorb.cons` measured to not change mgcv's own output for this basis. Stage B: fixed `sp` (gaussian identity) `max_abs_eta_diff=2.176e-14`; free `sp` (poisson log, so it does not wait on L5) `max_abs_eta_diff=3.226e-05`, `log10(sp)` diff `0.0010` — both inside ADR-221's `2e-2`/`1.0` gate |
 | **`tp`** | **thin-plate regression spline** | **NO** | — | — | **mgcv's DEFAULT — a bare `s(x)` is inexpressible** |
 | `te` | full tensor product | **NO** | — | — | shares `ti`'s machinery minus the `mc` constraint |
 | `t2` | alternative tensor decomposition | **NO** | — | — | genuinely different penalty decomposition |
@@ -144,7 +144,7 @@ column above is the authority.
 
 | objective item | status |
 |---|---|
-| 1. A suite of model forms, incl. `ti`, `bs="re"` | **partial** — 3 bases of ~14; `ti` ✅, **`re` ✗**, and mgcv's default `tp` ✗ |
+| 1. A suite of model forms, incl. `ti`, `bs="re"` | **partial** — 4 bases of ~14; `ti` ✅, **`re` ✅ (2026-09-21)**, and mgcv's default `tp` ✗ |
 | 2. `fREML`, `discrete=TRUE`, `bam` | **not started** — explicitly deferred |
 | 3. `select=TRUE` | **done** ✅ |
 
@@ -193,7 +193,7 @@ tackles simpler mgcv features first."*
 | # | rung | why here | rough size |
 |---|---|---|---|
 | **L1** ✅ | **`gaussian(identity)`** | **CLIMBED 2026-09-19 (ADR-229), fixed `sp` only.** The simplest family. Decouples every later basis check from IRLS confounds: at Gaussian identity the penalized fit is a single linear solve, so a basis disagreement cannot hide behind IRLS convergence. Also what every mgcv textbook check uses. | small |
-| **L2** | **`bs="re"`** | Named in the objective. The **cheapest basis in mgcv** — model matrix is the level indicators, penalty is the identity, **always exactly one smoothing parameter** regardless of level count — and the backbone of hierarchical structure. In actuarial terms this *is* credibility: Bühlmann-Straub is a random-effects model. Highest value-to-effort on the board. | small |
+| **L2** ✅ | **`bs="re"`** | **CLIMBED 2026-09-21 (ADR-230), fixed AND free `sp`.** Named in the objective. The **cheapest basis in mgcv** — model matrix is the level indicators, penalty is the identity, **always exactly one smoothing parameter** regardless of level count — and the backbone of hierarchical structure. In actuarial terms this *is* credibility: Bühlmann-Straub is a random-effects model. Highest value-to-effort on the board. | small |
 | **L3** | **factor-`by`** (`s(x, by = fac)`) | Completes the `by` axis (numeric `by` already done). **Note it is not a term parameter but a term multiplier**: `s(x, by = f)` on a 3-level factor produces *three separate smooths*, each with its own `sp` (measured). | small–medium |
 | **L4** | **Unpenalized parametric block** | The target formula opens with `FaceSize + Smoke + FaceSize:Smoke`. Today `assemble_model_design` cannot carry unpenalized columns at all, so the target formula is inexpressible for this reason *as well*. (Was wiring slice 1c.) | small |
 | **L5** | **Scale-estimated REML** | Unblocks quasi-Poisson, Gaussian, Gamma, Tweedie — everything with a free scale. `reml_score_general` currently *raises* on `dispersion_fixed=False`. Gates L1's usefulness at free `sp`. | medium |

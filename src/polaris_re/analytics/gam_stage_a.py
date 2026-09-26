@@ -90,6 +90,7 @@ from polaris_re.analytics.gam_basis_cr import (
     sz_basis,
     ti_basis,
 )
+from polaris_re.analytics.gam_basis_re import re_basis
 from polaris_re.analytics.gam_term_spec import SUPPORTED_BASES, TermSpec
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.verification import (
@@ -102,6 +103,7 @@ __all__ = [
     "CR_BASIS_CLAIM",
     "CR_BY_BASIS_CLAIM",
     "RAW_PATH_CLAIM",
+    "RE_BASIS_CLAIM",
     "SMOOTH_PATH_CLAIM",
     "SZ_BASIS_CLAIM",
     "TI_BASIS_CLAIM",
@@ -109,6 +111,7 @@ __all__ = [
     "TermExtract",
     "TermExtractComparison",
     "build_python_cr_term",
+    "build_python_re_term",
     "build_python_sz_term",
     "build_python_ti_term",
     "compare_term_extract",
@@ -161,13 +164,16 @@ class RTermPayload(TypedDict):
     """Margin-2's own knot vector. See ``knots1``."""
 
     group: list[int] | None
-    """0-indexed factor-level code per row (slice 6, ``bs="sz"``) — shared recipe
-    context like ``x``, present only on ``extract_smooth_sz`` entries. ``None`` for
-    every other case."""
+    """0-indexed factor-level code per row (slice 6, ``bs="sz"``; ladder slice 2,
+    ``bs="re"``) — shared recipe context like ``x``, present on
+    ``extract_smooth_sz`` and ``extract_smooth_re`` entries. ``None`` for every
+    other case. A ``"re"`` entry is distinguished from a ``"sz"`` one by ``x``
+    being ``None`` — ``"re"`` has no smoothed margin, only the factor."""
 
     n_levels: int | None
-    """Number of factor levels (slice 6, ``bs="sz"``) — shared recipe context,
-    present only on ``extract_smooth_sz`` entries. ``None`` for every other case."""
+    """Number of factor levels (slice 6, ``bs="sz"``; ladder slice 2, ``bs="re"``)
+    — shared recipe context, present on ``extract_smooth_sz`` and
+    ``extract_smooth_re`` entries. ``None`` for every other case."""
 
 
 _AGREEMENT_TOLERANCE = 1e-9
@@ -550,6 +556,65 @@ excludes them (ECHO in the supplied-knot cases, INDEPENDENT only when both sides
 place mgcv's own default). **Scope: one factor, no ``id``** — the same limitation
 :func:`~polaris_re.analytics.gam_basis_cr.sz_basis`'s own docstring states, matching
 every one of the target formula's four ``sz`` terms."""
+
+
+RE_BASIS_CLAIM = VerificationClaim(
+    claim=(
+        "polaris_re.analytics.gam_basis_re builds the s(<factor>, bs='re') "
+        "design (the factor's own level-indicator matrix, design_X) and its "
+        "single identity penalty block (penalty_S) from the 0-indexed "
+        "factor-level codes and the level count, with no knot recipe and no "
+        "identifiability constraint absorbed; gam_term_extract.R's "
+        "smoothCon(s(fac, bs='re')) branch computes the same quantities via "
+        "mgcv's own C implementation; compared on design_X, penalty_S and "
+        "rank. Knots are not part of this claim (a 're' term has no knot "
+        "recipe at all, unlike cr/ti/sz)."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="design_X",
+            left_producer="gam_basis_re.re_basis (the level-indicator matrix)",
+            right_producer="mgcv smoothCon(s(fac, bs='re'), absorb.cons=TRUE)$X",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="penalty_S",
+            left_producer="gam_basis_re.re_basis (numpy.eye(n_levels))",
+            right_producer="mgcv smoothCon(s(fac, bs='re'), ...)$S — the identity, unrescaled",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="rank",
+            left_producer="numpy.linalg.matrix_rank on the Python identity penalty block",
+            right_producer=(
+                "mgcv smoothCon(s(fac, bs='re'), ...)$rank (mgcv's own rank determination)"
+            ),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+    ),
+)
+"""The Python ``re`` basis's provenance (ADR-193, ADR-230) — capability ladder
+rung L2's Stage-A claim.
+
+``design_X``, ``penalty_S`` and ``rank`` are computed by two distinct
+implementations from the same recipe (the 0-indexed factor-level code per row
+and the level count): :func:`build_python_re_term` never reads
+``gam_term_extract.R``'s ``X``/``S``/``rank`` output, only the shared
+``group``/``n_levels`` it exports (the same shared-recipe discipline
+:data:`SZ_BASIS_CLAIM` already follows for its own ``group``/``n_levels``).
+
+**``absorb.cons`` does not vary this claim.** Measured directly (module
+docstring, :mod:`~polaris_re.analytics.gam_basis_re`) before this claim was
+written: ``smoothCon(s(fac, bs="re"), absorb.cons=TRUE)`` and
+``absorb.cons=FALSE`` return bit-identical ``X`` — ``mgcv`` absorbs no
+identifiability constraint on a ``"re"`` term regardless of the flag, because a
+random-effect smooth must stay free to shrink toward the overall mean under a
+large smoothing parameter, which a sum-to-zero constraint would prevent. So
+there is one ``mgcv`` producer to compare against, not two.
+
+A disagreement on any of the three claimed quantities is a real result about
+the basis, not a broken round trip (ADR-193's "what a good session looks
+like")."""
 
 
 @dataclass(frozen=True)
@@ -936,6 +1001,44 @@ def build_python_sz_term(
         rank=rank,
         evidence=SZ_BASIS_CLAIM,
         knots=tuple(float(v) for v in knots),
+    )
+
+
+def build_python_re_term(group: np.ndarray, n_levels: int, term: TermSpec) -> TermExtract:
+    """The independent Python producer for a ``bs="re"`` term (capability ladder
+    rung L2, ``docs/PLAN_mgcv_capability_ladder.md`` slice 2).
+
+    Builds ``design_X``/``penalty_S`` from ``group``/``n_levels`` alone via
+    :func:`~polaris_re.analytics.gam_basis_re.re_basis` — never from ``mgcv``'s
+    output. Same mechanical-test shape as :func:`build_python_sz_term`: the
+    signature takes only the shared recipe (``group``, ``n_levels``) and
+    ``term`` (the shared spec), not an R payload.
+
+    Args:
+        group: 0-indexed factor-level code per row, read off the R payload's
+            own ``"group"`` field by the *caller*.
+        n_levels: Number of factor levels, read off the R payload's own
+            ``"n_levels"`` field by the *caller*.
+        term: Must have ``basis="re"``. ``TermSpec.__post_init__`` already
+            guarantees exactly one variable, no ``k``, and ``n_levels`` set
+            and ``>= 2`` — no redundant re-check here.
+    """
+    if term.basis != "re":
+        raise PolarisValidationError(
+            f"build_python_re_term only handles basis='re'; {term.label!r} is basis={term.basis!r}."
+        )
+    design, s = re_basis(group, n_levels)
+    rank = int(np.linalg.matrix_rank(s))
+
+    return TermExtract(
+        label=term.label,
+        index_start=0,
+        index_end=design.shape[1],
+        design=design,
+        s=(s,),
+        rank=(rank,),
+        evidence=RE_BASIS_CLAIM,
+        knots=None,
     )
 
 

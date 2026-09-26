@@ -243,6 +243,65 @@ def test_sz_term_carries_one_penalty_block_per_factor_level() -> None:
         assert support.max() < hi
 
 
+def _re_term(n_levels: int = 4) -> TermSpec:
+    return TermSpec(label="s(GroupFac)", variables=("GroupFac",), basis="re", n_levels=n_levels)
+
+
+def _data_with_group_fac(
+    n: int = 60, seed: int = 20260921, n_levels: int = 4
+) -> dict[str, np.ndarray]:
+    data = _data(n=n, seed=seed)
+    rng = np.random.default_rng(seed + 2)
+    data["GroupFac"] = rng.integers(0, n_levels, size=n)
+    return data
+
+
+def test_re_term_carries_exactly_one_penalty_block_regardless_of_level_count() -> None:
+    """Capability ladder slice 2 / ``docs/MGCV_NOTATION_PRIMER.md`` §4: unlike
+    ``sz`` (one block per level), a ``re`` term always contributes exactly
+    ONE penalty block — the whole ``n_levels x n_levels`` identity — whether
+    it has 4 levels or 9."""
+    for n_levels in (4, 9):
+        model = ModelSpec(
+            family="binomial",
+            link="cloglog",
+            terms=(_cr_term(), _re_term(n_levels=n_levels)),
+            weights_column="ExposCnt",
+        )
+        design = assemble_model_design(model, _data_with_group_fac(n_levels=n_levels))
+        ref_block, re_block = design["term_blocks"]
+        k = len(_AGE_KNOTS)
+        assert ref_block["end"] - ref_block["start"] == k - 1  # constrained cr
+        assert re_block["end"] - re_block["start"] == n_levels  # unconstrained, full width
+        assert re_block["n_penalties"] == 1  # ALWAYS one, regardless of n_levels
+        assert len(design["penalty_blocks"]) == 2  # 1 (ref) + 1 (re)
+
+        (lo, hi) = re_block["start"], re_block["end"]
+        re_penalty = design["penalty_blocks"][1]
+        support = np.flatnonzero(np.any(re_penalty != 0.0, axis=0))
+        assert support.min() >= lo
+        assert support.max() < hi
+        # The re block's own penalty submatrix is exactly the identity.
+        np.testing.assert_array_equal(re_penalty[lo:hi, lo:hi], np.eye(n_levels))
+
+
+def test_re_term_design_is_the_unconstrained_level_indicator_matrix() -> None:
+    """No identifiability constraint is absorbed on a ``re`` term (measured
+    against ``mgcv``, ``gam_basis_re`` module docstring) — every row of its
+    own column span sums to exactly 1."""
+    model = ModelSpec(family="binomial", link="cloglog", terms=(_re_term(n_levels=3),))
+    data = _data_with_group_fac(n_levels=3)
+    design = assemble_model_design(model, data)
+    tb = design["term_blocks"][0]
+    re_columns = design["x"][:, tb["start"] : tb["end"]]
+    np.testing.assert_array_equal(re_columns.sum(axis=1), np.ones(60))
+    # Column j is 1 exactly where GroupFac == j.
+    for level in range(3):
+        np.testing.assert_array_equal(
+            re_columns[:, level], (data["GroupFac"] == level).astype(float)
+        )
+
+
 def test_assemble_model_design_ignores_select_by_default() -> None:
     """``ModelSpec.select`` defaults to ``False`` — every earlier slice's
     block count is unchanged unless a caller opts in (PLAN slice 7)."""

@@ -77,6 +77,7 @@ from polaris_re.analytics.gam_select_penalty import null_space_penalty
 from polaris_re.analytics.gam_stage_a import (
     TermExtract,
     build_python_cr_term,
+    build_python_re_term,
     build_python_sz_term,
     build_python_ti_term,
 )
@@ -212,9 +213,20 @@ def _build_term_extract(term: TermSpec, data: Mapping[str, np.ndarray]) -> TermE
                 "codes. Set TermSpec.n_levels explicitly."
             )
         return build_python_sz_term(x, group, term.n_levels, term)
+    if term.basis == "re":
+        factor_name = term.variables[0]
+        group = np.asarray(data[factor_name], dtype=np.int64)
+        if term.n_levels is None:
+            raise PolarisValidationError(
+                f"assemble_model_design: TermSpec {term.label!r} is basis='re' "
+                "with n_levels=None — the factor-level count is an input "
+                "(Anchor 4), not derived from a sample's own observed group "
+                "codes. Set TermSpec.n_levels explicitly."
+            )
+        return build_python_re_term(group, term.n_levels, term)
     raise PolarisValidationError(
         f"assemble_model_design: TermSpec {term.label!r} has basis={term.basis!r}, "
-        "which PolarisGAM does not build yet — only 'cr', 'ti' and 'sz' are "
+        "which PolarisGAM does not build yet — only 'cr', 'ti', 'sz' and 're' are "
         "wired. 'raw' supplies its own design/penalty directly and has no "
         "recipe for this function to build from."
     )
@@ -235,8 +247,8 @@ def assemble_model_design(model: ModelSpec, data: Mapping[str, np.ndarray]) -> M
     (now built on this function) already use.
 
     Args:
-        model: every term must be ``basis="cr"``, ``basis="ti"`` or
-            ``basis="sz"`` — see :func:`_build_term_extract`. When
+        model: every term must be ``basis="cr"``, ``basis="ti"``, ``basis="sz"``
+            or ``basis="re"`` — see :func:`_build_term_extract`. When
             ``model.select`` is ``True`` (PLAN slice 7), each term's own
             null-space penalty
             (:func:`~polaris_re.analytics.gam_select_penalty.null_space_penalty`)
@@ -246,9 +258,11 @@ def assemble_model_design(model: ModelSpec, data: Mapping[str, np.ndarray]) -> M
         data: covariate arrays keyed by name, e.g. ``{"AttdAge": ..., "PolYear":
             ..., "StudyYear_C": ...}`` — a numeric-``by`` term reads its scaling
             variable from here via ``term.by``, a ``ti`` term reads both of
-            ``term.variables`` from here, and an ``sz`` term reads its factor's
+            ``term.variables`` from here, an ``sz`` term reads its factor's
             0-indexed level codes (``term.variables[0]``) and its smoothed
-            margin's values (``term.variables[1]``) from here.
+            margin's values (``term.variables[1]``) from here, and a ``re``
+            term reads its single factor's 0-indexed level codes
+            (``term.variables[0]``) from here.
 
     Raises:
         PolarisValidationError: if a term names a basis this function does not

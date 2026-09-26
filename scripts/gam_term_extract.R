@@ -413,6 +413,82 @@ main <- function(argv) {
     )
   }
 
+  # ===========================================================================
+  # Capability ladder slice 2 (docs/PLAN_mgcv_capability_ladder.md):
+  # s(<factor>, bs="re") -- the random-effect / level-indicator basis.
+  # ===========================================================================
+  # No knot recipe, no constraint absorption (measured, see
+  # gam_basis_re.py's module docstring: sm$C has 0 rows regardless of
+  # absorb.cons) -- so this function is simpler than every other
+  # extract_smooth_* above: there is no knots_x argument and no by_vec.
+  # Same internal-guard discipline as the others (ADR-191).
+  extract_smooth_re <- function(label, n, n_levels) {
+    set.seed(20120101) # ADR-074: pinned, never the wall clock.
+    levs <- LETTERS[1:n_levels]
+    fac <- factor(sample(levs, n, replace = TRUE), levels = levs)
+    y <- as.numeric(fac == levs[1]) + rnorm(n, sd = 0.1)
+    df <- data.frame(fac = fac, y = y)
+
+    sm <- smoothCon(s(fac, bs = "re"), data = df, absorb.cons = TRUE)[[1]]
+    m <- gam(y ~ s(fac, bs = "re"), data = df)
+
+    Xp <- predict(m, type = "lpmatrix")
+    re_cols <- grep("^s\\(fac\\)", colnames(Xp))
+    Xp_re <- Xp[, re_cols, drop = FALSE]
+
+    if (!identical(dim(Xp_re), dim(sm$X))) {
+      stop(sprintf(
+        "re design '%s': lpmatrix re block is %dx%d but smoothCon()$X is %dx%d.",
+        label, nrow(Xp_re), ncol(Xp_re), nrow(sm$X), ncol(sm$X)
+      ))
+    }
+    guard_x <- max(abs(Xp_re - sm$X))
+    if (guard_x != 0) {
+      stop(sprintf(
+        "re design '%s': smoothCon() X disagrees with lpmatrix (max abs diff %.3e) — internal consistency guard failed.",
+        label, guard_x
+      ))
+    }
+    guard_s <- max(abs(m$smooth[[1]]$S[[1]] - sm$S[[1]]))
+    if (guard_s != 0) {
+      stop(sprintf(
+        "re design '%s': smoothCon() S disagrees with m$smooth[[1]]$S (max abs diff %.3e) — internal consistency guard failed.",
+        label, guard_s
+      ))
+    }
+    guard_rank <- m$smooth[[1]]$rank - sm$rank
+    if (guard_rank != 0L) {
+      stop(sprintf(
+        "re design '%s': smoothCon() rank (%d) disagrees with m$smooth[[1]]$rank (%d) — internal consistency guard failed.",
+        label, sm$rank, m$smooth[[1]]$rank
+      ))
+    }
+    # Also confirm absorb.cons does not matter for "re" (module docstring's
+    # own claim, re-checked on every run rather than trusted from a one-off
+    # probe -- the same discipline the other extract_smooth_* guards follow).
+    sm_unconstrained <- smoothCon(s(fac, bs = "re"), data = df, absorb.cons = FALSE)[[1]]
+    guard_cons <- max(abs(sm$X - sm_unconstrained$X))
+    if (guard_cons != 0 || nrow(sm$C) != 0L) {
+      stop(sprintf(
+        "re design '%s': absorb.cons changed the design (max abs diff %.3e) or a constraint was absorbed (nrow(C)=%d) -- the module docstring's claim that 're' absorbs no constraint no longer holds.",
+        label, guard_cons, nrow(sm$C)
+      ))
+    }
+
+    list(
+      label = label,
+      index_start = 0L, index_end = ncol(sm$X),
+      X = sm$X,
+      S = list(sm$S[[1]]),
+      rank = I(as.integer(sm$rank)),
+      knots = NULL,
+      x = NULL,
+      by = NULL,
+      group = as.integer(fac) - 1L,
+      n_levels = n_levels
+    )
+  }
+
   smooth_cases <- list(
     extract_smooth_one("default-knots-k8", n = 200, k = 8),
     extract_smooth_one("default-knots-k13", n = 400, k = 13),
@@ -471,7 +547,14 @@ main <- function(argv) {
                        knots_x = c(1, 2, 4, 7, 14, 18, 24, 35, 50, 70, 85, 90, 95)),
     extract_smooth_sz("sz-target-polyear-k6", n = 300, k = 6, n_levels = 2,
                        x_range = c(1, 21),
-                       knots_x = c(1, 2, 3, 5, 10, 21))
+                       knots_x = c(1, 2, 3, 5, 10, 21)),
+    # Capability ladder slice 2 (docs/PLAN_mgcv_capability_ladder.md):
+    # s(<factor>, bs="re"). A small 4-level case first (Anchor 1's own
+    # discipline), then a 7-level case -- both DIFFERENT level counts from
+    # the Stage-B probe's own 6, so the Stage-A comparison is not silently
+    # pinned to one n_levels.
+    extract_smooth_re("re-4level", n = 200, n_levels = 4),
+    extract_smooth_re("re-7level", n = 350, n_levels = 7)
   )
   names(smooth_cases) <- vapply(smooth_cases, function(c) c$label, character(1))
 

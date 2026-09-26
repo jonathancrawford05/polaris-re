@@ -94,8 +94,28 @@ def test_sz_n_levels_is_optional_and_only_valid_on_sz() -> None:
             n_levels=1,
         )
 
-    with pytest.raises(PolarisValidationError, match="only a basis='sz' term"):
+    with pytest.raises(PolarisValidationError, match="only a basis='sz' or basis='re'"):
         TermSpec(label="s(AttdAge)", variables=("AttdAge",), basis="cr", k=(13,), n_levels=2)
+
+
+def test_re_names_one_variable_carries_no_k_and_requires_n_levels() -> None:
+    """Capability ladder slice 2 (``docs/PLAN_mgcv_capability_ladder.md``): a
+    ``re`` term's whole recipe is the factor and its level count — the mgcv
+    asymmetry the OTHER way from ``sz`` (there, ``n_levels`` is optional; here
+    it is required, since there is no narrower harness for it to default
+    against)."""
+    re_term = TermSpec(label="s(GroupFac)", variables=("GroupFac",), basis="re", n_levels=6)
+    assert re_term.k == ()
+    assert re_term.n_levels == 6
+
+    with pytest.raises(PolarisValidationError, match="exactly one factor variable"):
+        TermSpec(label="s(a,b)", variables=("a", "b"), basis="re", n_levels=3)
+    with pytest.raises(PolarisValidationError, match="must not carry"):
+        TermSpec(label="s(GroupFac)", variables=("GroupFac",), basis="re", k=(4,), n_levels=3)
+    with pytest.raises(PolarisValidationError, match="re needs n_levels set"):
+        TermSpec(label="s(GroupFac)", variables=("GroupFac",), basis="re")
+    with pytest.raises(PolarisValidationError, match="re needs n_levels set"):
+        TermSpec(label="s(GroupFac)", variables=("GroupFac",), basis="re", n_levels=1)
 
 
 def test_supplied_knots_may_omit_a_margin_to_mean_default_for_that_margin_only() -> None:
@@ -213,6 +233,8 @@ def test_every_supported_basis_constructs_a_minimal_term() -> None:
             TermSpec(label=f"term-{basis}", variables=("x",), basis=basis)
         elif basis == "sz":
             TermSpec(label=f"term-{basis}", variables=("id", "x"), basis=basis, k=(8,))
+        elif basis == "re":
+            TermSpec(label=f"term-{basis}", variables=("id",), basis=basis, n_levels=3)
         elif basis == "ti":
             TermSpec(label=f"term-{basis}", variables=("x", "y"), basis=basis, k=(8, 6))
         else:

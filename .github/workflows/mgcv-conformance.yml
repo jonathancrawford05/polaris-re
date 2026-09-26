@@ -151,6 +151,17 @@ on:
       # add the comparison's own halves, same reasoning as every slice above.
       - "src/polaris_re/analytics/gam_gaussian_conformance.py"
       - "scripts/gam_gaussian_probe.R"
+      # CAPABILITY LADDER rung L2 (docs/PLAN_mgcv_capability_ladder.md slice 2)
+      # — bs="re", the level-indicator / random-effect basis. Stage A lives in
+      # gam_term_extract.R/gam_stage_a.py, already listed above; these lines
+      # add the basis producer itself and Stage B's two regimes (fixed sp
+      # under gaussian identity, free sp under poisson log — see the module
+      # docstrings for why two families).
+      - "src/polaris_re/analytics/gam_basis_re.py"
+      - "src/polaris_re/analytics/gam_re_conformance.py"
+      - "scripts/gam_re_probe.R"
+      - "scripts/gam_re_free_sp_probe.R"
+      - "src/polaris_re/analytics/gam_term_spec.py"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -515,6 +526,36 @@ jobs:
             Rscript scripts/gam_gaussian_probe.R \
               gam_gaussian_probe.json
 
+      # CAPABILITY LADDER rung L2 (docs/PLAN_mgcv_capability_ladder.md slice
+      # 2) — bs="re", Stage B, FIXED sp. Pairs the NEW re term with the
+      # already-verified cr term under gaussian(identity), same fixed-sp
+      # reasoning as ladder L1 above: the scale never enters a fixed-sp fit,
+      # so this is a complete measurement of the re term's own construction.
+      # Same DIAGNOSTIC contract as every probe above — the eta/edf
+      # comparison against the independent Python fit happens in the
+      # `compare` job below.
+      - name: Fit the cr+re design under gaussian(identity) at fixed sp (ladder L2)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_re_probe.R \
+              gam_re_probe.json
+
+      # CAPABILITY LADDER rung L2, Stage B, FREE sp. poisson(log) rather than
+      # gaussian — Gaussian's free scale is blocked until rung L5 (slice 3),
+      # but poisson(log) carries dispersion_fixed=True and its free-sp search
+      # is already verified elsewhere in this epic, so the re term's own
+      # free-sp behaviour does not wait on L5 (the plan's own point for this
+      # slice). Same DIAGNOSTIC contract as every probe above.
+      - name: Fit the cr+re design under poisson(log) at free sp (ladder L2)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_re_free_sp_probe.R \
+              gam_re_free_sp_probe.json
+
       # Asserts every penalty-counting reading in docs/MGCV_NOTATION_PRIMER.md
       # sections 1, 3 and 4 against the pinned mgcv, so the primer's numbers are
       # tier 3 rather than recalled. BOTH SIDES ARE mgcv — Polaris is absent, so
@@ -630,6 +671,8 @@ jobs:
             gam_select_multiterm_free_sp_probe.json
             gam_production_mi_probe.json
             gam_gaussian_probe.json
+            gam_re_probe.json
+            gam_re_free_sp_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -2008,6 +2051,221 @@ jobs:
             cat gam_gaussian_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # CAPABILITY LADDER rung L2 (docs/PLAN_mgcv_capability_ladder.md slice
+      # 2) — bs="re", Stage A: the Python re basis (gam_basis_re.re_basis)
+      # against smoothCon(s(fac, bs="re")) at two level counts (4, 7), read
+      # off the SAME gam_term_extract.json job 1's raw/sz/ti sections above
+      # already parse, keyed on "group is not None and x is None" (a re
+      # case has a factor but no smoothed margin — the one thing that tells
+      # it apart from an sz case, which has both).
+      - name: Compare the re basis vs smoothCon(bs="re") (ladder L2 Stage A)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_term_extract.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_term_extract.json to compare ({exc}) — the R probe "
+                    "above did not produce one.")
+              sys.exit(0)
+
+          import numpy as np
+
+          from polaris_re.analytics.gam_stage_a import (
+              RE_BASIS_CLAIM, build_python_re_term, compare_term_extract,
+          )
+          from polaris_re.analytics.gam_term_spec import TermSpec
+          from polaris_re.core.verification import evidence_markdown
+
+          smooth_r_terms = r_payload.get("smooth_designs", {})
+          re_smooth_terms = {
+              label: r_term for label, r_term in smooth_r_terms.items()
+              if r_term.get("group") is not None and r_term.get("x") is None
+          }
+          re_cases = {"re-4level": 4, "re-7level": 7}
+
+          lines = [
+              "", "### Ladder slice 2 — Python `re` basis vs `smoothCon(bs=\"re\")` (INDEPENDENT)", "",
+              evidence_markdown(RE_BASIS_CLAIM), "",
+              "| term | index range agrees | max abs X diff | max abs S diff | rank diff |",
+              "|---|---|---:|---:|---:|",
+          ]
+          any_re_disagree = False
+          if re_smooth_terms:
+              for label, r_term in re_smooth_terms.items():
+                  if label not in re_cases:
+                      lines.append(f"| `{label}` | **UNKNOWN CASE — no n_levels recipe named** | | | |")
+                      any_re_disagree = True
+                      continue
+                  n_levels = re_cases[label]
+                  term = TermSpec(label=label, variables=("fac",), basis="re", n_levels=n_levels)
+                  group = np.asarray(r_term["group"], dtype=np.int64)
+                  python_term = build_python_re_term(group, n_levels, term)
+                  c = compare_term_extract(python_term, r_term)
+                  if not c.agrees:
+                      any_re_disagree = True
+                  s_diff = ", ".join(f"{d:.3e}" for d in c.max_abs_s_diff) or "n/a"
+                  lines.append(
+                      f"| `{label}` | {c.index_range_agrees} | "
+                      f"{c.max_abs_design_diff:.3e} | {s_diff} | {c.rank_diff} |"
+                  )
+          else:
+              lines.append("| *(no re cases in R output)* | | | | |")
+              any_re_disagree = True
+          lines.append("")
+          lines.append(
+              "`design_X`, `penalty_S` and `rank` are INDEPENDENT (see the legend): "
+              "the Python `re` basis is the bare level-indicator matrix and the "
+              "identity penalty, built from the 0-indexed factor codes and the "
+              "level count alone — no knot recipe, no constraint absorption "
+              "(measured: `absorb.cons` does not change mgcv's own output for a "
+              "`re` term). A disagreement is a REAL RESULT about the basis, not "
+              "a broken round trip. See docs/PLAN_mgcv_capability_ladder.md slice 2."
+          )
+          if any_re_disagree:
+              lines.insert(2, "**A term disagreed — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_re_stage_a_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_re_stage_a_report.md ]; then
+            cat gam_re_stage_a_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # CAPABILITY LADDER rung L2, Stage B, FIXED sp — compares the
+      # independent Python cr+re fit (gaussian identity) against job 1's
+      # native mgcv fit of the same two-term formula at the same fixed sp,
+      # on ADR-221's committed eta/edf criterion — IMPORTED, never
+      # redeclared (Anchor W5). DIAGNOSTIC ONLY, same contract as every
+      # comparison above.
+      - name: Compare the re+cr fixed-sp fit against the Python side (ladder L2)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_re_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_re_probe.json to compare ({exc}) — the R probe "
+                    "above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_re_conformance import (
+              RE_FIXED_SP_CLAIM, compare_re_fixed_sp_case, fit_re_fixed_sp_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          c = compare_re_fixed_sp_case(fit_re_fixed_sp_case(r_payload), r_payload)
+
+          lines = [
+              "",
+              "### Capability ladder rung L2 — bs=\"re\" (+ cr) at fixed sp vs mgcv",
+              "",
+              evidence_markdown(RE_FIXED_SP_CLAIM),
+              "",
+              "| n | n_levels | max abs eta diff | Polaris edf_total | mgcv edf_total | edf diff | agrees |",
+              "|---:|---:|---:|---:|---:|---:|---|",
+              f"| {r_payload['n']} | {r_payload['n_levels']} | {c['max_abs_eta_diff']:.3e} | "
+              f"{c['python_edf_total']:.6f} | {c['mgcv_edf_total']:.6f} | "
+              f"{c['edf_total_diff']:.3e} | {c['agrees']} |",
+              "",
+              "The gate is ADR-221's committed criterion — `max_abs_eta_diff < 2e-2` "
+              "AND `abs(edf_total_diff) < 1.0` — imported from "
+              "`gam_select_free_sp_conformance`, not redeclared here.",
+              "",
+              f"**Offset tripwire** (reported, never gated): {c['offset_gap']:.3e}.",
+              "",
+              "**FIXED sp only, same reasoning as ladder rung L1**: gaussian "
+              "estimates its scale and `reml_score_general` raises on a free "
+              "scale until ladder rung L5. Coefficients are never compared "
+              "(Anchor 2).",
+          ]
+          if not c["agrees"]:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_re_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_re_probe_report.md ]; then
+            cat gam_re_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # CAPABILITY LADDER rung L2, Stage B, FREE sp — compares PolarisGAM's
+      # own free-sp selection (poisson log) against job 1's native mgcv
+      # free-sp REML fit of the same two-term formula. Unlike the fixed-sp
+      # comparison above, sp is a COMPARED QUANTITY here, not a shared
+      # input. Same ADR-221 eta/edf gate, imported, never redeclared.
+      - name: Compare the re+cr free-sp fit against the Python side (ladder L2)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_re_free_sp_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_re_free_sp_probe.json to compare ({exc}) — the R "
+                    "probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_re_conformance import (
+              RE_FREE_SP_CLAIM, compare_re_free_sp_case, fit_re_free_sp_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          fit = fit_re_free_sp_case(r_payload)
+          c = compare_re_free_sp_case(fit, r_payload)
+
+          lines = [
+              "",
+              "### Capability ladder rung L2 — bs=\"re\" (+ cr) at FREE sp vs mgcv (poisson log)",
+              "",
+              evidence_markdown(RE_FREE_SP_CLAIM),
+              "",
+              "| n | n_levels | p | max abs eta diff | max abs log10(sp) diff | edf_total diff | max abs per-term edf diff | at bound | converged | agrees |",
+              "|---:|---:|---:|---:|---:|---:|---:|---|---|---|",
+              f"| {r_payload['n']} | {r_payload['n_levels']} | {len(r_payload['coef'])} | "
+              f"{c.max_abs_eta_diff:.3e} | {c.max_abs_log10_sp_diff:.4f} | "
+              f"{c.edf_total_diff:+.4f} | {c.max_abs_term_edf_diff:.4f} | "
+              f"{c.at_bound} | {c.converged} | {c.agrees} |",
+              "",
+              "`sp` is a COMPARED QUANTITY here, not a shared input: both sides "
+              "select their own smoothing parameters independently, from the "
+              "same already-verified REML criterion. `poisson(log)` is used "
+              "(not gaussian) so this free-sp measurement does not wait on "
+              "ladder rung L5 — it carries `dispersion_fixed=True` and its "
+              "free-sp search is already verified elsewhere in this epic. The "
+              "gate is ADR-221's committed `eta`/`edf_total` criterion, "
+              "imported and never redeclared (Anchor W5). Coefficients are "
+              "NOT compared (Anchor 2).",
+              "",
+              f"**Offset tripwire** (reported, never gated): {c.offset_gap:.3e}.",
+          ]
+          if not c.agrees:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_re_free_sp_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_re_free_sp_probe_report.md ]; then
+            cat gam_re_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # PLAN slice 7b (ADR-218): does mgcv's OWN free-sp select=TRUE point
       # score better, under our OWN criterion (ADR-217's fixed-sp fix),
       # than our best-of-9 multistart result reaches — same discriminator
@@ -2425,3 +2683,7 @@ jobs:
             gam_select_penalty_probe_report.md
             gam_select_multiterm_probe.json
             gam_select_multiterm_probe_report.md
+            gam_re_probe.json
+            gam_re_probe_report.md
+            gam_re_free_sp_probe.json
+            gam_re_free_sp_probe_report.md
