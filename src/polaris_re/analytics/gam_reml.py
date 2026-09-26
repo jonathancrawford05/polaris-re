@@ -429,7 +429,7 @@ def reml_score_general(
         # bit pattern, and this branch's exact grouping is load-bearing — a
         # single-start, no-safety-net optimizer elsewhere in this repo is
         # sensitive enough to that last bit to flip its convergence outcome
-        # (found the hard way, ladder slice 3 PR #240 review).
+        # (found the hard way, PR #240 CI).
         return float(
             0.5 * penalized_deviance / gamma + 0.5 * float(logdet_h) - 0.5 * logdet_s - 0.5 * scale
         )

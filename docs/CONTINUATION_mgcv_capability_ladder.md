@@ -266,12 +266,23 @@ directly by the maintainer after web access was blocked) and its scope
 boundary on `gamma` (not extended to the free-scale branch — raises rather
 than guesses) are both recorded in ADR-231 for review.
 
+**PR #240 review also flagged a harvesting gap** (a second slice running,
+per the review's own count): quasi-Poisson's fit-level free-`sp` re-run was
+left as a CONTINUATION note (carried constraint 6 above) rather than
+registered, which the work-selection rule cannot reach. **Now registered as
+slice 3b** in `PLAN_mgcv_capability_ladder.md` §3, with a release condition —
+see below.
+
 ---
 
 ## Where to pick up
 
 `docs/PLAN_mgcv_capability_ladder.md` §3, **slice 4 — L3 factor-`by`**.
-Slices 1, 2 and 3 are closed (ADR-229, ADR-230, ADR-231).
+Slices 1, 2 and 3 are closed (ADR-229, ADR-230, ADR-231). **Slice 3b**
+(quasi-Poisson's own fit-level free-`sp` re-run — the direct completion of
+slice 3's feature, registered rather than left as a note, ADR-209 decision 1)
+is open and unsized; it does not block slice 4, which remains the plan's own
+next unchecked slice for work-selection purposes.
 
 **Read the plan's own sizing correction first**: `s(x, by = fac)` on a
 3-level factor produces **three separate smooths**, each with its own `sp`
