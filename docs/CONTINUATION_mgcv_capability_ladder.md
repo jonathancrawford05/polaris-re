@@ -3,8 +3,8 @@
 **Plan:** `docs/PLAN_mgcv_capability_ladder.md`
 **Created:** 2026-09-19, by the session that started slice 1 — as the plan's §3
 requires, and not before (the one-active-epic rule).
-**Status:** **ACTIVE.** Slices 1 and 2 complete; slice 3 (L5, scale-estimated
-REML) not started.
+**Status:** **ACTIVE.** Slices 1, 2 and 3 complete; slice 4 (L3, factor-`by`)
+next.
 
 ---
 
@@ -12,9 +12,9 @@ REML) not started.
 
 | slice | rung | status |
 |---|---|---|
-| **1** | **L1** `gaussian(identity)` | **DONE** (2026-09-19, ADR-229) — family built, closed-form verified, and measured against `mgcv` at **tier 3**. **Fixed `sp` only** |
+| **1** | **L1** `gaussian(identity)` | **DONE** (2026-09-19, ADR-229) — family built, closed-form verified, and measured against `mgcv` at **tier 3**. **Fixed `sp` only until slice 3; free `sp` landed 2026-09-26 (ADR-231)** |
 | **2** | **L2** `bs="re"` | **DONE** (2026-09-21, ADR-230) — basis built, measured against `mgcv` at **tier 3**, Stage A AND Stage B, **fixed AND free `sp` both landed in this slice** |
-| 3 | L5 scale-estimated REML | not started |
+| **3** | **L5** scale-estimated REML | **DONE** (2026-09-26, ADR-231) — the free-scale REML criterion derived from Wood (2011) §2 eq. (4) (paper supplied directly by the maintainer after web access was blocked), measured against `mgcv`'s own `gcv.ubre` at **tier 3** (score, both free-scale families) and the fit-level free-sp re-run (Gaussian). **Removed ladder slice 1's own "fixed `sp` only" qualifier in this slice's PR**, its own acceptance criterion. A real, pre-existing factor-of-2 defect in `_gaussian_deviance_terms` (shipped harmlessly at slice 1, since Gaussian's deviance had only one, scale-invariant consumer until this slice) was found in MEASURE FIRST and fixed |
 | 4 | L3 factor-`by` | not started |
 | 5 | L4 unpenalized parametric block | not started |
 
@@ -136,75 +136,176 @@ than registering a follow-up letter-suffix slice.
 
 ---
 
-## Carried constraints — read before touching slice 3
+## Slice 3 — what landed
 
-These were written for slice 1 and **all five still hold**; 1 and 3 are what
-slice 1's acceptance was actually held to.
+### Built
 
-1. **Fixed `sp` only, and say so.** `gam_reml.reml_score_general` raises when
-   `family.dispersion_fixed` is `False` (`gam_reml.py:263`), and Gaussian has a
-   free scale. Free `sp` is blocked until L5 (slice 3). Slice 1's acceptance
-   criteria must state this rather than claim a rung it did not climb.
-   `test_gaussian_estimates_its_scale` asserts the premise, so if it ever flips
-   the plan's §2.2 argument is void and must be re-derived.
+- **`gam_reml.reml_score_general`'s free-scale branch** — replaces the
+  unconditional raise at `dispersion_fixed=False`. Derived from Wood (2011)
+  §2 eq. (4), differentiated w.r.t. the unknown scale `φ` and substituted
+  back: `φ̂ = Dp/(n-Mp)` (`Mp` = the paper's own null-space dimension of
+  `S`), then `V = 0.5(n-Mp)(1+log(φ̂)) + K + 0.5(n-Mp)log(2π)` with `K`
+  computed identically to the known-scale branch (same `logdet_h`/
+  `logdet_s`/`rank_s`/observed-Hessian weight). The paper's PDF was supplied
+  directly by the maintainer after every web host this session tried
+  (journal publishers, ResearchGate, Semantic Scholar, arXiv, university
+  course notes) was blocked by egress policy — see ADR-231 for the exact
+  citation and the full derivation.
+- **`gam_family._gaussian_deviance_terms` corrected** — a real,
+  pre-existing factor-of-2 defect (shipped at ladder slice 1, ADR-229,
+  where it was harmless: Gaussian's deviance had exactly one consumer, the
+  scale-invariant IRLS convergence test). Found in MEASURE FIRST, before any
+  new formula was written: `mgcv`'s own `gaussian()$deviance` is the plain
+  RSS, not `2*RSS`. Fixed, and the ADR-229 test that had pinned the wrong
+  value is corrected.
+- **`gam_free_scale_reml_conformance.py`** — the score-level Stage-C claim,
+  `FREE_SCALE_REML_SCORE_CLAIM`, for BOTH free-scale families. Gaussian is
+  compared on the ABSOLUTE score (confirmed exact against `mgcv`'s
+  `gcv.ubre`, including every additive constant); quasi-Poisson on PAIRWISE
+  DIFFERENCES only (same convention ADR-196 already established for the
+  known-scale Poisson criterion's own convention offset — quasi-likelihood
+  has no proper saturated log-likelihood).
+- **`gam_gaussian_conformance.py` gains `GAUSSIAN_FREE_SP_CLAIM`** — the
+  fit-level re-run of ladder slice 1's OWN three-term recipe (identical
+  seed), now at free `sp` via `gam_model.fit_polaris_gam`, single-start,
+  no `multistart` needed.
+- **Two new R probes**: `scripts/gam_free_scale_reml_score_probe.R` (shared
+  two-block design, three fixed `(sp1,sp2)` points, BOTH families,
+  `method="REML"`) and `scripts/gam_gaussian_free_sp_probe.R` (slice 1's own
+  recipe, free `sp`).
+- **`gamma` explicitly NOT extended** to the free-scale branch — raises on
+  `gamma != 1.0` for a `dispersion_fixed=False` family, a marked scope
+  boundary rather than a guess (module docstring, ADR-231).
+
+### Measured
+
+- **Gaussian score, ABSOLUTE, 3 fixed `(sp1,sp2)` points, TIER 3**: diffs
+  `0.000e+00`/`4.263e-14`/`-7.105e-14` against scores of order `~70` — float
+  round-trip precision, first measurement, no iteration needed. Tier 1 read
+  `-8.5e-14`/`-7.1e-14`/`-1.6e-13` on the same recipe — same verdict, same
+  order of magnitude.
+- **Quasi-Poisson score, PAIRWISE, 3 pairs, TIER 3**: residuals
+  `4.263e-14`/`2.842e-14`/`-1.421e-14`, same order, first measurement. Tier 1
+  read `-1.4e-14`/`-2.8e-14`/`-1.4e-14` on the same recipe.
+- **Gaussian free-sp FIT** (ladder slice 1's own recipe, now free `sp`),
+  TIER 3, `n=900`, `p=86`: `max_abs_eta_diff=2.933e-04`,
+  `edf_total_diff=-0.0206`, `max_abs_term_edf_diff=0.0207`,
+  `at_bound=False`, `converged=True` both sides, `agrees=True` — first
+  measurement, no iteration needed. `max_abs_log10_sp_diff=0.6301` (reported,
+  not gated), offset tripwire `3.553e-15` — two blocks land at very large
+  `sp` on both sides, consistent with `mgcv` shrinking a low-signal term
+  toward its null space. Tier 1 read `max_abs_eta_diff=1.874e-05`,
+  `edf_total_diff=-0.000999`, `max_abs_log10_sp_diff=0.8245` on the same
+  recipe — same verdict, same order of magnitude.
+- **Both tiers agree in verdict and order of magnitude** — run
+  [36242943352](https://github.com/jonathancrawford05/polaris-re/actions/runs/36242943352),
+  oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+  (build 8), R 4.6.1 / mgcv 1.9.4. Full figures in ADR-231.
+- **`MGCV_FEATURE_COVERAGE.md`**: §2.2 Gaussian row moves to fixed AND free
+  `sp` tier 3; §2.3 quasi-Poisson row moves to score-level tier 3; §2.3's
+  "Scale-estimated REML" row moves from NO to tier 3; the L5 ladder row
+  marked climbed.
+- **Ladder slice 1's own "fixed `sp` only" qualifier removed in this PR** —
+  the plan's own acceptance criterion for this slice, not a follow-up.
+
+**What was NOT attempted.** Quasi-Poisson's own FIT-level free-sp re-run (a
+`PolarisGAM` measurement analogous to Gaussian's) — the plan's acceptance
+criterion named only the score measurement and Gaussian's fit re-run.
+Registering the `Gamma`/Tweedie families in `_FAMILY_LINKS` — this slice
+unblocks them in principle (the free-scale branch works for any family), but
+neither is registered, and registering one is separate work.
+
+---
+
+## Carried constraints — read before touching slice 4
+
+Constraints 2-5 below were written for slice 1 and **all still hold**.
+Constraint 1 is **superseded** (L5 closed it, ADR-231) and kept here, struck
+through in substance, so a later reader does not have to reconstruct why
+"fixed `sp` only" no longer applies to Gaussian. Constraint 6 is corrected in
+place (slice 1 itself, not slice 3, was where the "only one family" wording
+was falsified — already fixed, kept here as history).
+
+1. ~~**Fixed `sp` only.**~~ **CLOSED by slice 3 (ADR-231).**
+   `gam_reml.reml_score_general` now has a free-scale branch; Gaussian's own
+   free-`sp` selection is measured (tier 3) and `agrees=True`.
+   `test_gaussian_estimates_its_scale` still asserts the *premise*
+   (Gaussian's scale is genuinely estimated) — that has not changed, only
+   the criterion's inability to handle it, which is what this slice fixed.
 2. **No new tolerance.** ADR-221's `eta`/`edf_total` bounds are **imported**,
    never redeclared — Anchor W5 forbids re-gating. Follow
    `gam_production_mi_conformance.py`'s import of
-   `_AGREEMENT_TOLERANCE_ETA`/`_EDF`.
+   `_AGREEMENT_TOLERANCE_ETA`/`_EDF`. Slice 3 followed this too — no new
+   tolerance anywhere in its own claims.
 3. **Tier 3 or it did not happen.** A local apt-R reading is a hypothesis
    (`ROUTINE_MGCV_PARITY.md`); only the pinned digest settles it.
 4. **The `eta` offset trap.** Read `m$linear.predictors`, **never**
    `predict(type="link")` — the latter drops an argument-supplied offset and has
    already produced one `1.9751`-against-`2e-2` false reading in this epic. The
-   existing probes carry a tripwire; copy it.
-5. **`REFERENCE_INTERNAL` exists now** (ADR-228, PR #236). Slice 1's comparison
-   is Polaris-vs-`mgcv`, so its quantities are `INDEPENDENT` — but if any
-   `mgcv`-vs-`mgcv` column is added, it takes the new member, not `INDEPENDENT`.
-6. **L5 now unblocks TWO families, not one** — and the reach split across the
-   registry is **the free scale, not the count/binary divide**.
-   `quasipoisson(log)` and `gaussian(identity)` both carry
-   `dispersion_fixed=False`; the other three are `True`. Slice 1 made Gaussian
-   the second such family and thereby falsified the plan's own *"the only
-   registered family"* wording, now amended. Slice 3 should size L5 against both.
-   Verify by execution rather than by reading — walking `_FAMILY_LINKS` and
-   printing `dispersion_fixed` is two lines, and it is how PR #237 review
-   [P1-C] was confirmed.
+   existing probes carry a tripwire; copy it. Slice 3's own free-sp probe found
+   this tripwire is NOT exactly `0.0` for a free-sp REML fit the way it is for
+   a fixed-sp linear solve (`7.1e-15`, still ~1e12x inside tolerance) — a
+   `< 1e-9` bound, not exact equality, is the right assertion for any FUTURE
+   free-sp probe's own offset tripwire test.
+5. **`REFERENCE_INTERNAL` exists now** (ADR-228, PR #236). A Polaris-vs-`mgcv`
+   comparison is `INDEPENDENT` — but any `mgcv`-vs-`mgcv` column takes the new
+   member, not `INDEPENDENT`.
+6. **The reach split across the registry is the free scale, not the
+   count/binary divide.** `quasipoisson(log)` and `gaussian(identity)` both
+   carried `dispersion_fixed=False`; slice 3 closed BOTH at the score level
+   and Gaussian at the fit level. Quasi-Poisson's own fit-level free-sp
+   re-run is NOT done (see slice 3's "what was NOT attempted") — a future
+   session wanting it can copy `GAUSSIAN_FREE_SP_CLAIM`'s shape directly.
 
 ---
 
 ## Open questions for the maintainer
 
-None blocking. The plan's L5-at-slice-3 ordering was confirmed 2026-09-18 and
-its justification rewritten in `2dec2a4`.
+None blocking. Slice 3's derivation source (Wood 2011 §2 eq. 4, PDF supplied
+directly by the maintainer after web access was blocked) and its scope
+boundary on `gamma` (not extended to the free-scale branch — raises rather
+than guesses) are both recorded in ADR-231 for review.
+
+**PR #240 review also flagged a harvesting gap** (a second slice running,
+per the review's own count): quasi-Poisson's fit-level free-`sp` re-run was
+left as a CONTINUATION note (carried constraint 6 above) rather than
+registered, which the work-selection rule cannot reach. **Now registered as
+slice 3b** in `PLAN_mgcv_capability_ladder.md` §3, with a release condition —
+see below.
 
 ---
 
 ## Where to pick up
 
-`docs/PLAN_mgcv_capability_ladder.md` §3, **slice 3 — L5 scale-estimated
-REML**. Slices 1 and 2 are closed (ADR-229, ADR-230).
+`docs/PLAN_mgcv_capability_ladder.md` §3, **slice 4 — L3 factor-`by`**.
+Slices 1, 2 and 3 are closed (ADR-229, ADR-230, ADR-231). **Slice 3b**
+(quasi-Poisson's own fit-level free-`sp` re-run — the direct completion of
+slice 3's feature, registered rather than left as a note, ADR-209 decision 1)
+is open and unsized; it does not block slice 4, which remains the plan's own
+next unchecked slice for work-selection purposes.
 
-Slice 3 is the epic's least-measured estimate (§2.1: sized on inspection, not
-on measurement) and sits on the critical path to L9/L10. Its own deliverable
-includes **removing the "fixed `sp` only" qualifier from ladder slice 1's own
-coverage row IN SLICE 3'S PR** (`PLAN_mgcv_capability_ladder.md` §3, slice 3's
-own acceptance) — that is not a follow-up, it is the point of pulling L5
-forward. `quasipoisson(log)` and `gaussian(identity)` are the two
-`dispersion_fixed=False` families it unblocks (constraint 6 above);
-`gam_reml.reml_score_general`'s raise at `gam_reml.py:263` is where the
-free-scale REML criterion needs to replace it.
+**Read the plan's own sizing correction first**: `s(x, by = fac)` on a
+3-level factor produces **three separate smooths**, each with its own `sp`
+— a term *multiplier*, not a term *parameter*. `TermSpec.by` is documented as
+*numeric* and `TermSpec.factor` is **not** a factor-`by` flag (it marks the
+`sz`/`fs` construction and is mutually exclusive with `by`,
+`gam_term_spec.py:74-79`). So this slice owns a contract decision — widen
+`by` to accept a factor, or add a field — before it owns any basis work.
 
 Nearest template for the whole basis-plus-conformance shape — R probe,
 conformance module with a declared claim, workflow probe step + compare step
-+ path filters, tier-3 dispatch — remains **slices 1 and 2**:
-`scripts/gam_gaussian_probe.R` / `gam_re_probe.R` / `gam_re_free_sp_probe.R` +
++ path filters, tier-3 dispatch — remains **slices 1, 2 and 3**:
+`scripts/gam_gaussian_probe.R` / `gam_re_probe.R` / `gam_re_free_sp_probe.R` /
+`gam_free_scale_reml_score_probe.R` / `gam_gaussian_free_sp_probe.R` +
 `src/polaris_re/analytics/gam_gaussian_conformance.py` /
-`gam_re_conformance.py`. Slice 2's own module is the one to copy for a
-FREE-`sp` measurement specifically (`RE_FREE_SP_CLAIM`'s shape), since slice
-1's own template is fixed-`sp` only.
+`gam_re_conformance.py` / `gam_free_scale_reml_conformance.py`.
 
 **A near-exact or exact agreement is a suspicion before it is a result** —
-both slices 1 and 2 needed the same pair of independence tests (strip every
+slices 1 and 2 needed a pair of independence tests (strip every
 `mgcv`-produced key; check the compared quantity moves with the thing under
-test) to make their agreements reportable rather than merely green. Any new
-slice landing a near-exact reading should carry the same pair.
+test) to make their agreements reportable rather than merely green. Slice 3's
+Gaussian score comparison found something stronger — an EXACT match
+(absolute, not shape-only) against `mgcv`'s own `gcv.ubre`, confirmed by
+deriving the formula from the paper FIRST and only then measuring, which is
+the strongest form this pattern can take. Any new slice landing a near-exact
+or exact reading should still carry the strip/perturb pair.

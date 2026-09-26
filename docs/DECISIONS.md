@@ -23507,3 +23507,197 @@ spline's floating-point one.
 - **`bs="fs"`** (ladder L6) shares `"re"`'s hierarchical-structure motivation
   but is a genuinely different penalty count (`1 + M`, not `1`) and margin
   structure; out of scope here, per `MGCV_FEATURE_COVERAGE.md` §5.
+
+## ADR-231: Capability ladder rung L5 — scale-estimated REML, derived from Wood (2011) eq. (4) and confirmed exact against `mgcv`'s own `gcv.ubre`; ladder L1's "fixed `sp` only" qualifier removed
+
+**Date:** 2026-09-26
+**Status:** Accepted
+**Supersedes:** nothing. **Extends:** ADR-196/197 (the known-scale REML score
+this slice's branch sits beside), ADR-229 (ladder L1, whose own "fixed `sp`
+only" qualifier this slice removes).
+**Epic:** `docs/PLAN_mgcv_capability_ladder.md`, slice 3.
+**Ledger:** four rows — a pre-work deviance-convention finding, the score-level
+comparison (both free-scale families), and the fit-level free-sp re-run.
+
+### The gap before
+
+`gam_reml.reml_score_general` (`gam_reml.py:263`, before this slice)
+**raised unconditionally** whenever `family.dispersion_fixed` was `False`.
+Two registered families carry that flag — `gaussian`/`identity` (ladder L1,
+ADR-229) and `quasipoisson`/`log` — so neither could select its own
+smoothing parameters: `select_lambdas_continuous` had no criterion to
+search. Ladder slice 1 shipped explicitly scoped to "fixed `sp` only" for
+this reason.
+
+### The derivation, cited to Wood (2011) §2 eq. (4) — not guessed, not reverse-engineered
+
+The maintainer supplied the paper directly
+(`Wood, S.N. (2011), JRSS-B 73(1), 3-36`, PDF at
+`/root/.claude/uploads/771c7e8b-f189-5f07-b686-6a0a679ac8ef/c9aa1c86-Wood_JRSSB_2011_73_1_3.pdf`)
+after web access to every candidate host (journal publishers, ResearchGate,
+Semantic Scholar, arXiv, university course pages) was blocked by this
+session's egress policy. §2, p.4, states the criterion this module already
+implements for known scale (`φ` fixed), and gives the general form with an
+explicit, possibly-unknown `φ`:
+
+    fβ(β) = |S/φ|₊^0.5 / (2π)^(nb-Mp)/2 · exp{-βᵀSβ/(2φ)}    [the quasi-prior]
+    2lᵣ = 2l(β̂) + log|S/φ|₊ - β̂ᵀSβ̂/φ - log|H + S/φ| + Mₚlog(2π)     [eq. 4]
+
+where **`Mp` is the paper's own name for the null-space dimension of `S`**
+(explicitly: "`Mp` is the dimension of the null space of `S`"), `H = X'WX/φ`
+when Newton-based PIRLS fits it, and — critically for this slice — the paper
+states there are two routes to `φ`: *"(i) estimate `φ` as part of `lᵣ`
+maximization, or (ii) use the Pearson statistic over `n - Mp` as `φ̂`"*.
+Route (i) is what this slice implements.
+
+**Differentiating eq. (4) w.r.t. `φ` at fixed `β̂`/`S`** (both are
+`φ`-independent: the penalized-IRLS normal equations `(X'WX+S)β=X'Wz` never
+contain `φ` at all — it multiplies the working-response and prior terms
+identically and cancels out of their own stationarity condition), using the
+paper's own decomposition `-lᵣ = Dp/(2φ) - ls(φ) + K - (Mp/2)log(2πφ)` with
+`Dp = D(β̂)+β̂ᵀSβ̂`, `K = (log|X'WX+S| - log|S|₊)/2`, and Gaussian's own
+`ls(φ) = -0.5·n·log(2πφ)`:
+
+    d(-lᵣ)/dφ = 0  ⟹  φ̂ = Dp / (n - Mp)
+
+**This is the classical REML residual-variance estimator** (Patterson &
+Thompson, 1971; Harville, 1974) — "restricted" precisely because the
+denominator counts only the null-space (unpenalized) dimension, never the
+full coefficient count, which is the whole reason REML gives an unbiased
+scale estimate where a plain-ML denominator of `n` would not. Substituting
+`φ̂` back and dropping the `φ`-and-`λ`-independent constant `Mp·log(2π)`
+(the SAME kind of constant this module's known-scale branch already drops)
+gives the criterion this slice implements:
+
+    V = 0.5·(n-Mp)·(1 + log(φ̂)) + K + 0.5·(n-Mp)·log(2π)
+
+with `K` computed **identically** to the known-scale branch (same
+`logdet_h`/`logdet_s`/`rank_s`, same Appendix B determinant, same
+observed-Hessian weight — Defects A and B, ADR-210, carry over unchanged).
+Only the outer combination differs; nothing about how the penalty
+determinant or the Hessian is formed does.
+
+### A real, pre-existing defect found in MEASURE FIRST, before any new formula was written
+
+Applying the new formula needs `family.deviance` to equal Wood's `D(β̂)` —
+the standard exponential-family deviance, which for Gaussian reduces to
+exactly the (weighted) residual sum of squares, no factor of 2. Measured
+directly against `mgcv` (tier 1, a standalone check, before touching any
+Python code): `gam(family=gaussian())$deviance` returns the plain RSS
+(`11.4806198713` on a 50-observation check, exactly equal to
+`sum((y-fitted)^2)`), **not** `2 * RSS`.
+
+`gam_family._gaussian_deviance_terms` (added at ladder L1, ADR-229) returned
+bare `(y-mu)^2`, and `Family.deviance`'s shared `2 *` wrapper (the
+`2φ(l_sat - l)` convention every OTHER family in this module already needs
+that wrapper for) then produced `2 * RSS` — **twice** `mgcv`'s own value.
+This was a real defect, not a convention difference: the standard Gaussian
+log-likelihood already carries a `-0.5(y-μ)²/φ` term, so the deviance's own
+missing `0.5 *` is what the shared `2 *` was meant to cancel against, and it
+did not. The prior ADR-229 test that pinned `2 * RSS` as deliberate
+(`test_gaussian_deviance_is_twice_the_weighted_residual_sum_of_squares`) was
+itself wrong, and had shipped harmlessly for one reason only: at ladder L1,
+Gaussian's deviance had exactly one consumer — the IRLS convergence test,
+which is scale-invariant to any positive constant factor. It became
+load-bearing the moment this slice's `phi_hat = Dp/(n-Mp)` needed `D(β̂)`
+itself, where a factor-of-2 error would have corrupted every downstream
+term. **Fixed**: `_gaussian_deviance_terms` now returns `0.5*(y-mu)^2`, and
+the test is corrected to pin `RSS`, not `2*RSS`.
+
+### Verified directly against `mgcv`'s own `gcv.ubre`, both branches, before either was wired into a search
+
+Three standalone R checks (tier 1, before the conformance module existed),
+then the committed module/probe:
+
+1. **Unpenalized Gaussian** (`Mp=p=2`, `r=0`, `n=50`): `φ̂` (mine) =
+   `0.2391795807`, bit-identical to `mgcv`'s own `m$scale` under
+   `method="REML"`. `V` (mine, including the `log(2π)` constant) =
+   `37.4933446758`, `mgcv`'s `gcv.ubre` = `37.4933446758` — **diff
+   `-7.1e-15`**, the ABSOLUTE score, not merely its shape.
+2. **Penalized Gaussian** (`smoothCon(bs="cr",k=8)`, `r=6`, `Mp=2`, `n=200`,
+   4 fixed `sp` spanning `0.01`–`500`): every point agrees to `~1e-13`–
+   `1e-14` on the ABSOLUTE score, `mgcv`'s own `m$scale` deliberately NOT
+   matched (it is a DIFFERENT quantity — see "What phi_hat is not," below).
+3. **Penalized quasi-Poisson** (same basis, `n=300`, 3 fixed `sp` spanning
+   `0.1`–`200`): the ABSOLUTE score carries a small, nearly-`sp`-independent
+   additive residual (`~275.68`, stable to ~1 part in `4e5` across a 2000x
+   `sp` spread) — quasi-likelihood has no proper saturated log-likelihood
+   (its own `a(y,φ)` term is not uniquely defined), so `ls(φ)` is not the
+   same well-defined quantity it is for Gaussian. This is the SAME shape of
+   finding ADR-196 already accepted for the known-scale Poisson criterion's
+   own convention offset ("what matters for an optimiser is the criterion's
+   SHAPE ... cancels any purely additive offset"). PAIRWISE differences
+   agree to `~1e-14` across all 3 pairs.
+
+**What `phi_hat` is NOT.** It does not, in general, match `mgcv`'s reported
+`m$scale` for a PENALIZED fit (it matched only in the unpenalized `r=0`
+corner, where the two happen to coincide). `m$scale` is a separate,
+Pearson/`edf`-based dispersion `mgcv` reports for prediction-interval
+purposes (the paper's own route (ii)); `phi_hat` here is the criterion's OWN
+internally-profiled scale (route (i)), and the two are different quantities
+that need not agree — this is stated so a later session does not read a
+`phi_hat`-vs-`m$scale` mismatch as a defect.
+
+### Committed measurement — TIER 3, pinned digest
+
+`FREE_SCALE_REML_SCORE_CLAIM` (`gam_free_scale_reml_conformance.py`) declares
+Gaussian's score `INDEPENDENT` and ABSOLUTE, quasi-Poisson's `INDEPENDENT`
+and PAIRWISE — the asymmetry is in the claim sentence, not left to a caption.
+`GAUSSIAN_FREE_SP_CLAIM` (`gam_gaussian_conformance.py`) is the fit-level
+re-run: the IDENTICAL three-term recipe ladder L1 (ADR-229) verified at
+fixed `sp`, now fit at FREE `sp` via `PolarisGAM`
+(`gam_model.fit_polaris_gam`), compared against `mgcv`'s own free-sp REML
+fit of the same formula.
+
+Oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(build 8), R 4.6.1 / mgcv 1.9.4, CI run
+[36242943352](https://github.com/jonathancrawford05/polaris-re/actions/runs/36242943352):
+
+| quantity | reading | tier |
+|---|---:|---|
+| Gaussian `gaussian_reml_score` (3 fixed points, ABSOLUTE) | `0.000e+00` / `4.263e-14` / `-7.105e-14` (score order `~70`) | **tier 3** |
+| Quasi-Poisson `..._pairwise_diff` (3 pairs) | `4.263e-14` / `2.842e-14` / `-1.421e-14` | **tier 3** |
+| Gaussian free-sp fit `max_abs_eta_diff` (`n=900`, `p=86`) | `2.933e-04` | **tier 3** |
+| Gaussian free-sp fit `edf_total_diff` | `-0.0206` | **tier 3** |
+| Gaussian free-sp fit `max_abs_term_edf_diff` | `0.0207` | **tier 3** |
+| Gaussian free-sp fit `max_abs_log10_sp_diff` (reported, not gated) | `0.6301` | **tier 3** |
+| Gaussian free-sp fit offset tripwire (reported, not gated) | `3.553e-15` | **tier 3** |
+
+`agrees=True` on every gated quantity, first measurement, no iteration
+needed. **Tier 1 (R 4.3.3 / mgcv 1.9.1, local apt) agreed on the same recipes
+first** (score diffs `-8.5e-14`/`-7.1e-14`/`-1.6e-13` absolute,
+`-1.4e-14`/`-2.8e-14`/`-1.4e-14` pairwise; fit `max_abs_eta_diff=1.874e-05`,
+`edf_total_diff=-0.000999`) — tier 3's own last-bits differ, as the routine's
+tier discipline predicts (different `mgcv` release, different BLAS), but the
+verdict and order of magnitude are identical across both. Required levels
+1-3 of the existing ten-cell suite also still agree on this run — no
+regression from this slice's own edits.
+
+### Consequences
+
+- `MGCV_FEATURE_COVERAGE.md` §2.2's `gaussian(identity)` row and §2.3's
+  `quasipoisson` row move to reflect the new reach; §2.3's "Scale-estimated
+  REML" row moves from **NO** to tier 3; the L5 ladder row is marked
+  climbed.
+- **Ladder slice 1's own "fixed `sp` only" qualifier is REMOVED in this same
+  PR** — the plan's own acceptance criterion for this slice, not a
+  follow-up.
+- `gamma` is explicitly NOT extended to the free-scale branch: passing
+  `gamma != 1.0` to a `dispersion_fixed=False` family raises, because no
+  derivation in this module establishes what `gamma` should do to an
+  estimated `φ` (the known-scale `gamma` literally substitutes for a FIXED
+  `φ`, which has no analogue once `φ` is itself estimated). Marked as an
+  open scope boundary (CLAUDE.md: mark uncertainty, do not guess), not
+  attempted here.
+- Gamma and Tweedie remain unregistered families regardless of this rung —
+  the plan named them as "unblocked in principle," and registering either is
+  separate work this slice does not attempt.
+
+### What this does not settle
+
+Quasi-Poisson's own FIT-level free-sp re-run (a `PolarisGAM` measurement
+analogous to Gaussian's) is not attempted here — the plan's own acceptance
+criterion is the score measurement plus "slice 1's Gaussian recipe re-run at
+free `sp`," and quasi-Poisson's fit-level measurement was not named. Left
+open, not registered as a gap, since nothing in this slice's own scope
+promised it.

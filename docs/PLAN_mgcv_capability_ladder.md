@@ -242,6 +242,39 @@ recipe re-run at **free** `sp`.
 "fixed `sp` only" qualifier **in this slice's PR** — that is the deliverable, not
 a follow-up.
 
+### Slice 3b — quasi-Poisson fit-level free-`sp` re-run (registered, not sized)
+
+**Registered 2026-09-26 (PR #240 review), per ADR-209 decision 1** — a gap
+opened is closed or registered, never merely filed. Slice 3 closed the
+free-scale REML criterion and measured it at the SCORE level for both
+free-scale families (`gaussian(identity)`, `quasipoisson(log)`), then lifted
+slice 1's "fixed `sp` only" qualifier with a FIT-level free-`sp` re-run —
+but only for Gaussian. `MGCV_FEATURE_COVERAGE.md` §2.2 now carries
+`quasipoisson(log)` at "✅ tier 3, **score-level only**" — a new, named
+half-open state that `CONTINUATION_mgcv_capability_ladder.md`'s carried
+constraint 6 flagged as a future item without registering it, which is
+exactly the CONTINUATION-note-is-not-a-registration gap ADR-209 exists to
+close.
+
+**Build:** none — no new code. `GAUSSIAN_FREE_SP_CLAIM` / `fit_gaussian_free_sp_case`
+(`gam_gaussian_conformance.py`, slice 3) is the direct template; the same
+shape against `quasipoisson_log()` is the whole slice.
+
+**Release condition:** a `quasipoisson(log)` fit-level free-`sp` measurement
+against `mgcv`, tier 3, gated on ADR-221 (imported, not redeclared), with its
+own `VerificationClaim` (INDEPENDENT, structurally excluding every
+`mgcv`-produced key — same pattern as `GAUSSIAN_FREE_SP_CLAIM`). Lands the
+coverage row from "score-level only" to unqualified tier 3, matching
+Gaussian's own row.
+
+**Why not folded into slice 3 itself:** found during PR #240's review, after
+slice 3 had already landed and its PR body's Definition of Done was
+reproduced verbatim from the plan's own text — which named only the score
+measurement plus Gaussian's fit re-run for this slice's acceptance. Extending
+scope post-hoc inside a landed PR is exactly the "widen on your own"
+this project's routines refuse; a registered follow-up slice is the correct
+container instead.
+
 ### Slice 4 — L3 factor-`by`
 
 **Note what it is**, because the name misleads: `s(x, by = f)` on a factor is not

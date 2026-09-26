@@ -52,7 +52,7 @@ import numpy as np
 
 from polaris_re.analytics.gam_family import Family, gaussian_identity
 from polaris_re.analytics.gam_fit import GeneralIRLSFit, penalized_irls_general
-from polaris_re.analytics.gam_model import assemble_model_design
+from polaris_re.analytics.gam_model import PolarisGAMFit, assemble_model_design, fit_polaris_gam
 from polaris_re.analytics.gam_select_free_sp_conformance import (
     _AGREEMENT_TOLERANCE_EDF,
     _AGREEMENT_TOLERANCE_ETA,
@@ -68,11 +68,18 @@ from polaris_re.core.verification import (
 __all__ = [
     "GAUSSIAN_CLAIM",
     "GAUSSIAN_CLAIM_SENTENCE",
+    "GAUSSIAN_FREE_SP_CLAIM",
+    "GAUSSIAN_FREE_SP_CLAIM_SENTENCE",
     "GaussianCaseComparison",
+    "GaussianFreeSpCaseComparison",
+    "RGaussianFreeSpPayload",
+    "RGaussianFreeSpRecipe",
     "RGaussianPayload",
     "RGaussianRecipe",
     "compare_gaussian_case",
+    "compare_gaussian_free_sp_case",
     "fit_gaussian_case",
+    "fit_gaussian_free_sp_case",
     "gaussian_model_spec",
 ]
 
@@ -324,4 +331,188 @@ def compare_gaussian_case(
         offset_gap=float(r_case["offset_gap"]),
         agrees=agrees,
         evidence=GAUSSIAN_CLAIM,
+    )
+
+
+# =============================================================================
+# FREE sp — capability ladder rung L5 (PLAN_mgcv_capability_ladder.md slice 3).
+# Removes slice 1's own "fixed sp only" qualifier: gam_reml.reml_score_general
+# now has a free-scale branch (this slice's own build), so
+# select_lambdas_continuous has a criterion to search under gaussian_identity().
+# =============================================================================
+
+
+class RGaussianFreeSpRecipe(TypedDict):
+    """The shared recipe both sides fit — and **nothing else**. No ``sp``
+    key: free ``sp`` is what this comparison measures, not a value either
+    side is handed. Identical fields to :class:`RGaussianRecipe` minus
+    ``sp`` — same recipe, same seed, as ``scripts/gam_gaussian_probe.R``
+    (slice 1's own fixed-sp case), per the module docstring's reasoning for
+    holding the design fixed."""
+
+    n: int
+    AttdAge: list[float]
+    PolYear: list[float]
+    StudyYear_C: list[float]
+    y: list[float]
+    age_knots: list[float]
+    year_knots: list[float]
+
+
+class RGaussianFreeSpPayload(RGaussianFreeSpRecipe):
+    """The recipe plus ``scripts/gam_gaussian_free_sp_probe.R``'s OWN free-``sp``
+    fit. Read by :func:`compare_gaussian_free_sp_case` only."""
+
+    eta: list[float]
+    sp: list[float]
+    edf_total: float
+    term_edf: list[float]
+    offset_gap: float
+    coef: list[float]
+    converged: bool
+
+
+GAUSSIAN_FREE_SP_CLAIM_SENTENCE = (
+    "polaris_re's PolarisGAM (gam_model.fit_polaris_gam) assembles the "
+    "IDENTICAL three-term design ladder slice 1 verified at fixed sp "
+    "(build_python_cr_term for s(AttdAge,k=13,bs='cr'), "
+    "build_python_cr_term(by=...) for s(AttdAge,by=StudyYear_C,k=13,bs='cr'), "
+    "build_python_ti_term for ti(AttdAge,PolYear,k=(13,6),bs='cr')) from the "
+    "shared recipe, then selects its own log10(lambda) for all four penalty "
+    "blocks by minimizing gam_reml.reml_score_general's FREE-SCALE branch "
+    "(this slice's own build — the raise at dispersion_fixed=False that "
+    "blocked this comparison before this slice no longer fires) via "
+    "gam_reml_optimize.select_lambdas_continuous, and fits with "
+    "gam_fit.penalized_irls_general — never reading mgcv's own eta, coef, sp "
+    "or edf; mgcv computes the identical formula via "
+    "gam(family=gaussian(link='identity'), method='REML') with free sp, "
+    "selecting its own smoothing parameters independently "
+    "(scripts/gam_gaussian_free_sp_probe.R). Compared on eta at the training "
+    "design, log10(sp) per block (reported, not gated — see "
+    "gam_free_scale_reml_conformance for the score-level measurement this "
+    "fit builds on), edf_total and per-term edf, gated on ADR-221's "
+    "committed criterion (max_abs_eta_diff < 2e-2 and abs(edf_total_diff) < "
+    "1.0), IMPORTED and not redeclared."
+)
+
+
+GAUSSIAN_FREE_SP_CLAIM = VerificationClaim(
+    claim=GAUSSIAN_FREE_SP_CLAIM_SENTENCE,
+    quantities=(
+        ComparedQuantity(
+            quantity="eta (Polaris gaussian free sp vs mgcv, free sp)",
+            left_producer="gam_model.fit_polaris_gam at its own selected log_lambda",
+            right_producer="mgcv gam(method='REML') free-sp fit, m$linear.predictors",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="log10(sp) per block (Polaris gaussian free sp vs mgcv, free sp)",
+            left_producer="gam_reml_optimize.select_lambdas_continuous's own log_lambda",
+            right_producer="mgcv's own log10(m$sp) at its free-sp REML selection",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="edf_total (Polaris gaussian free sp vs mgcv, free sp)",
+            left_producer="PolarisGAMFit.edf_total at the selected log_lambda",
+            right_producer="mgcv's own sum(m$edf) at its free-sp REML fit",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="per-term edf (Polaris gaussian free sp vs mgcv, free sp)",
+            left_producer="PolarisGAMFit.edf_per_term (hat-matrix diagonal sum per term span)",
+            right_producer=(
+                "mgcv's own summary(m)$s.table[, 'edf'], read positionally in formula order"
+            ),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+    ),
+)
+"""Rung L5's fit-level provenance declaration — the deliverable that lifts
+slice 1's own "fixed sp only" qualifier. Every quantity INDEPENDENT —
+:func:`fit_gaussian_free_sp_case` takes :class:`RGaussianFreeSpRecipe`, which
+structurally excludes `eta`/`coef`/`sp`/`edf_total`/`term_edf`."""
+
+
+def fit_gaussian_free_sp_case(
+    r_case: RGaussianFreeSpRecipe, *, multistart: bool = False
+) -> PolarisGAMFit:
+    """The independent Python producer: assemble the design, select its own
+    lambda under the free-scale REML criterion, and fit — never reading
+    ``mgcv``'s ``eta``/``coef``/``sp``/``edf``
+    (:class:`RGaussianFreeSpRecipe` has none of these keys)."""
+    age_knots = tuple(float(v) for v in r_case["age_knots"])
+    year_knots = tuple(float(v) for v in r_case["year_knots"])
+    model = gaussian_model_spec(age_knots, year_knots)
+    data = {
+        "AttdAge": np.asarray(r_case["AttdAge"], dtype=np.float64),
+        "PolYear": np.asarray(r_case["PolYear"], dtype=np.float64),
+        "StudyYear_C": np.asarray(r_case["StudyYear_C"], dtype=np.float64),
+    }
+    y = np.asarray(r_case["y"], dtype=np.float64)
+    return fit_polaris_gam(model, data, y, multistart=multistart)
+
+
+class GaussianFreeSpCaseComparison(TypedDict):
+    max_abs_eta_diff: float
+    max_abs_log10_sp_diff: float
+    edf_total_diff: float
+    max_abs_term_edf_diff: float
+    offset_gap: float
+    at_bound: bool
+    converged: bool
+    agrees: bool
+    evidence: VerificationClaim
+
+
+def compare_gaussian_free_sp_case(
+    python_fit: PolarisGAMFit, r_case: RGaussianFreeSpPayload
+) -> GaussianFreeSpCaseComparison:
+    """Compare the independent Python free-``sp`` fit against the R payload's
+    own free-``sp`` fit, on every quantity :data:`GAUSSIAN_FREE_SP_CLAIM`
+    declares.
+
+    ``agrees`` uses ADR-221's committed ``eta``/``edf_total`` criterion
+    (imported) — the SAME gate every other Stage-B claim in this epic uses,
+    never a fresh ``log10(sp)``-only bar (Anchor W5)."""
+    r_eta = np.asarray(r_case["eta"], dtype=np.float64)
+    if r_eta.shape != python_fit.eta.shape:
+        raise PolarisValidationError(
+            f"compare_gaussian_free_sp_case: R eta has shape {r_eta.shape}, "
+            f"Python eta has shape {python_fit.eta.shape}."
+        )
+    r_log_sp = np.log10(np.asarray(r_case["sp"], dtype=np.float64))
+    if r_log_sp.shape != python_fit.log_lambda.shape:
+        raise PolarisValidationError(
+            f"compare_gaussian_free_sp_case: R sp has {r_log_sp.shape[0]} "
+            f"entries, Python log_lambda has {python_fit.log_lambda.shape[0]}."
+        )
+    r_term_edf = np.asarray(r_case["term_edf"], dtype=np.float64)
+    python_term_edf = np.asarray(list(python_fit.edf_per_term.values()), dtype=np.float64)
+    if r_term_edf.shape != python_term_edf.shape:
+        raise PolarisValidationError(
+            f"compare_gaussian_free_sp_case: R term_edf has {r_term_edf.shape[0]} "
+            f"entries, Python edf_per_term has {python_term_edf.shape[0]}."
+        )
+
+    max_abs_eta_diff = float(np.max(np.abs(r_eta - python_fit.eta)))
+    max_abs_log10_sp_diff = float(np.max(np.abs(python_fit.log_lambda - r_log_sp)))
+    edf_total_diff = float(python_fit.edf_total - r_case["edf_total"])
+    max_abs_term_edf_diff = float(np.max(np.abs(python_term_edf - r_term_edf)))
+
+    agrees = (
+        python_fit.converged
+        and bool(r_case["converged"])
+        and max_abs_eta_diff < _ETA_TOLERANCE
+        and abs(edf_total_diff) < _EDF_TOLERANCE
+    )
+    return GaussianFreeSpCaseComparison(
+        max_abs_eta_diff=max_abs_eta_diff,
+        max_abs_log10_sp_diff=max_abs_log10_sp_diff,
+        edf_total_diff=edf_total_diff,
+        max_abs_term_edf_diff=max_abs_term_edf_diff,
+        offset_gap=float(r_case["offset_gap"]),
+        at_bound=python_fit.at_bound,
+        converged=python_fit.converged,
+        agrees=agrees,
+        evidence=GAUSSIAN_FREE_SP_CLAIM,
     )
