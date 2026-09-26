@@ -34,6 +34,7 @@ __all__ = [
     "SUPPORTED_BASES",
     "ModelSpec",
     "TermSpec",
+    "factor_by_terms",
 ]
 
 SUPPORTED_BASES: tuple[str, ...] = ("cr", "ti", "sz", "re", "raw")
@@ -81,6 +82,24 @@ class TermSpec:
             factor-smooth (``bs="sz"``/``"fs"``), and they are different constructions.
         factor: Does this term vary by an unpenalized factor level (the ``sz``/``fs``
             family), as opposed to being scaled by a numeric ``by``?
+        by_factor: The grouping variable's name for a **factor**-``by`` smooth
+            (capability ladder rung L3, ``docs/PLAN_mgcv_capability_ladder.md``
+            slice 4), e.g. ``s(x, by=fac, bs="cr")``, or ``None``. `mgcv`'s own
+            rule (measured, not guessed — see
+            :func:`~polaris_re.analytics.gam_basis_cr.by_factor_mask_design`'s
+            docstring): a factor ``by`` is a term **multiplier**, not a term
+            parameter — one level produces one separate smooth with its own
+            smoothing parameter, not one term that varies continuously. So a
+            :class:`TermSpec` never represents the whole factor-``by`` term —
+            it represents ONE level of it, and a caller builds ``n_levels`` of
+            these (one per level, each a distinct ``label``) to reproduce
+            ``mgcv``'s own ``s(x, by=fac)``. Set together with :attr:`by_level`,
+            never with :attr:`by` (numeric) or :attr:`factor`, and only for
+            ``basis="cr"`` — the only basis this construction is built for.
+        by_level: Which 0-indexed level of :attr:`by_factor` this instance
+            represents, required (and only meaningful) when :attr:`by_factor`
+            is set — an input, not derived (Anchor 4), so :attr:`n_levels` must
+            also be set and this must lie in ``[0, n_levels)``.
         penalty_order: Derivative order per penalty, where the basis has more than one
             (``cr`` has one; ``ti`` and ``sz`` can carry one per margin). ``None`` means
             "``mgcv``'s default for this basis" rather than "no penalty" — every
@@ -112,6 +131,8 @@ class TermSpec:
     factor: bool = False
     penalty_order: tuple[int, ...] | None = None
     n_levels: int | None = None
+    by_factor: str | None = None
+    by_level: int | None = None
 
     def knots_by_variable(self) -> dict[str, tuple[float, ...]]:
         """:attr:`knots` as a plain ``dict``, computed on demand.
@@ -221,11 +242,53 @@ class TermSpec:
                 f"a numeric-by smooth and a factor-smooth are different mgcv "
                 f"constructions; a term is one or the other."
             )
-        if self.basis not in ("sz", "re") and self.n_levels is not None:
+        if (self.by_factor is None) != (self.by_level is None):
+            raise PolarisValidationError(
+                f"TermSpec {self.label!r} sets by_factor={self.by_factor!r} and "
+                f"by_level={self.by_level!r} — a factor-by term needs both or neither."
+            )
+        if self.by_factor is not None:
+            if self.basis != "cr":
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} sets by_factor={self.by_factor!r} with "
+                    f"basis={self.basis!r} — a factor-by smooth is only built for "
+                    f"basis='cr'."
+                )
+            if self.by is not None:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} sets both by={self.by!r} (numeric) and "
+                    f"by_factor={self.by_factor!r} — a numeric-by smooth and a "
+                    f"factor-by smooth are different mgcv constructions; a term is "
+                    f"one or the other."
+                )
+            if self.factor:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} sets both factor=True and "
+                    f"by_factor={self.by_factor!r} — factor=True marks the sz/fs "
+                    f"construction, a different one from a factor-by smooth."
+                )
+            if self.n_levels is None or self.n_levels < 2:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} sets by_factor={self.by_factor!r} but "
+                    f"n_levels={self.n_levels!r} — a factor-by term needs n_levels "
+                    f"set, >= 2 (mgcv's length(levels(fac))), an input never derived "
+                    f"from data (Anchor 4)."
+                )
+            assert self.by_level is not None  # narrows for mypy; guaranteed above
+            if not 0 <= self.by_level < self.n_levels:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} has by_level={self.by_level!r}, which "
+                    f"must lie in [0, {self.n_levels})."
+                )
+        if (
+            self.basis not in ("sz", "re")
+            and not (self.basis == "cr" and self.by_factor is not None)
+            and self.n_levels is not None
+        ):
             raise PolarisValidationError(
                 f"TermSpec {self.label!r} has basis={self.basis!r} but sets "
-                f"n_levels={self.n_levels!r} — only a basis='sz' or basis='re' "
-                f"term has a factor-level count."
+                f"n_levels={self.n_levels!r} — only a basis='sz'/'re' term, or a "
+                f"basis='cr' factor-by term, has a factor-level count."
             )
 
 
@@ -278,3 +341,68 @@ class ModelSpec:
                 f"ModelSpec has duplicate term labels {duplicates} — each term must "
                 f"be addressable by a unique label for Stage A to key its comparison."
             )
+
+
+def factor_by_terms(
+    *,
+    base_label: str,
+    variable: str,
+    k: int,
+    by_factor: str,
+    n_levels: int,
+    knots: tuple[float, ...] | None = None,
+    level_labels: tuple[str, ...] | None = None,
+) -> tuple[TermSpec, ...]:
+    """The ``n_levels`` separate :class:`TermSpec` objects a factor-``by`` smooth
+    (capability ladder rung L3, ``s(x, by=fac, bs="cr")``) expands into.
+
+    `mgcv`'s own rule (``docs/MGCV_NOTATION_PRIMER.md`` §4, measured): a factor
+    ``by`` is a term **multiplier** — one level produces one separate smooth, each
+    with its own smoothing parameter — never one :class:`TermSpec` with an internal
+    per-level branch. This factory is the one place that expansion happens, so a
+    caller building a factor-by term into a :class:`ModelSpec` does it the same way
+    every time rather than re-deriving the label convention and the shared
+    ``knots``/``k`` recipe per call site.
+
+    Args:
+        base_label: The shared label prefix — each generated term's own label is
+            ``f"{base_label}:{level_label}"``.
+        variable: The smoothed covariate's name (e.g. ``"AttdAge"``).
+        k: The shared basis dimension, one value for every level (`mgcv`'s own
+            convention — a factor-by term names one ``k``, not one per level).
+        by_factor: The grouping variable's name (0-indexed level codes in the
+            data ``assemble_model_design`` reads).
+        n_levels: Number of factor levels — an input, never derived (Anchor 4).
+        knots: Supplied knot locations for ``variable``, shared by every level
+            (module docstring of :mod:`~polaris_re.analytics.gam_basis_cr`: all
+            levels use the SAME knots, computed on the whole covariate column),
+            or ``None`` to mean "let `mgcv`'s default placement decide" — same
+            Anchor-4 convention as :attr:`TermSpec.knots`.
+        level_labels: One label per level for the generated terms' own suffix, or
+            ``None`` to use the level's own index as a string (``"0"``, ``"1"``,
+            ...). Must have length ``n_levels`` when supplied.
+
+    Returns:
+        ``n_levels`` :class:`TermSpec` objects, ``by_level`` running ``0`` to
+        ``n_levels - 1`` in order.
+    """
+    labels = level_labels if level_labels is not None else tuple(str(i) for i in range(n_levels))
+    if len(labels) != n_levels:
+        raise PolarisValidationError(
+            f"factor_by_terms: {len(labels)} level_labels supplied but n_levels="
+            f"{n_levels} — one label per level is required."
+        )
+    knots_arg = None if knots is None else ((variable, knots),)
+    return tuple(
+        TermSpec(
+            label=f"{base_label}:{labels[level]}",
+            variables=(variable,),
+            basis="cr",
+            k=(k,),
+            knots=knots_arg,
+            by_factor=by_factor,
+            by_level=level,
+            n_levels=n_levels,
+        )
+        for level in range(n_levels)
+    )

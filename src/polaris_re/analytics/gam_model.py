@@ -76,6 +76,7 @@ from polaris_re.analytics.gam_reml_optimize import (
 from polaris_re.analytics.gam_select_penalty import null_space_penalty
 from polaris_re.analytics.gam_stage_a import (
     TermExtract,
+    build_python_cr_by_factor_term,
     build_python_cr_term,
     build_python_re_term,
     build_python_sz_term,
@@ -194,6 +195,9 @@ class ModelDesign(TypedDict):
 def _build_term_extract(term: TermSpec, data: Mapping[str, np.ndarray]) -> TermExtract:
     if term.basis == "cr":
         x = np.asarray(data[term.variables[0]], dtype=np.float64)
+        if term.by_factor is not None:
+            group = np.asarray(data[term.by_factor], dtype=np.int64)
+            return build_python_cr_by_factor_term(x, group, term)
         by = None if term.by is None else np.asarray(data[term.by], dtype=np.float64)
         return build_python_cr_term(x, term, by=by)
     if term.basis == "ti":

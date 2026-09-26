@@ -192,6 +192,51 @@ level rather than one each); the target formula's own four ``sz`` terms
 :func:`sz_basis` handles only that case — the same "does not generalize beyond what
 was measured" discipline :func:`ti_basis` already documents for a non-``cr`` margin.
 
+Factor ``by`` (capability ladder rung L3, ``s(x, by=fac, bs="cr")``)
+---------------------------------------------------------------------
+:func:`by_factor_mask_design` implements a **factor**-``by`` smooth — a
+different construction from the numeric-``by`` one above despite the shared
+argument name. `mgcv`'s own rule, stated in ``docs/MGCV_NOTATION_PRIMER.md``
+§4: a factor ``by`` is a term **multiplier**, not a term parameter — one
+level produces one completely separate, independently-penalized smooth, not
+one term that varies continuously.
+
+**Mechanism, measured directly against ``smoothCon(s(x, by=fac, bs="cr", k),
+absorb.cons=TRUE)`` before this was written (Anchor 8), not read off
+documentation:**
+
+1. **Knots, the constrained design and the penalty are computed EXACTLY as if
+   ``by`` were absent** — the *same* :func:`cr_basis` +
+   :func:`absorb_sum_to_zero_constraint` construction :func:`build_python_cr_term`
+   already uses for a bare ``s(x)``, evaluated on the **whole** covariate column
+   (every row, every level), never a per-level subset. This one shared
+   ``(design, S)`` is **identical across every level** — measured: `mgcv`'s own
+   identifiability constraint ``C`` for a factor-by term equals
+   ``colMeans()`` of the whole-data (non-split) basis, the SAME ``C`` a bare
+   ``s(x)`` on that data would use, not the per-level subset's own ``colMeans``
+   (which was the first, refuted hypothesis — it disagreed at the 1e-1 level).
+2. **Each level's own design is that shared constrained design with every row
+   outside ``group == level`` zeroed** — :func:`by_factor_mask_design`, applied
+   *after* the constraint is absorbed (not before — masking then constraining
+   would need a different, level-restricted ``C`` and was refuted first).
+3. **The penalty is NOT rescaled per level.** Every level gets the identical
+   shared ``S`` from step 1 — `mgcv` assigns each level its own smoothing
+   *parameter* (a separate ``lambda``), but every level starts from the same
+   penalty matrix. This is the opposite of :func:`sz_basis`'s own convention,
+   where masking happens **before** the shared identifiability constraint
+   (contrast-vs-last-level) and each level's raw block is placed in a disjoint
+   sub-block of one combined design; here every level's design uses the SAME
+   ``k-1`` columns (not a disjoint sub-block), so a factor-by term's `n_levels`
+   generated smooths must be assembled as `n_levels` **separate model terms**,
+   each contributing its own `k-1`-wide column span — matching `mgcv`'s own
+   bookkeeping (``m$smooth`` has one entry per level, each with its own
+   ``first.para``/``last.para``), not `sz`'s one-term-many-penalty-blocks shape.
+
+Confirmed against ``smoothCon(s(x, by=fac, bs="cr", k=6), absorb.cons=TRUE)``
+to exact bit-for-bit agreement (max abs diff **0.0**, not merely float
+round-trip) on ``design_X`` and ``penalty_S``, every level, on a synthetic
+3-level case, tier 1, before this function was written.
+
 Not handled yet
 ----------------
 **Extrapolation beyond the knot range.** All five of slice 2's cases place ``x``
@@ -215,6 +260,7 @@ from polaris_re.core.exceptions import PolarisComputationError, PolarisValidatio
 
 __all__ = [
     "absorb_sum_to_zero_constraint",
+    "by_factor_mask_design",
     "by_scale_design",
     "cr_basis",
     "cr_default_knots",
@@ -409,6 +455,35 @@ def by_scale_design(design: np.ndarray, by: np.ndarray) -> np.ndarray:
     # np.asarray, not a bare product: mypy infers Any from the ndarray operator
     # and this function declares a concrete return type (PR #206 review [P1]).
     return np.asarray(design * by[:, np.newaxis], dtype=np.float64)
+
+
+def by_factor_mask_design(design: np.ndarray, group: np.ndarray, level: int) -> np.ndarray:
+    """Zero every row outside one level, for a **factor**-``by`` smooth
+    (capability ladder rung L3, module docstring's numbered construction).
+
+    Args:
+        design: The **constrained** ``(n, k-1)`` design — i.e. the output of
+            :func:`absorb_sum_to_zero_constraint` on the whole (unsplit)
+            covariate column, never the unconstrained :func:`cr_basis` output
+            (measured: masking runs *after* the shared constraint is
+            absorbed, module docstring point 2).
+        group: 0-indexed factor-level code per row, ``(n,)`` — the same
+            convention :func:`sz_basis` and
+            :mod:`~polaris_re.analytics.gam_basis_re` already use.
+        level: Which 0-indexed level to keep; every other row is zeroed.
+
+    Returns:
+        ``(n, k-1)`` — same shape as ``design``, every row where
+        ``group != level`` set to zero.
+    """
+    group = np.asarray(group, dtype=np.int64)
+    if group.shape != (design.shape[0],):
+        raise PolarisValidationError(
+            f"by_factor_mask_design: design has {design.shape[0]} row(s) but group "
+            f"has shape {group.shape} — one factor-level code per row is required."
+        )
+    mask = (group == level).astype(np.float64)
+    return np.asarray(design * mask[:, np.newaxis], dtype=np.float64)
 
 
 def sum_to_zero_null_space(design: np.ndarray) -> np.ndarray:

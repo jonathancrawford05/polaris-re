@@ -489,6 +489,96 @@ main <- function(argv) {
     )
   }
 
+  # ===========================================================================
+  # Capability ladder slice 4 (docs/PLAN_mgcv_capability_ladder.md):
+  # s(x, by=fac, bs="cr") -- a FACTOR-by smooth (a term MULTIPLIER: one level
+  # produces one completely separate smooth, docs/MGCV_NOTATION_PRIMER.md §4).
+  # smoothCon() ALREADY returns one list entry per level -- unlike sz/re above,
+  # there is no per-level looping to write; this function reads that list
+  # directly and emits one JSON entry per level, keyed "<label_prefix>:<i>".
+  # Same internal-guard discipline as every extract_smooth_* above (ADR-191):
+  # each level's own smoothCon() block is checked against the SAME level's
+  # block inside a fitted model's own lpmatrix/m$smooth[[i]].
+  extract_smooth_by_factor <- function(label_prefix, n, k, n_levels,
+                                        knots_x = NULL, x_range = c(0, 10)) {
+    set.seed(20120101) # ADR-074: pinned, never the wall clock.
+    x <- runif(n, x_range[1], x_range[2])
+    levs <- LETTERS[1:n_levels]
+    fac <- factor(sample(levs, n, replace = TRUE), levels = levs)
+    y <- sin(x) + rnorm(n, sd = 0.1)
+    df <- data.frame(x = x, fac = fac, y = y)
+    knots_arg <- if (is.null(knots_x)) NULL else list(x = knots_x)
+
+    sm <- smoothCon(s(x, by = fac, k = k, bs = "cr"), data = df,
+                     knots = knots_arg, absorb.cons = TRUE)
+    m <- gam(y ~ s(x, by = fac, k = k, bs = "cr"), data = df, knots = knots_arg)
+    if (length(sm) != n_levels || length(m$smooth) != n_levels) {
+      stop(sprintf(
+        "by-factor design '%s': expected %d level(s), smoothCon() gave %d, m$smooth gave %d.",
+        label_prefix, n_levels, length(sm), length(m$smooth)
+      ))
+    }
+    Xp <- predict(m, type = "lpmatrix")
+
+    group <- as.integer(fac) - 1L
+    out <- list()
+    for (i in seq_len(n_levels)) {
+      first_para <- m$smooth[[i]]$first.para
+      last_para <- m$smooth[[i]]$last.para
+      Xp_level <- Xp[, first_para:last_para, drop = FALSE]
+
+      if (!identical(dim(Xp_level), dim(sm[[i]]$X))) {
+        stop(sprintf(
+          "by-factor design '%s' level %d: lpmatrix block is %dx%d but smoothCon()$X is %dx%d.",
+          label_prefix, i, nrow(Xp_level), ncol(Xp_level), nrow(sm[[i]]$X), ncol(sm[[i]]$X)
+        ))
+      }
+      guard_x <- max(abs(Xp_level - sm[[i]]$X))
+      if (guard_x != 0) {
+        stop(sprintf(
+          "by-factor design '%s' level %d: smoothCon() X disagrees with lpmatrix (max abs diff %.3e) — internal consistency guard failed.",
+          label_prefix, i, guard_x
+        ))
+      }
+      guard_s <- max(abs(m$smooth[[i]]$S[[1]] - sm[[i]]$S[[1]]))
+      if (guard_s != 0) {
+        stop(sprintf(
+          "by-factor design '%s' level %d: smoothCon() S disagrees with m$smooth[[i]]$S (max abs diff %.3e) — internal consistency guard failed.",
+          label_prefix, i, guard_s
+        ))
+      }
+      guard_rank <- m$smooth[[i]]$rank - sm[[i]]$rank
+      if (guard_rank != 0L) {
+        stop(sprintf(
+          "by-factor design '%s' level %d: smoothCon() rank (%d) disagrees with m$smooth[[i]]$rank (%d) — internal consistency guard failed.",
+          label_prefix, i, sm[[i]]$rank, m$smooth[[i]]$rank
+        ))
+      }
+
+      label <- paste0(label_prefix, ":", i - 1L)
+      out[[label]] <- list(
+        label = label,
+        index_start = 0L, index_end = ncol(sm[[i]]$X),
+        X = sm[[i]]$X,
+        S = list(sm[[i]]$S[[1]]),
+        rank = I(sm[[i]]$rank),
+        knots = as.numeric(sm[[i]]$xp),
+        # Shared recipe context (ADR-193's mechanical test), IDENTICAL for
+        # every level of this same by-factor term: the WHOLE covariate
+        # column (not a per-level subset — module docstring of
+        # gam_basis_cr.py: the shared constraint/knots use every row) and
+        # the 0-indexed factor code per row. by_level is the one field that
+        # differs per entry.
+        x = as.numeric(x),
+        by = NULL,
+        group = group,
+        n_levels = n_levels,
+        by_level = i - 1L
+      )
+    }
+    out
+  }
+
   smooth_cases <- list(
     extract_smooth_one("default-knots-k8", n = 200, k = 8),
     extract_smooth_one("default-knots-k13", n = 400, k = 13),
@@ -557,6 +647,24 @@ main <- function(argv) {
     extract_smooth_re("re-7level", n = 350, n_levels = 7)
   )
   names(smooth_cases) <- vapply(smooth_cases, function(c) c$label, character(1))
+
+  # Capability ladder slice 4 (docs/PLAN_mgcv_capability_ladder.md): factor-by,
+  # s(x, by=fac, bs="cr"). Each call returns one JSON entry PER LEVEL already
+  # named "<label_prefix>:<i>" (extract_smooth_by_factor's own doc) -- appended
+  # rather than folded into smooth_cases above, since a single case here
+  # expands to n_levels entries rather than one. A small 3-level case first
+  # (Anchor 1's own discipline), then the target formula's own AttdAge (k=13)
+  # knots at 2 levels, matching FaceSize/Smoke (the same knot vector sz's own
+  # Stage-A cases already use, so a reader comparing the two constructions on
+  # identical knots sees exactly what differs between them).
+  by_factor_cases <- c(
+    extract_smooth_by_factor("by-factor-default-knots-k6-3level", n = 240, k = 6,
+                              n_levels = 3, x_range = c(1, 20)),
+    extract_smooth_by_factor("by-factor-target-attdage-k13", n = 400, k = 13,
+                              n_levels = 2, x_range = c(1, 95),
+                              knots_x = c(1, 2, 4, 7, 14, 18, 24, 35, 50, 70, 85, 90, 95))
+  )
+  smooth_cases <- c(smooth_cases, by_factor_cases)
 
   designs_to_probe <- Filter(function(id) manifest$designs[[id]]$n_coef > 0, names(manifest$designs))
   out <- list(

@@ -19,6 +19,7 @@ from polaris_re.analytics.gam_basis_cr import (
     _r_norm_inf,
     _r_norm_one,
     absorb_sum_to_zero_constraint,
+    by_factor_mask_design,
     by_scale_design,
     cr_basis,
     cr_default_knots,
@@ -470,3 +471,41 @@ def test_sz_basis_refuses_an_out_of_range_group_code() -> None:
     knots = np.array([1.0, 5.0, 10.0, 15.0, 20.0], dtype=np.float64)
     with pytest.raises(PolarisValidationError, match=r"\[0, 2\)"):
         sz_basis(x, group, 2, knots)
+
+
+# --- by_factor_mask_design: factor-by (capability ladder rung L3) -----------------
+
+
+def test_by_factor_mask_design_zeroes_every_row_outside_the_level() -> None:
+    design = np.array(
+        [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]],
+        dtype=np.float64,
+    )
+    group = np.array([0, 1, 0, 2], dtype=np.int64)
+    masked = by_factor_mask_design(design, group, level=0)
+    expected = np.array(
+        [[1.0, 2.0], [0.0, 0.0], [5.0, 6.0], [0.0, 0.0]],
+        dtype=np.float64,
+    )
+    np.testing.assert_array_equal(masked, expected)
+
+
+def test_by_factor_mask_design_preserves_rows_at_that_level_exactly() -> None:
+    design = np.arange(12.0).reshape(4, 3)
+    group = np.array([1, 1, 1, 1], dtype=np.int64)
+    masked = by_factor_mask_design(design, group, level=1)
+    np.testing.assert_array_equal(masked, design)
+
+
+def test_by_factor_mask_design_all_zero_when_level_absent() -> None:
+    design = np.ones((5, 2), dtype=np.float64)
+    group = np.zeros(5, dtype=np.int64)
+    masked = by_factor_mask_design(design, group, level=3)
+    np.testing.assert_array_equal(masked, np.zeros((5, 2)))
+
+
+def test_by_factor_mask_design_refuses_a_length_mismatch() -> None:
+    design = np.zeros((10, 4), dtype=np.float64)
+    group = np.zeros(9, dtype=np.int64)
+    with pytest.raises(PolarisValidationError, match="one factor-level code per row"):
+        by_factor_mask_design(design, group, level=0)

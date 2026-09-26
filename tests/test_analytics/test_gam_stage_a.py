@@ -32,12 +32,14 @@ from polaris_re.analytics.gam_basis_cr import (
 from polaris_re.analytics.gam_stage_a import (
     CR_BASIS_CLAIM,
     CR_BY_BASIS_CLAIM,
+    CR_BY_FACTOR_BASIS_CLAIM,
     RAW_PATH_CLAIM,
     RE_BASIS_CLAIM,
     SMOOTH_PATH_CLAIM,
     SZ_BASIS_CLAIM,
     TI_BASIS_CLAIM,
     TermExtract,
+    build_python_cr_by_factor_term,
     build_python_cr_term,
     build_python_re_term,
     build_python_sz_term,
@@ -47,7 +49,7 @@ from polaris_re.analytics.gam_stage_a import (
     extract_smooth_terms,
     raw_term_specs,
 )
-from polaris_re.analytics.gam_term_spec import TermSpec
+from polaris_re.analytics.gam_term_spec import TermSpec, factor_by_terms
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.verification import (
     ComparisonProvenance,
@@ -664,7 +666,11 @@ def test_the_r_extractor_agrees_with_the_python_side_on_every_smooth_design(
     # uncompared by every gating test.
     assert set(smooth_designs) == set(_SMOOTH_CASES) | set(_TI_CASES) | set(_SZ_CASES) | set(
         _RE_CASES
-    )
+    ) | {
+        f"{prefix}:{level}"
+        for prefix, (_, n_levels) in _BY_FACTOR_CASES.items()
+        for level in range(n_levels)
+    }
 
     # Only the single-variable cr cases named in _SMOOTH_CASES: the ti cases carry
     # no single "knots" list (each margin has its own, module docstring), and
@@ -757,7 +763,11 @@ def test_the_python_cr_basis_agrees_with_smoothcon_on_every_smooth_design(
     # uncompared by every gating test.
     assert set(smooth_designs) == set(_SMOOTH_CASES) | set(_TI_CASES) | set(_SZ_CASES) | set(
         _RE_CASES
-    )
+    ) | {
+        f"{prefix}:{level}"
+        for prefix, (_, n_levels) in _BY_FACTOR_CASES.items()
+        for level in range(n_levels)
+    }
 
     # Only the single-variable cr cases: the ti cases (_TI_CASES) are
     # test_the_python_ti_basis_agrees_with_smoothcon_on_every_ti_design's own scope.
@@ -1189,6 +1199,135 @@ def test_the_python_re_basis_agrees_with_smoothcon_on_every_re_design(
             )
 
     assert not failures, "Stage-A re basis parity disagreed:\n" + "\n".join(failures)
+
+
+# --- build_python_cr_by_factor_term, the independent Python producer -----------------
+# --- (capability ladder rung L3, factor-by, s(x, by=fac, bs="cr")) -------------------
+
+
+def test_build_python_cr_by_factor_term_builds_a_term_extract() -> None:
+    rng = np.random.default_rng(31)
+    n = 200
+    x = rng.uniform(1.0, 20.0, size=n)
+    group = rng.integers(0, 3, size=n)
+    term = factor_by_terms(base_label="s(x)", variable="x", k=8, by_factor="fac", n_levels=3)[1]
+    extract = build_python_cr_by_factor_term(x, group, term)
+    assert extract.label == "s(x):1"
+    assert (extract.index_start, extract.index_end) == (0, 7)  # k - 1
+    assert extract.design.shape == (n, 7)
+    assert len(extract.s) == 1
+    # Every row outside level 1 is exactly zero (module docstring point 2).
+    outside = group != 1
+    np.testing.assert_array_equal(extract.design[outside, :], np.zeros((int(outside.sum()), 7)))
+    assert extract.evidence is CR_BY_FACTOR_BASIS_CLAIM
+
+
+def test_build_python_cr_by_factor_term_refuses_a_non_by_factor_term() -> None:
+    x = np.linspace(1.0, 20.0, 50)
+    group = np.zeros(50, dtype=np.int64)
+    cr_term = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(8,))
+    with pytest.raises(PolarisValidationError, match="basis='cr' with by_factor set"):
+        build_python_cr_by_factor_term(x, group, cr_term)
+
+
+def test_every_level_of_a_factor_by_term_shares_the_same_penalty() -> None:
+    """Module docstring point 3: masking happens after the shared constraint,
+    and the penalty is NOT rescaled per level — every level's ``S`` is
+    identical, the opposite of ``sz``'s own per-level convention."""
+    rng = np.random.default_rng(32)
+    x = rng.uniform(1.0, 20.0, size=150)
+    group = rng.integers(0, 3, size=150)
+    terms = factor_by_terms(base_label="s(x)", variable="x", k=6, by_factor="fac", n_levels=3)
+    extracts = [build_python_cr_by_factor_term(x, group, t) for t in terms]
+    np.testing.assert_array_equal(extracts[0].s[0], extracts[1].s[0])
+    np.testing.assert_array_equal(extracts[1].s[0], extracts[2].s[0])
+
+
+def test_the_python_cr_by_factor_basis_declares_every_quantity_independent() -> None:
+    rng = np.random.default_rng(33)
+    x = rng.uniform(1.0, 20.0, size=100)
+    group = rng.integers(0, 2, size=100)
+    term = factor_by_terms(base_label="s(x)", variable="x", k=6, by_factor="fac", n_levels=2)[0]
+    extract = build_python_cr_by_factor_term(x, group, term)
+    assert extract.evidence.is_parity_claim
+    assert all(
+        q.provenance is ComparisonProvenance.INDEPENDENT for q in extract.evidence.quantities
+    )
+    assert "Parity comparison" in evidence_headline(extract.evidence)
+    require_parity_evidence(extract.evidence.parity_quantities, claim="factor-by basis parity")
+
+
+_BY_FACTOR_CASES: dict[str, tuple[int, int]] = {
+    "by-factor-default-knots-k6-3level": (6, 3),
+    "by-factor-target-attdage-k13": (13, 2),
+}
+"""``(k, n_levels)`` per isolated ``gam_term_extract.R`` case, named explicitly
+— same discipline as ``_RE_CASES`` above. Each case expands to ``n_levels``
+JSON entries keyed ``"<case>:<level>"``."""
+
+
+@pytest.mark.skipif(not rscript_mgcv_available(), reason="R with mgcv is not installed here")
+def test_the_python_cr_by_factor_basis_agrees_with_smoothcon_on_every_design(
+    tmp_path,
+) -> None:  # pragma: no cover
+    """Capability ladder rung L3's Stage-A parity result:
+    :func:`build_python_cr_by_factor_term` — the shared no-by cr construction,
+    masked to one level (``gam_basis_cr`` module docstring) — agrees with
+    ``mgcv``'s own ``smoothCon(s(x, by=fac, bs="cr", k), absorb.cons=TRUE)``,
+    per level, on both a synthetic 3-level case and the target formula's own
+    ``AttdAge`` (k=13) knots at 2 levels.
+
+    A disagreement here is a real result about the construction, not a broken
+    round trip.
+    """
+    out_path = tmp_path / "gam_term_extract.json"
+    done = subprocess.run(
+        [
+            "Rscript",
+            str(REPO_ROOT / "scripts" / "gam_term_extract.R"),
+            str(REPO_ROOT / "data" / "mgcv_exchange" / "synthetic"),
+            str(out_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    r_payload = json.loads(out_path.read_text())
+    smooth_designs = r_payload["smooth_designs"]
+
+    failures: list[str] = []
+    for prefix, (k, n_levels) in _BY_FACTOR_CASES.items():
+        for level in range(n_levels):
+            label = f"{prefix}:{level}"
+            assert label in smooth_designs, f"missing {label!r} in R output"
+            r_term = smooth_designs[label]
+            knots = tuple(float(v) for v in r_term["knots"])
+            term = factor_by_terms(
+                base_label=prefix,
+                variable="x",
+                k=k,
+                by_factor="fac",
+                n_levels=n_levels,
+                knots=knots,
+            )[level]
+            x = np.asarray(r_term["x"], dtype=np.float64)
+            group = np.asarray(r_term["group"], dtype=np.int64)
+            python_term = build_python_cr_by_factor_term(x, group, term)
+            assert python_term.evidence is CR_BY_FACTOR_BASIS_CLAIM
+            require_parity_evidence(
+                python_term.evidence.quantities, claim=f"{label}: Stage-A factor-by parity"
+            )
+            comparison = compare_term_extract(python_term, r_term)
+            if not comparison.agrees:
+                failures.append(
+                    f"{label}: max_X_diff={comparison.max_abs_design_diff:.3e} "
+                    f"max_S_diff={comparison.max_abs_s_diff} rank_diff={comparison.rank_diff} "
+                    f"knots_agree={comparison.knots_agree}"
+                )
+
+    assert not failures, "Stage-A factor-by basis parity disagreed:\n" + "\n".join(failures)
 
 
 # --- Provenance: what these comparisons are evidence OF (ADR-193) ----------------------

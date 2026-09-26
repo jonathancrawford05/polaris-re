@@ -171,6 +171,15 @@ on:
       - "src/polaris_re/analytics/gam_free_scale_reml_conformance.py"
       - "scripts/gam_free_scale_reml_score_probe.R"
       - "scripts/gam_gaussian_free_sp_probe.R"
+      # CAPABILITY LADDER rung L3 (docs/PLAN_mgcv_capability_ladder.md slice
+      # 4) — factor-by, s(x, by=fac, bs="cr"). gam_basis_cr.py and
+      # gam_stage_a.py (Stage A's producer and claim) plus gam_term_spec.py
+      # (factor_by_terms) are already listed above; these lines add Stage
+      # B's two regimes and gam_term_extract.R's own by-factor extraction
+      # case.
+      - "src/polaris_re/analytics/gam_by_factor_conformance.py"
+      - "scripts/gam_by_factor_probe.R"
+      - "scripts/gam_by_factor_free_sp_probe.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -598,6 +607,35 @@ jobs:
             Rscript scripts/gam_gaussian_free_sp_probe.R \
               gam_gaussian_free_sp_probe.json
 
+      # CAPABILITY LADDER rung L3 (docs/PLAN_mgcv_capability_ladder.md slice
+      # 4) — factor-by, Stage B, FIXED sp. Pairs the already-verified `cr`
+      # term (on PolYear) with the NEW factor-by construction (on AttdAge,
+      # deliberately a DIFFERENT covariate so the two cannot be confounded)
+      # under gaussian(identity) — one family throughout this slice, unlike
+      # ladder rung L2's own two-family split, since rung L5 (ADR-231)
+      # already closed the free-scale blocker before this slice was written.
+      # Same DIAGNOSTIC contract as every probe above — the eta/edf
+      # comparison against the independent Python fit happens in the
+      # `compare` job below.
+      - name: Fit the cr+by-factor design under gaussian(identity) at fixed sp (ladder L3)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_by_factor_probe.R \
+              gam_by_factor_probe.json
+
+      # CAPABILITY LADDER rung L3, Stage B, FREE sp. Same gaussian(identity)
+      # family as the fixed-sp probe above (module docstring) — mgcv selects
+      # every smoothing parameter itself via method="REML".
+      - name: Fit the cr+by-factor design under gaussian(identity) at free sp (ladder L3)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_by_factor_free_sp_probe.R \
+              gam_by_factor_free_sp_probe.json
+
       # Asserts every penalty-counting reading in docs/MGCV_NOTATION_PRIMER.md
       # sections 1, 3 and 4 against the pinned mgcv, so the primer's numbers are
       # tier 3 rather than recalled. BOTH SIDES ARE mgcv — Polaris is absent, so
@@ -717,6 +755,8 @@ jobs:
             gam_re_free_sp_probe.json
             gam_free_scale_reml_score_probe.json
             gam_gaussian_free_sp_probe.json
+            gam_by_factor_probe.json
+            gam_by_factor_free_sp_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -2466,6 +2506,233 @@ jobs:
             cat gam_gaussian_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Compare the factor-by basis vs smoothCon(s(x, by=fac, bs="cr")) (ladder L3 Stage A)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_term_extract.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_term_extract.json to compare ({exc}) — the R probe "
+                    "above did not produce one.")
+              sys.exit(0)
+
+          import numpy as np
+
+          from polaris_re.analytics.gam_stage_a import (
+              CR_BY_FACTOR_BASIS_CLAIM, build_python_cr_by_factor_term, compare_term_extract,
+          )
+          from polaris_re.analytics.gam_term_spec import factor_by_terms
+          from polaris_re.core.verification import evidence_markdown
+
+          smooth_r_terms = r_payload.get("smooth_designs", {})
+          by_factor_terms = {
+              label: r_term for label, r_term in smooth_r_terms.items()
+              if r_term.get("by_level") is not None
+          }
+          # (k, n_levels) per case prefix — same recipe scripts/gam_term_extract.R
+          # was written with (gam_by_factor_conformance.py's own docstring).
+          by_factor_cases = {
+              "by-factor-default-knots-k6-3level": (6, 3),
+              "by-factor-target-attdage-k13": (13, 2),
+          }
+
+          lines = [
+              "", "### Ladder slice 4 — Python factor-by `cr` basis vs "
+              "`smoothCon(s(x, by=fac, bs=\"cr\"))` (INDEPENDENT)", "",
+              evidence_markdown(CR_BY_FACTOR_BASIS_CLAIM), "",
+              "| term | index range agrees | max abs X diff | max abs S diff | "
+              "rank diff | knots agree |",
+              "|---|---|---:|---:|---:|---|",
+          ]
+          any_disagree = False
+          seen = set()
+          if by_factor_terms:
+              for prefix, (k, n_levels) in by_factor_cases.items():
+                  for level in range(n_levels):
+                      label = f"{prefix}:{level}"
+                      if label not in by_factor_terms:
+                          lines.append(f"| `{label}` | **MISSING FROM R OUTPUT** | | | | |")
+                          any_disagree = True
+                          continue
+                      seen.add(label)
+                      r_term = by_factor_terms[label]
+                      knots = tuple(float(v) for v in r_term["knots"])
+                      term = factor_by_terms(
+                          base_label=prefix, variable="x", k=k, by_factor="fac",
+                          n_levels=n_levels, knots=knots,
+                      )[level]
+                      x = np.asarray(r_term["x"], dtype=np.float64)
+                      group = np.asarray(r_term["group"], dtype=np.int64)
+                      python_term = build_python_cr_by_factor_term(x, group, term)
+                      c = compare_term_extract(python_term, r_term)
+                      if not c.agrees:
+                          any_disagree = True
+                      s_diff = ", ".join(f"{d:.3e}" for d in c.max_abs_s_diff) or "n/a"
+                      lines.append(
+                          f"| `{label}` | {c.index_range_agrees} | "
+                          f"{c.max_abs_design_diff:.3e} | {s_diff} | {c.rank_diff} | "
+                          f"{c.knots_agree} |"
+                      )
+              unexpected = set(by_factor_terms) - seen
+              if unexpected:
+                  lines.append(f"| *(unexpected R cases not compared: {sorted(unexpected)})* | | | | | |")
+                  any_disagree = True
+          else:
+              lines.append("| *(no factor-by cases in R output)* | | | | | |")
+              any_disagree = True
+          lines.append("")
+          lines.append(
+              "`design_X`, `penalty_S` and `rank` are INDEPENDENT (see the legend): "
+              "the Python factor-by basis computes the shared no-by cr construction "
+              "on the WHOLE covariate column, then zeroes every row outside one "
+              "level — mgcv's own rule for a term MULTIPLIER, measured directly "
+              "before this basis was written (gam_basis_cr.py module docstring). "
+              "A disagreement is a REAL RESULT about the construction, not a "
+              "broken round trip. See docs/PLAN_mgcv_capability_ladder.md slice 4."
+          )
+          if any_disagree:
+              lines.insert(2, "**A term disagreed — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_by_factor_stage_a_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_by_factor_stage_a_report.md ]; then
+            cat gam_by_factor_stage_a_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # CAPABILITY LADDER rung L3, Stage B, FIXED sp — compares the
+      # independent Python cr+by-factor fit (gaussian identity) against job
+      # 1's native mgcv fit of the same formula at the same fixed sp, on
+      # ADR-221's committed eta/edf criterion — IMPORTED, never redeclared
+      # (Anchor W5). DIAGNOSTIC ONLY, same contract as every comparison above.
+      - name: Compare the cr+by-factor fixed-sp fit against the Python side (ladder L3)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_by_factor_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_by_factor_probe.json to compare ({exc}) — the R probe "
+                    "above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_by_factor_conformance import (
+              BY_FACTOR_FIXED_SP_CLAIM, compare_by_factor_fixed_sp_case,
+              fit_by_factor_fixed_sp_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          c = compare_by_factor_fixed_sp_case(fit_by_factor_fixed_sp_case(r_payload), r_payload)
+
+          lines = [
+              "",
+              "### Capability ladder rung L3 — factor-by (+ cr) at fixed sp vs mgcv",
+              "",
+              evidence_markdown(BY_FACTOR_FIXED_SP_CLAIM),
+              "",
+              "| n | n_levels | max abs eta diff | Polaris edf_total | mgcv edf_total | edf diff | agrees |",
+              "|---:|---:|---:|---:|---:|---:|---|",
+              f"| {r_payload['n']} | {r_payload['n_levels']} | {c['max_abs_eta_diff']:.3e} | "
+              f"{c['python_edf_total']:.6f} | {c['mgcv_edf_total']:.6f} | "
+              f"{c['edf_total_diff']:.3e} | {c['agrees']} |",
+              "",
+              "The gate is ADR-221's committed criterion — `max_abs_eta_diff < 2e-2` "
+              "AND `abs(edf_total_diff) < 1.0` — imported from "
+              "`gam_select_free_sp_conformance`, not redeclared here.",
+              "",
+              f"**Offset tripwire** (reported, never gated): {c['offset_gap']:.3e}.",
+              "",
+              "**Both fixed- and free-sp regimes use gaussian(identity)** — unlike "
+              "ladder rung L2's own two-family split, rung L5 (ADR-231) already "
+              "closed the free-scale blocker before this slice was written. "
+              "Coefficients are never compared (Anchor 2).",
+          ]
+          if not c["agrees"]:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_by_factor_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_by_factor_probe_report.md ]; then
+            cat gam_by_factor_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # CAPABILITY LADDER rung L3, Stage B, FREE sp — compares PolarisGAM's
+      # own free-sp selection against job 1's native mgcv free-sp REML fit
+      # of the same formula. Unlike the fixed-sp comparison above, sp is a
+      # COMPARED QUANTITY here, not a shared input. Same ADR-221 eta/edf
+      # gate, imported, never redeclared.
+      - name: Compare the cr+by-factor free-sp fit against the Python side (ladder L3)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_by_factor_free_sp_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_by_factor_free_sp_probe.json to compare ({exc}) — "
+                    "the R probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_by_factor_conformance import (
+              BY_FACTOR_FREE_SP_CLAIM, compare_by_factor_free_sp_case,
+              fit_by_factor_free_sp_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          fit = fit_by_factor_free_sp_case(r_payload)
+          c = compare_by_factor_free_sp_case(fit, r_payload)
+
+          lines = [
+              "",
+              "### Capability ladder rung L3 — factor-by (+ cr) at FREE sp vs mgcv (gaussian identity)",
+              "",
+              evidence_markdown(BY_FACTOR_FREE_SP_CLAIM),
+              "",
+              "| n | n_levels | p | max abs eta diff | max abs log10(sp) diff | edf_total diff | max abs per-term edf diff | at bound | converged | agrees |",
+              "|---:|---:|---:|---:|---:|---:|---:|---|---|---|",
+              f"| {r_payload['n']} | {r_payload['n_levels']} | {len(r_payload['coef'])} | "
+              f"{c.max_abs_eta_diff:.3e} | {c.max_abs_log10_sp_diff:.4f} | "
+              f"{c.edf_total_diff:+.4f} | {c.max_abs_term_edf_diff:.4f} | "
+              f"{c.at_bound} | {c.converged} | {c.agrees} |",
+              "",
+              "`sp` is a COMPARED QUANTITY here, not a shared input: both sides "
+              "select their own smoothing parameters independently, from the "
+              "same already-verified free-scale REML criterion (ladder rung L5, "
+              "ADR-231). The gate is ADR-221's committed `eta`/`edf_total` "
+              "criterion, imported and never redeclared (Anchor W5). "
+              "Coefficients are NOT compared (Anchor 2).",
+              "",
+              f"**Offset tripwire** (reported, never gated): {c.offset_gap:.3e}.",
+          ]
+          if not c.agrees:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_by_factor_free_sp_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_by_factor_free_sp_probe_report.md ]; then
+            cat gam_by_factor_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # PLAN slice 7b (ADR-218): does mgcv's OWN free-sp select=TRUE point
       # score better, under our OWN criterion (ADR-217's fixed-sp fix),
       # than our best-of-9 multistart result reaches — same discriminator
@@ -2891,3 +3158,8 @@ jobs:
             gam_free_scale_reml_score_probe_report.md
             gam_gaussian_free_sp_probe.json
             gam_gaussian_free_sp_probe_report.md
+            gam_by_factor_stage_a_report.md
+            gam_by_factor_probe.json
+            gam_by_factor_probe_report.md
+            gam_by_factor_free_sp_probe.json
+            gam_by_factor_free_sp_probe_report.md
