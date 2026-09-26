@@ -425,7 +425,14 @@ def reml_score_general(
         # `np.log(1.0)` is exactly `0.0`, so the criterion is bit-identical at
         # the default without a float-equality guard.
         scale = float(p - rank_s) * float(np.log(gamma))
-        return float(0.5 * penalized_deviance / gamma + k_term - 0.5 * scale)
+        # NOT `k_term` here: `(A+B)-C` and `A+(B-C)` are not the same float64
+        # bit pattern, and this branch's exact grouping is load-bearing — a
+        # single-start, no-safety-net optimizer elsewhere in this repo is
+        # sensitive enough to that last bit to flip its convergence outcome
+        # (found the hard way, ladder slice 3 PR #240 review).
+        return float(
+            0.5 * penalized_deviance / gamma + 0.5 * float(logdet_h) - 0.5 * logdet_s - 0.5 * scale
+        )
 
     # Free-scale branch (PLAN slice 3, ladder L5) — see the module docstring's
     # "PLAN slice 3 (ladder), L5" section for the derivation and its
