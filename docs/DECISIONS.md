@@ -23701,3 +23701,209 @@ criterion is the score measurement plus "slice 1's Gaussian recipe re-run at
 free `sp`," and quasi-Poisson's fit-level measurement was not named. Left
 open, not registered as a gap, since nothing in this slice's own scope
 promised it.
+
+---
+
+## ADR-232: Capability ladder rung L3 — factor-`by` (`s(x, by = fac)`) reproduces `mgcv` exactly at Stage A and at fixed AND free `sp`
+
+**Date:** 2026-09-26
+**Status:** Accepted
+**Supersedes:** nothing. **Extends:** ADR-193 (Stage-A parity), ADR-200
+(numeric `by` — the construction this rung completes the axis of), ADR-221
+(the committed `eta`/`edf_total` gate, imported verbatim), ADR-231 (ladder
+L5, whose free-scale branch this slice reuses without needing a family
+switch).
+**Epic:** `docs/PLAN_mgcv_capability_ladder.md`, slice 4.
+**Ledger:** three rows — Stage A (per level), Stage B fixed `sp`, Stage B
+free `sp`.
+
+### The gap before
+
+`assemble_model_design` could only express a numeric `by` (`TermSpec.by`,
+ADR-200 — a continuous scaling of an unconstrained basis, one smooth). A
+**factor** `by` (`s(x, by = fac)`) had no route at all: `TermSpec.by` is
+documented as numeric and `TermSpec.factor` marks the unrelated `sz`/`fs`
+construction. `docs/MGCV_NOTATION_PRIMER.md` §4 states the reason this is
+not a small addition: a factor `by` is a term **multiplier**, not a term
+parameter — `s(x, by = f)` on an `n`-level factor produces `n` *separate*
+smooths, each with its own smoothing parameter, not one term that varies
+continuously.
+
+### The contract decision, made before any basis code
+
+`PLAN_mgcv_capability_ladder.md`'s own sizing note for this slice named the
+decision it owed: widen `TermSpec.by` to accept a factor, or add a new
+field. **Resolved: add a field.** `TermSpec` gains `by_factor: str | None`
+(the grouping variable's name) and `by_level: int | None` (which 0-indexed
+level this particular `TermSpec` instance represents), set together, valid
+only for `basis="cr"`, mutually exclusive with the existing numeric `by` and
+with `factor=True`. A single `TermSpec` never represents the whole
+factor-`by` term — it represents ONE level of it, matching `mgcv`'s own
+per-level bookkeeping (`m$smooth` carries one entry per level, each with its
+own `first.para`/`last.para` column span — a genuinely different column
+layout from `sz`'s one-term-many-penalty-blocks shape, where every level
+shares one contiguous span).
+
+`gam_term_spec.factor_by_terms(base_label, variable, k, by_factor, n_levels,
+knots=None, level_labels=None)` is the one place this expansion happens: it
+returns `n_levels` `TermSpec`s, `by_level` running `0` to `n_levels - 1`,
+sharing the same `k` and knot recipe. Widening `by` was rejected because the
+two constructions are algebraically different — numeric `by` row-*scales* an
+*unconstrained* basis and absorbs no constraint at all; factor `by`
+row-*masks* a *constrained* basis to one level — and conflating them into
+one field would have hidden that difference rather than expressed it.
+
+### The construction, measured against `mgcv` before writing any Python (Anchor 8)
+
+Three hypotheses were tried in sequence, each refuted by the next
+measurement, on a synthetic 3-level factor with a shared `k=6` `cr` margin:
+
+1. **REFUTED — "each level is a standalone `cr` smooth built from just that
+   level's own `x` subset, using the same shared knots."** The unconstrained
+   design matched exactly (`smoothCon(..., absorb.cons=FALSE)$X`, diff
+   `0.0`), but the constrained design and the (already-scaled) penalty did
+   not (`diffX` up to `0.26`, `diffS` up to `0.21`) — the per-level subset's
+   own `colMeans` constraint direction is NOT what `mgcv` uses.
+2. **Isolated the penalty scaling first.** `scale.penalty`'s normalising
+   constant is `norm_one(S_raw) / norm_inf(X_combined)²`, where
+   `X_combined` is the (n, n_levels·k) matrix of every level's own
+   unconstrained block stacked side by side — equivalently, the MAX over
+   levels of each level's own `norm_inf`. Confirmed exact (`0.0` diff)
+   against the predicted scale factor before touching the constraint
+   question.
+3. **CONFIRMED — the identifiability constraint is the WHOLE-DATA, no-`by`
+   constraint, shared by every level.** `mgcv`'s own `$C` for a factor-`by`
+   term's unconstrained smooth is **identical across every level** and equals
+   `colMeans()` of the ordinary (non-split) `cr` basis evaluated at the FULL
+   covariate column — the exact same `C` a bare `s(x)` on the whole dataset
+   would use. So the recipe is: build the ORDINARY no-`by` `cr` smooth on the
+   whole covariate column (`cr_basis` + `absorb_sum_to_zero_constraint`,
+   `build_python_cr_term`'s own no-`by` path, unchanged), giving ONE shared
+   `(design, S)` identical for every level; then zero every row outside one
+   level (`by_factor_mask_design`, applied AFTER the constraint, not before).
+   Verified bit-exact (`0.000e+00`, not merely float round-trip) against
+   `smoothCon(s(x, by=fac, bs="cr", k), absorb.cons=TRUE)`, every level, on
+   the synthetic case, before `gam_basis_cr.by_factor_mask_design` or
+   `gam_stage_a.build_python_cr_by_factor_term` were written into the module
+   proper.
+
+**The penalty is NOT rescaled per level** — every level's `S` is the
+identical shared matrix from step 3, unlike `sz`'s own per-level convention
+(a per-level raw block placed in a disjoint sub-block, scaled once by a
+shared factor, then constraint-conjugated). This is the direct consequence
+of the construction: masking a shared, already-fully-built smooth is a
+different operation from tensoring a factor into the smooth's own
+construction.
+
+### Stage A — exact, tier 1 AND tier 3, first measurement
+
+`CR_BY_FACTOR_BASIS_CLAIM` (`gam_stage_a.py`) declares `design_X`,
+`penalty_S` and `rank` `INDEPENDENT`: `build_python_cr_by_factor_term` never
+reads `gam_term_extract.R`'s `X`/`S`/`rank`, only the shared `x`/`group`
+recipe it exports (the mechanical test — same discipline every prior
+Stage-A producer in this epic follows). `gam_term_extract.R` gains
+`extract_smooth_by_factor`, which reads `smoothCon(s(x, by=fac, bs="cr",
+k), ...)`'s own per-level list directly (no manual re-derivation needed —
+`mgcv` already splits by level) and cross-checks each level against
+`m$smooth[[i]]`'s own `first.para`/`last.para` span (the same internal-guard
+discipline ADR-191 established).
+
+Two cases, five levels total (a synthetic 3-level case at `k=6`, and the
+target formula's own `AttdAge` knots at 2 levels, matching `FaceSize`/
+`Smoke`):
+
+| level | max abs `X` diff | max abs `S` diff | rank diff | knots agree |
+|---|---:|---:|---:|---|
+| `by-factor-default-knots-k6-3level:0` | `2.143e-14` | `1.332e-14` | `0` | yes |
+| `by-factor-default-knots-k6-3level:1` | `2.176e-14` | `1.332e-14` | `0` | yes |
+| `by-factor-default-knots-k6-3level:2` | `1.735e-14` | `1.332e-14` | `0` | yes |
+| `by-factor-target-attdage-k13:0` | `1.388e-14` | `3.553e-15` | `0` | yes |
+| `by-factor-target-attdage-k13:1` | `1.460e-14` | `3.553e-15` | `0` | yes |
+
+Tier 1 (R 4.3.3 / mgcv 1.9.1, local apt) read the identical cases at
+`1.735e-14`–`2.176e-14` / `1.321e-14` (default-knots case) and
+`1.388e-14`–`1.460e-14` / `3.553e-15` (target-knots case) — same order of
+magnitude, same verdict, last bits differing per the routine's own tier
+discipline (different BLAS). Tier 3, run
+[36262093452](https://github.com/jonathancrawford05/polaris-re/actions/runs/36262093452),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(build 8), R 4.6.1 / mgcv 1.9.4.
+
+### Stage B — both `sp` regimes, ONE family throughout
+
+`gam_by_factor_conformance.py` pairs the NEW factor-`by` term (`s(AttdAge,
+by=GroupFac, k=13, bs="cr")`, 3 levels) with the already-verified `cr` term
+(`s(PolYear, k=6, bs="cr")`) — deliberately a DIFFERENT covariate from the
+by-term's own, so the two cannot be confounded. **Unlike ladder rung L2's own
+two-family split** (fixed `sp` under `gaussian(identity)`, free `sp` routed
+through `poisson(log)` to dodge a blocker that did not yet have a fix),
+**both regimes here use `gaussian(identity)`**: rung L5 (ADR-231) already
+closed the free-scale blocker before this slice was written, so there is no
+remaining reason to switch families.
+
+`BY_FACTOR_FIXED_SP_CLAIM` / `BY_FACTOR_FREE_SP_CLAIM` declare every
+quantity `INDEPENDENT` — `fit_by_factor_fixed_sp_case` /
+`fit_by_factor_free_sp_case` take `RByFactorFixedSpRecipe` /
+`RByFactorFreeSpRecipe`, which structurally exclude every `mgcv`-produced
+key (`eta`, `coef`, `sp`, `edf_total`, `term_edf`).
+
+**Fixed `sp`** (`n=900`, `n_levels=3`, 4 penalty blocks — 1 reference + 3
+levels):
+
+| quantity | tier 1 | tier 3 |
+|---|---:|---:|
+| `max_abs_eta_diff` | `1.554e-14` | `1.510e-14` |
+| `edf_total_diff` | `-2.132e-14` | `-1.421e-14` |
+| Polaris `edf_total` | `38.899894` | `38.899894` |
+| offset tripwire | `0.0` | `0.000e+00` |
+
+`agrees=True` at both tiers, first measurement, no iteration needed.
+
+**Free `sp`** (`n=900`, `n_levels=3`, `p=42`):
+
+| quantity | tier 1 | tier 3 |
+|---|---:|---:|
+| `max_abs_eta_diff` | `1.027e-04` | `1.596e-05` |
+| `max_abs_log10_sp_diff` (reported, not gated) | `0.9609` | `0.7595` |
+| `edf_total_diff` | `-0.0035` | `+0.0003` |
+| `max_abs_term_edf_diff` | `0.0026` | `0.0004` |
+| offset tripwire | `1.776e-15` | `1.332e-15` |
+
+`converged=True` both sides, `at_bound=False`, `agrees=True` at both tiers —
+well inside ADR-221's `2e-2`/`1.0` committed gate, tier 3 tighter than tier
+1 on every quantity. First measurement, no iteration needed, no
+`multistart` required (a 4-block structure is far smaller than the epic's
+7-block `select=TRUE` fixtures that needed it).
+
+Tier 3, run
+[36262093452](https://github.com/jonathancrawford05/polaris-re/actions/runs/36262093452),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(build 8), R 4.6.1 / mgcv 1.9.4. Required conformance levels 1-3 of the
+existing ten-cell suite also still agree on this run (no regression); level
+4 unchanged (DISAGREES, ADR-190, permanently expected); level 5 agrees.
+
+### Consequences
+
+- `MGCV_FEATURE_COVERAGE.md` §2.1 gains a `cr` + factor `by` row and the "the
+  `by` axis is now complete" rewrite of the paragraph that used to name this
+  as a missing representation decision; §4's L3 ladder row is marked
+  climbed.
+- The `by` axis (numeric and factor) is now fully expressed and verified.
+  What remains before the target formula's full eight-term structure is L4
+  (the unpenalized parametric block) — the plan's own next slice — and the
+  higher rungs (L6-L10) this epic does not attempt.
+- A pre-existing, unrelated diagnostic step (`gam_term_extract.R`'s Stage-A
+  "sz" report, which iterates every `smooth_designs` entry against its own
+  `_SZ_CASES`-only dictionary) now also lists the new `by-factor-*` cases as
+  `UNKNOWN CASE` — the SAME cosmetic label it already gave `re-4level`/
+  `re-7level` before this slice. `continue-on-error: true`, does not gate,
+  and is not a regression this slice introduced; not registered as a gap.
+
+### What this does not settle
+
+Only `basis="cr"` is wired for `by_factor`/`by_level` — the target formula
+names no factor-`by` term over any other basis, and none is attempted here.
+`select=TRUE`'s null-space penalty (PLAN slice 7 / `gam_select_penalty.py`)
+was not exercised against a factor-`by` block shape in this slice; the four
+`by_factor_terms`-generated blocks in the free-`sp` measurement above are
+ordinary (non-`select`) penalty blocks.

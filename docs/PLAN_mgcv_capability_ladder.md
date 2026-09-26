@@ -275,7 +275,7 @@ scope post-hoc inside a landed PR is exactly the "widen on your own"
 this project's routines refuse; a registered follow-up slice is the correct
 container instead.
 
-### Slice 4 — L3 factor-`by`
+### Slice 4 — L3 factor-`by` — ✅ **DONE 2026-09-26 (ADR-232)**
 
 **Note what it is**, because the name misleads: `s(x, by = f)` on a factor is not
 a term *parameter* but a term **multiplier**. A 3-level factor produces **three
@@ -298,6 +298,24 @@ already done and verified (ADR-200) and is a different construction.
 
 **Acceptance:** ADR-221, tier 3. The block count multiplying with level count is
 a property to *verify*, not to work around.
+
+**Landed:** the contract decision is a new field, not a widened `by` —
+`TermSpec.by_factor`/`.by_level`, and `gam_term_spec.factor_by_terms` is the
+one place a factor-`by` term expands into its `n_levels` separate `TermSpec`s.
+Construction measured against `mgcv` before any code (Anchor 8): the shared
+no-`by` `cr` smooth built on the WHOLE covariate column (identical across
+every level — `mgcv`'s own identifiability constraint for a factor-`by` term
+equals the ordinary no-`by` `colMeans` constraint, not a per-level-subset
+one, refuted first), then masked to one level AFTER the constraint is
+absorbed; the penalty is NOT rescaled per level, unlike `sz`. Stage A: exact
+per level (`0.000e+00` at print precision on `design_X`, `penalty_S` and
+`rank`, both tiers, 5 levels across 2 cases). Stage B fixed `sp`:
+`max_abs_eta_diff=1.510e-14`, `edf_total_diff=-1.421e-14`, tier 3. Stage B
+free `sp` (ONE family, `gaussian(identity)`, throughout both regimes — L5
+already closed the free-scale blocker, unlike L2's own two-family split):
+`max_abs_eta_diff=1.596e-05`, `edf_total_diff=+0.0003`, `agrees=True`, tier
+3. No iteration needed at either stage. See ADR-232 and
+`docs/CONFORMANCE_LEDGER.md`.
 
 ### Slice 5 — L4 Unpenalized parametric block
 

@@ -58,6 +58,7 @@ confirmed on the pinned oracle digest, per `ROUTINE_MGCV_PARITY.md`.
 |---|---|---|---|---|---|
 | `cr` | Wood's cubic regression spline | **yes** | ✅ tier 3 (ADR-194) | ✅ tier 3 | the workhorse; supplied + default knots |
 | `cr` + numeric `by` | varying-coefficient smooth | **yes** | ✅ tier 3 (ADR-200) | ✅ tier 3 | the MI term's own form |
+| **`cr` + factor `by`** | **term multiplier — one separate smooth per level** | **yes** (2026-09-26, L3) | ✅ tier 3, exact per level (ADR-232) | ✅ tier 3, **fixed AND free `sp`** (ADR-232) | one smoothing parameter PER LEVEL (unlike numeric `by`'s single shared one); the shared no-`by` `cr` construction, masked to one level after the constraint is absorbed — see `gam_basis_cr.py`'s module docstring |
 | `ti` | tensor interaction, margins constrained out | **yes** | ✅ tier 3 (ADR-205) | ✅ tier 3 fixed + free `sp` | best-verified after `cr` |
 | `sz` | sum-to-zero factor-smooth interaction | **yes** | ✅ tier 3 (ADR-215) | ✅ fixed `sp` only (ADR-217) | free-`sp` search never exercised on this block shape. **DEPRIORITISED to L11** (maintainer, 2026-09-16: "not absolutely necessary") — its penalty count grows with factor levels, unlike `fs` |
 | `raw` | caller supplies design + penalty | n/a | n/a | n/a | not an mgcv basis; the `paraPen` escape hatch |
@@ -70,19 +71,28 @@ confirmed on the pinned oracle digest, per `ROUTINE_MGCV_PARITY.md`.
 | `ps` / `cp` | P-splines | **NO** | — | — | `experience_gam_penalized` has its own, unrelated to this engine |
 | `gp`, `mrf`, `sos`, `ds`, `so` | Gaussian-process, Markov-random-field, sphere, Duchon, soap | **NO** | — | — | not in the target form |
 
-**Also missing on the `by` axis:** factor-`by` (`s(x, by = fac)`). Only numeric
-`by` exists, and there is **no partial route to it** — `TermSpec.by` is
-documented as *numeric*, and `TermSpec.factor` is **not** a factor-`by` flag: it
-marks the `sz`/`fs` construction, is explicitly *mutually exclusive* with `by`,
-and `sz` already has its branch. So L3 needs a representation decision (widen
-`by`, or add a field), not just a missing `elif`.
+**The `by` axis is now complete.** Numeric `by` (the MI term's own form,
+ADR-200) and factor `by` (`s(x, by = fac)`, capability ladder rung **L3**,
+ADR-232) both exist, as genuinely different constructions: `TermSpec.by`
+(numeric) scales an *unconstrained* basis; `TermSpec.by_factor`/`.by_level`
+(factor) *masks a constrained* basis to one level and is a term
+**multiplier** — `gam_term_spec.factor_by_terms` expands one factor-`by`
+term into its `n_levels` separate `TermSpec`s, matching `mgcv`'s own
+per-level bookkeeping (`m$smooth` carries one entry per level). Both remain
+mutually exclusive with `TermSpec.factor` (the `sz`/`fs` marker) and with
+each other.
 
-> **Corrected 2026-09-18.** This paragraph previously read *"`TermSpec` has a
-> `factor` flag but `assemble_model_design` has no branch for it"*, which implied
-> the flag was a half-built factor-`by` route. `gam_term_spec.py:78-79` says
-> otherwise. Caught while sizing the rung in `PLAN_mgcv_capability_ladder.md` —
-> by reading the code rather than this file, which is the §5 lesson applied to
-> §5's own document.
+> **Corrected 2026-09-18, resolved 2026-09-26 (ADR-232).** This paragraph
+> previously read *"`TermSpec` has a `factor` flag but `assemble_model_design`
+> has no branch for it"*, which implied the flag was a half-built factor-`by`
+> route. `gam_term_spec.py:78-79` said otherwise, and sizing the rung in
+> `PLAN_mgcv_capability_ladder.md` correctly identified the real gap: a
+> **representation decision** (widen `by`, or add a field) was owed before any
+> basis work. The decision, made when the rung was climbed: add a field
+> (`by_factor`/`by_level`), never widen `by` — the two constructions are
+> algebraically different (row-scale vs row-mask, unconstrained vs
+> constrained), so conflating them into one field would have hidden that
+> difference rather than expressed it.
 
 ### 2.2 Families and links
 
@@ -194,7 +204,7 @@ tackles simpler mgcv features first."*
 |---|---|---|---|
 | **L1** ✅ | **`gaussian(identity)`** | **CLIMBED 2026-09-19 (ADR-229), fixed `sp` only.** The simplest family. Decouples every later basis check from IRLS confounds: at Gaussian identity the penalized fit is a single linear solve, so a basis disagreement cannot hide behind IRLS convergence. Also what every mgcv textbook check uses. | small |
 | **L2** ✅ | **`bs="re"`** | **CLIMBED 2026-09-21 (ADR-230), fixed AND free `sp`.** Named in the objective. The **cheapest basis in mgcv** — model matrix is the level indicators, penalty is the identity, **always exactly one smoothing parameter** regardless of level count — and the backbone of hierarchical structure. In actuarial terms this *is* credibility: Bühlmann-Straub is a random-effects model. Highest value-to-effort on the board. | small |
-| **L3** | **factor-`by`** (`s(x, by = fac)`) | Completes the `by` axis (numeric `by` already done). **Note it is not a term parameter but a term multiplier**: `s(x, by = f)` on a 3-level factor produces *three separate smooths*, each with its own `sp` (measured). | small–medium |
+| **L3** ✅ | **factor-`by`** (`s(x, by = fac)`) | **CLIMBED 2026-09-26 (ADR-232), fixed AND free `sp`.** Completes the `by` axis (numeric `by` already done). **Note it is not a term parameter but a term multiplier**: `s(x, by = f)` on a 3-level factor produces *three separate smooths*, each with its own `sp` (measured). | small–medium |
 | **L4** | **Unpenalized parametric block** | The target formula opens with `FaceSize + Smoke + FaceSize:Smoke`. Today `assemble_model_design` cannot carry unpenalized columns at all, so the target formula is inexpressible for this reason *as well*. (Was wiring slice 1c.) | small |
 | **L5** ✅ | **Scale-estimated REML** | **CLIMBED 2026-09-26 (ADR-231).** Wood (2011) eq. (4) profiled over the unknown scale. Unblocks Gaussian and quasi-Poisson (both registered — Gamma/Tweedie are not registered families regardless of this rung). Removed ladder L1's own "fixed `sp` only" qualifier in the same PR. | medium |
 | **L6** | **`bs="fs"`** — factor-smooth interaction | **Maintainer-requested, 2026-09-16.** The "random smooths" idiom: a separate curve per level, all shrunk toward a common shape. Together with L2 it covers the HGAM taxonomy's group-level models (`docs/MGCV_NOTATION_PRIMER.md` §5). **Its penalty count is `1 + M` (M = the margin's unconstrained null-space dimension) and does NOT grow with factor levels** — measured 3 penalties at 2, 4 and 6 levels (`scripts/mgcv_penalty_count_probe.R`, **tier 3** — mgcv 1.9.4 pinned and 1.9.1 local) — so unlike `sz` it does not inflate the outer search. | medium |
