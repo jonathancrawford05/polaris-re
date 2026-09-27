@@ -24018,7 +24018,9 @@ Tier 1 (R 4.3.3 / mgcv 1.9.1, local apt): **bit-exact**, `0.000e+00` on all
 three terms — the same reading as `"re"`'s own Stage A (ADR-230), and for
 the same reason: a purely combinatorial construction with no continuous
 placement step (no knots, no quantiles) has nothing for floating-point
-round-trip noise to touch. Tier 3: `[FILLED FROM CI]`.
+round-trip noise to touch. Tier 3 (R 4.6.1 / mgcv 1.9.4, CI run
+[36289418480](https://github.com/jonathancrawford05/polaris-re/actions/runs/36289418480)):
+**identical, bit-exact `0.000e+00` on all three terms**, `agrees=True`.
 
 ### Stage B — both `sp` regimes, ONE family throughout
 
@@ -24042,24 +24044,24 @@ parametric block contributes none):
 
 | quantity | tier 1 | tier 3 |
 |---|---:|---:|
-| `max_abs_eta_diff` | `2.698e-14` | `[FILLED FROM CI]` |
-| `edf_total_diff` | `0.000e+00` | `[FILLED FROM CI]` |
-| Polaris `edf_total` | `17.337313` | `[FILLED FROM CI]` |
-| offset tripwire | `0.000e+00` | `[FILLED FROM CI]` |
+| `max_abs_eta_diff` | `2.698e-14` | `1.066e-14` |
+| `edf_total_diff` | `0.000e+00` | `-7.105e-15` |
+| Polaris `edf_total` | `17.337313` | `17.337313` (mgcv identical) |
+| offset tripwire | `0.000e+00` | `0.000e+00` |
 
-`agrees=True` at tier 1, first measurement, no iteration needed.
+`agrees=True` at both tiers, first measurement, no iteration needed.
 
 **Free `sp`** (`n=900`, `p=17`):
 
 | quantity | tier 1 | tier 3 |
 |---|---:|---:|
-| `max_abs_eta_diff` | `3.261e-07` | `[FILLED FROM CI]` |
-| `max_abs_log10_sp_diff` (reported, not gated) | `1.05e-05` | `[FILLED FROM CI]` |
-| `edf_total_diff` | `+2.45e-05` | `[FILLED FROM CI]` |
-| `max_abs_term_edf_diff` (smooth's own edf only) | `2.45e-05` | `[FILLED FROM CI]` |
-| offset tripwire | `1.776e-15` | `[FILLED FROM CI]` |
+| `max_abs_eta_diff` | `3.261e-07` | `3.261e-07` |
+| `max_abs_log10_sp_diff` (reported, not gated) | `1.05e-05` | `0.0000` (< 5e-5 at 4dp) |
+| `edf_total_diff` | `+2.45e-05` | `+0.0000` (< 5e-5 at 4dp) |
+| `max_abs_term_edf_diff` (smooth's own edf only) | `2.45e-05` | `0.0000` (< 5e-5 at 4dp) |
+| offset tripwire | `1.776e-15` | `8.882e-16` |
 
-`converged=True` both sides, `at_bound=False`, `agrees=True` at tier 1 —
+`converged=True` both sides, `at_bound=False`, `agrees=True` at BOTH tiers —
 inside ADR-221's `2e-2`/`1.0` committed gate by four to five orders of
 magnitude, tighter than any prior ladder rung's free-`sp` reading in this
 epic. First measurement, no iteration needed, no `multistart` required (a
@@ -24075,8 +24077,9 @@ filters Python's own `edf_per_term` to the smooth's label only, matching
 what `mgcv` actually reports, rather than inventing a comparison `mgcv`
 itself does not make.
 
-Tier 3, run `[FILLED FROM CI]`, oracle
-`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+Tier 3, run
+[36289418480](https://github.com/jonathancrawford05/polaris-re/actions/runs/36289418480),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
 R 4.6.1 / mgcv 1.9.4. Required conformance levels 1-3 of the existing
 ten-cell suite also still agree on this run (no regression); level 4
 unchanged (DISAGREES, ADR-190, permanently expected); level 5 agrees.
