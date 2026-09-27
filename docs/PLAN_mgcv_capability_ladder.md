@@ -356,9 +356,10 @@ both tiers, reusing the SAME `compare_term_extract` machinery every other
 basis's Stage A uses (the R export already matches `RTermPayload`'s shape).
 **Stage B fixed `sp`** (paired with the already-verified `s(AttdAge, k=13,
 bs="cr")`, deliberately unrelated to FaceSize/Smoke): `max_abs_eta_diff=
-2.698e-14`, `edf_total_diff=0.000e+00`, tier 3. **Stage B free `sp`** (ONE
-family, `gaussian(identity)`, matching L3/L5 — L5 already closed the
-free-scale blocker): `max_abs_eta_diff=3.261e-07`, `edf_total_diff=+2.45e-05`,
+1.066e-14`, `edf_total_diff=-7.105e-15`, tier 3 (tier 1: `2.698e-14` /
+`0.000e+00`). **Stage B free `sp`** (ONE family, `gaussian(identity)`,
+matching L3/L5 — L5 already closed the free-scale blocker):
+`max_abs_eta_diff=3.261e-07`, `edf_total_diff=+0.0000` (tier 1: `+2.45e-05`),
 `agrees=True`, tier 3 — the tightest free-`sp` reading this epic has
 produced. No iteration needed at either stage. See ADR-233 and
 `docs/CONFORMANCE_LEDGER.md`. **This is the last rung this plan names — L1
