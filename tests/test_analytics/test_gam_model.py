@@ -74,6 +74,29 @@ def _data_with_face_size(n: int = 60, seed: int = 20260825) -> dict[str, np.ndar
     return data
 
 
+def _parametric_terms(n_face_levels: int = 3, n_smoke_levels: int = 2) -> tuple[TermSpec, ...]:
+    return (
+        TermSpec(
+            label="FaceSize", variables=("FaceSize",), basis="parametric", levels=(n_face_levels,)
+        ),
+        TermSpec(label="Smoke", variables=("Smoke",), basis="parametric", levels=(n_smoke_levels,)),
+        TermSpec(
+            label="FaceSize:Smoke",
+            variables=("FaceSize", "Smoke"),
+            basis="parametric",
+            levels=(n_face_levels, n_smoke_levels),
+        ),
+    )
+
+
+def _data_with_face_size_and_smoke(n: int = 60, seed: int = 20260927) -> dict[str, np.ndarray]:
+    data = _data(n=n, seed=seed)
+    rng = np.random.default_rng(seed + 3)
+    data["FaceSize"] = rng.integers(0, 3, size=n)
+    data["Smoke"] = rng.integers(0, 2, size=n)
+    return data
+
+
 def test_resolve_family_covers_every_slice_3_combination() -> None:
     for family, link in [
         ("poisson", "log"),
@@ -300,6 +323,66 @@ def test_re_term_design_is_the_unconstrained_level_indicator_matrix() -> None:
         np.testing.assert_array_equal(
             re_columns[:, level], (data["GroupFac"] == level).astype(float)
         )
+
+
+def test_parametric_terms_carry_zero_penalty_blocks() -> None:
+    """Capability ladder slice 5 (L4): an unpenalized parametric main effect
+    or interaction contributes NO penalty block at all — unlike every other
+    basis this function builds."""
+    model = ModelSpec(family="gaussian", link="identity", terms=(*_parametric_terms(), _cr_term()))
+    design = assemble_model_design(model, _data_with_face_size_and_smoke())
+    face_block, smoke_block, interaction_block, cr_block = design["term_blocks"]
+    assert face_block["end"] - face_block["start"] == 2  # 3 levels -> 2 dummy columns
+    assert smoke_block["end"] - smoke_block["start"] == 1  # 2 levels -> 1 dummy column
+    assert interaction_block["end"] - interaction_block["start"] == 2  # (3-1)*(2-1)
+    assert face_block["n_penalties"] == 0
+    assert smoke_block["n_penalties"] == 0
+    assert interaction_block["n_penalties"] == 0
+    assert cr_block["n_penalties"] == 1
+    assert len(design["penalty_blocks"]) == 1  # only the cr term's own
+
+
+def test_parametric_terms_have_nothing_for_select_to_double() -> None:
+    """A zero-penalty term has no null space for ``select=TRUE`` to add a
+    block for: ``null_space_penalty`` raises on an empty input rather than
+    returning ``None`` (its own docstring requires "at least one penalty
+    block"), so ``assemble_model_design`` must skip the call entirely for a
+    term with no existing blocks — the degenerate case the ordinary
+    "already full rank -> None -> skip" branch cannot reach on its own."""
+    model = ModelSpec(
+        family="gaussian",
+        link="identity",
+        terms=(*_parametric_terms(), _cr_term()),
+        select=True,
+    )
+    design = assemble_model_design(model, _data_with_face_size_and_smoke())
+    face_block, smoke_block, interaction_block, cr_block = design["term_blocks"]
+    assert face_block["n_penalties"] == 0
+    assert smoke_block["n_penalties"] == 0
+    assert interaction_block["n_penalties"] == 0
+    assert cr_block["n_penalties"] == 2  # the cr term's own + its null-space block
+
+
+def test_parametric_interaction_design_matches_the_closed_form() -> None:
+    """End-to-end through ``assemble_model_design`` — the same construction
+    :mod:`test_gam_basis_parametric` checks in isolation, now reached via a
+    ``ModelSpec``."""
+    model = ModelSpec(family="gaussian", link="identity", terms=_parametric_terms())
+    data = _data_with_face_size_and_smoke()
+    design = assemble_model_design(model, data)
+    face_block, smoke_block, interaction_block = design["term_blocks"]
+    x = design["x"]
+    face_cols = x[:, face_block["start"] : face_block["end"]]
+    smoke_cols = x[:, smoke_block["start"] : smoke_block["end"]]
+    interaction_cols = x[:, interaction_block["start"] : interaction_block["end"]]
+    # The interaction block is exactly the outer product of the two
+    # main-effect dummy blocks, first-named variable (FaceSize) fastest —
+    # the same construction test_gam_basis_parametric checks against R
+    # directly, reached here through the full ModelSpec assembly instead.
+    expected_interaction = np.einsum("ni,nj->nji", face_cols, smoke_cols).reshape(
+        x.shape[0], smoke_cols.shape[1] * face_cols.shape[1]
+    )
+    np.testing.assert_array_equal(interaction_cols, expected_interaction)
 
 
 def test_assemble_model_design_ignores_select_by_default() -> None:

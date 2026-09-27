@@ -180,6 +180,16 @@ on:
       - "src/polaris_re/analytics/gam_by_factor_conformance.py"
       - "scripts/gam_by_factor_probe.R"
       - "scripts/gam_by_factor_free_sp_probe.R"
+      # CAPABILITY LADDER rung L4 (docs/PLAN_mgcv_capability_ladder.md slice
+      # 5) — the unpenalized parametric block (FaceSize + Smoke +
+      # FaceSize:Smoke). gam_term_spec.py (the `levels` field) is already
+      # listed above; these lines add the basis producer, Stage A's own
+      # isolated model.matrix() probe, and Stage B's two regimes.
+      - "src/polaris_re/analytics/gam_basis_parametric.py"
+      - "src/polaris_re/analytics/gam_parametric_conformance.py"
+      - "scripts/gam_parametric_stage_a_probe.R"
+      - "scripts/gam_parametric_probe.R"
+      - "scripts/gam_parametric_free_sp_probe.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -636,6 +646,49 @@ jobs:
             Rscript scripts/gam_by_factor_free_sp_probe.R \
               gam_by_factor_free_sp_probe.json
 
+      # CAPABILITY LADDER rung L4 (docs/PLAN_mgcv_capability_ladder.md slice
+      # 5) — unpenalized parametric block, Stage A. No fit at all: the
+      # parametric block's own columns (FaceSize + Smoke + FaceSize:Smoke)
+      # come from R's ordinary model.matrix() under contr.treatment, split
+      # by formula term via the `assign` attribute -- exactly what mgcv's
+      # own gam() calls internally to build a formula's parametric part.
+      # Same DIAGNOSTIC contract as every probe above; the comparison
+      # against the independent Python parametric_design() happens in the
+      # `compare` job below.
+      - name: Build the FaceSize+Smoke+FaceSize:Smoke parametric block via model.matrix() (ladder L4, Stage A)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_parametric_stage_a_probe.R \
+              gam_parametric_stage_a_probe.json
+
+      # CAPABILITY LADDER rung L4, Stage B, FIXED sp. Pairs the NEW
+      # unpenalized parametric block with the already-verified `cr` term (on
+      # AttdAge, deliberately unrelated to FaceSize/Smoke so the two cannot
+      # be confounded) under gaussian(identity) -- one family throughout,
+      # matching ladder rungs L3/L5 (L5, ADR-231, already closed the
+      # free-scale blocker before this slice was written).
+      - name: Fit the parametric+cr design under gaussian(identity) at fixed sp (ladder L4)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_parametric_probe.R \
+              gam_parametric_probe.json
+
+      # CAPABILITY LADDER rung L4, Stage B, FREE sp. Same gaussian(identity)
+      # family as the fixed-sp probe above -- mgcv selects the smooth's own
+      # smoothing parameter itself via method="REML"; the parametric block
+      # carries none to select.
+      - name: Fit the parametric+cr design under gaussian(identity) at free sp (ladder L4)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_parametric_free_sp_probe.R \
+              gam_parametric_free_sp_probe.json
+
       # Asserts every penalty-counting reading in docs/MGCV_NOTATION_PRIMER.md
       # sections 1, 3 and 4 against the pinned mgcv, so the primer's numbers are
       # tier 3 rather than recalled. BOTH SIDES ARE mgcv — Polaris is absent, so
@@ -757,6 +810,9 @@ jobs:
             gam_gaussian_free_sp_probe.json
             gam_by_factor_probe.json
             gam_by_factor_free_sp_probe.json
+            gam_parametric_stage_a_probe.json
+            gam_parametric_probe.json
+            gam_parametric_free_sp_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -2733,6 +2789,222 @@ jobs:
             cat gam_by_factor_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # CAPABILITY LADDER rung L4, Stage A — compares the independent Python
+      # parametric_design() against job 1's own model.matrix() export for
+      # each of the three terms (FaceSize, Smoke, FaceSize:Smoke), reusing
+      # the SAME compare_term_extract machinery every other basis's Stage A
+      # uses: the R script's own per-term export already matches
+      # RTermPayload's shape (index_start/index_end/X/S/rank/knots) exactly,
+      # so no bespoke comparator is needed. DIAGNOSTIC ONLY, same contract as
+      # every comparison above.
+      - name: Compare the parametric block's design against the Python side (ladder L4, Stage A)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_parametric_stage_a_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_parametric_stage_a_probe.json to compare ({exc}) — "
+                    "the R probe above did not produce one.")
+              sys.exit(0)
+
+          import numpy as np
+
+          from polaris_re.analytics.gam_stage_a import (
+              PARAMETRIC_BASIS_CLAIM, build_python_parametric_term, compare_term_extract,
+          )
+          from polaris_re.analytics.gam_term_spec import TermSpec
+          from polaris_re.core.verification import evidence_markdown
+
+          face = np.asarray(r_payload["face_group"], dtype=np.int64)
+          smoke = np.asarray(r_payload["smoke_group"], dtype=np.int64)
+          n_face = len(r_payload["face_levels"])
+          n_smoke = len(r_payload["smoke_levels"])
+
+          cases = {
+              "FaceSize": (
+                  TermSpec(label="FaceSize", variables=("FaceSize",), basis="parametric", levels=(n_face,)),
+                  (face,),
+              ),
+              "Smoke": (
+                  TermSpec(label="Smoke", variables=("Smoke",), basis="parametric", levels=(n_smoke,)),
+                  (smoke,),
+              ),
+              "FaceSize:Smoke": (
+                  TermSpec(
+                      label="FaceSize:Smoke", variables=("FaceSize", "Smoke"),
+                      basis="parametric", levels=(n_face, n_smoke),
+                  ),
+                  (face, smoke),
+              ),
+          }
+
+          rows = []
+          all_agree = True
+          for label, (term, groups) in cases.items():
+              extract = build_python_parametric_term(groups, term)
+              c = compare_term_extract(extract, r_payload["param_terms"][label])
+              all_agree = all_agree and c.agrees
+              rows.append(
+                  f"| `{label}` | {c.index_range_agrees} | {c.max_abs_design_diff:.3e} | {c.agrees} |"
+              )
+
+          lines = [
+              "",
+              "### Capability ladder rung L4 — unpenalized parametric block, Stage A vs mgcv",
+              "",
+              evidence_markdown(PARAMETRIC_BASIS_CLAIM),
+              "",
+              "| term | index range agrees | max abs design diff | agrees |",
+              "|---|---|---:|---|",
+              *rows,
+              "",
+              "No `penalty_S`/`rank` row: an unpenalized parametric block carries "
+              "no penalty at all (module docstring, `gam_basis_parametric.py`).",
+          ]
+          if not all_agree:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_parametric_stage_a_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_parametric_stage_a_report.md ]; then
+            cat gam_parametric_stage_a_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # CAPABILITY LADDER rung L4, Stage B, FIXED sp — compares the
+      # independent Python parametric+cr fit (gaussian identity) against job
+      # 1's native mgcv fit of the same formula at the same fixed sp, on
+      # ADR-221's committed eta/edf criterion — IMPORTED, never redeclared
+      # (Anchor W5). DIAGNOSTIC ONLY, same contract as every comparison above.
+      - name: Compare the parametric+cr fixed-sp fit against the Python side (ladder L4)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_parametric_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_parametric_probe.json to compare ({exc}) — the R probe "
+                    "above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_parametric_conformance import (
+              PARAMETRIC_FIXED_SP_CLAIM, compare_parametric_fixed_sp_case,
+              fit_parametric_fixed_sp_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          c = compare_parametric_fixed_sp_case(fit_parametric_fixed_sp_case(r_payload), r_payload)
+
+          lines = [
+              "",
+              "### Capability ladder rung L4 — unpenalized parametric block (+ cr) at fixed sp vs mgcv",
+              "",
+              evidence_markdown(PARAMETRIC_FIXED_SP_CLAIM),
+              "",
+              "| n | max abs eta diff | Polaris edf_total | mgcv edf_total | edf diff | agrees |",
+              "|---:|---:|---:|---:|---:|---|",
+              f"| {r_payload['n']} | {c['max_abs_eta_diff']:.3e} | "
+              f"{c['python_edf_total']:.6f} | {c['mgcv_edf_total']:.6f} | "
+              f"{c['edf_total_diff']:.3e} | {c['agrees']} |",
+              "",
+              "The gate is ADR-221's committed criterion — `max_abs_eta_diff < 2e-2` "
+              "AND `abs(edf_total_diff) < 1.0` — imported from "
+              "`gam_select_free_sp_conformance`, not redeclared here.",
+              "",
+              f"**Offset tripwire** (reported, never gated): {c['offset_gap']:.3e}.",
+              "",
+              "**Both fixed- and free-sp regimes use gaussian(identity)** — "
+              "matching ladder rungs L3/L5 (L5, ADR-231, already closed the "
+              "free-scale blocker before this slice was written). "
+              "Coefficients are never compared (Anchor 2).",
+          ]
+          if not c["agrees"]:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_parametric_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_parametric_probe_report.md ]; then
+            cat gam_parametric_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # CAPABILITY LADDER rung L4, Stage B, FREE sp — compares PolarisGAM's
+      # own free-sp selection against job 1's native mgcv free-sp REML fit of
+      # the same formula. sp is a COMPARED QUANTITY here (the smooth's own
+      # single value), not a shared input. Same ADR-221 eta/edf gate,
+      # imported, never redeclared.
+      - name: Compare the parametric+cr free-sp fit against the Python side (ladder L4)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_parametric_free_sp_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_parametric_free_sp_probe.json to compare ({exc}) — "
+                    "the R probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_parametric_conformance import (
+              PARAMETRIC_FREE_SP_CLAIM, compare_parametric_free_sp_case,
+              fit_parametric_free_sp_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          fit = fit_parametric_free_sp_case(r_payload)
+          c = compare_parametric_free_sp_case(fit, r_payload)
+
+          lines = [
+              "",
+              "### Capability ladder rung L4 — unpenalized parametric block (+ cr) at FREE sp vs mgcv (gaussian identity)",
+              "",
+              evidence_markdown(PARAMETRIC_FREE_SP_CLAIM),
+              "",
+              "| n | max abs eta diff | max abs log10(sp) diff | edf_total diff | max abs smooth-term edf diff | at bound | converged | agrees |",
+              "|---:|---:|---:|---:|---:|---|---|---|",
+              f"| {r_payload['n']} | "
+              f"{c.max_abs_eta_diff:.3e} | {c.max_abs_log10_sp_diff:.4f} | "
+              f"{c.edf_total_diff:+.4f} | {c.max_abs_term_edf_diff:.4f} | "
+              f"{c.at_bound} | {c.converged} | {c.agrees} |",
+              "",
+              "`sp` (the smooth's own single value) is a COMPARED QUANTITY "
+              "here, not a shared input: both sides select it independently, "
+              "from the same already-verified free-scale REML criterion "
+              "(ladder rung L5, ADR-231). The parametric block carries no "
+              "smoothing parameter to compare at all. The gate is ADR-221's "
+              "committed `eta`/`edf_total` criterion, imported and never "
+              "redeclared (Anchor W5). Coefficients are NOT compared (Anchor 2).",
+              "",
+              f"**Offset tripwire** (reported, never gated): {c.offset_gap:.3e}.",
+          ]
+          if not c.agrees:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_parametric_free_sp_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_parametric_free_sp_probe_report.md ]; then
+            cat gam_parametric_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # PLAN slice 7b (ADR-218): does mgcv's OWN free-sp select=TRUE point
       # score better, under our OWN criterion (ADR-217's fixed-sp fix),
       # than our best-of-9 multistart result reaches — same discriminator
@@ -3163,3 +3435,9 @@ jobs:
             gam_by_factor_probe_report.md
             gam_by_factor_free_sp_probe.json
             gam_by_factor_free_sp_probe_report.md
+            gam_parametric_stage_a_probe.json
+            gam_parametric_stage_a_report.md
+            gam_parametric_probe.json
+            gam_parametric_probe_report.md
+            gam_parametric_free_sp_probe.json
+            gam_parametric_free_sp_probe_report.md
