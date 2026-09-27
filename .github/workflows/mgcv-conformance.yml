@@ -2546,7 +2546,7 @@ jobs:
               "`smoothCon(s(x, by=fac, bs=\"cr\"))` (INDEPENDENT)", "",
               evidence_markdown(CR_BY_FACTOR_BASIS_CLAIM), "",
               "| term | index range agrees | max abs X diff | max abs S diff | "
-              "rank diff | knots agree |",
+              "rank diff | knots agree (recipe check, not parity) |",
               "|---|---|---:|---:|---:|---|",
           ]
           any_disagree = False

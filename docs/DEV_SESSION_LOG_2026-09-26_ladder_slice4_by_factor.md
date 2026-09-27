@@ -169,7 +169,12 @@ pair every prior capability-ladder Stage-B module in this epic carries.
   (`gam_by_factor_conformance.py`, `gam_term_spec.py`, `gam_basis_cr.py`,
   `gam_stage_a.py`, `gam_model.py`) — clean, no new errors.
 - `perf/history.jsonl` — one row appended (ADR-177), on the initial PR open,
-  since this PR touches `src/polaris_re/`.
+  since this PR touches `src/polaris_re/`. `has_structural_creep: False`
+  (peak_mib flat at 33.0, no config drift). `has_wall_time_creep: True`
+  (ratio 1.288 vs. the 1.25 band) — PR-review [P2] finding on #241: this
+  row's own wall time (0.0688s) is the fastest of the last three, so the
+  signal is cross-runner timing noise over a ~50-row window, not this PR's
+  own commits.
 
 ---
 

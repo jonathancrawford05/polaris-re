@@ -99,7 +99,10 @@ def test_sz_n_levels_is_optional_and_only_valid_on_sz() -> None:
             n_levels=1,
         )
 
-    with pytest.raises(PolarisValidationError, match="factor-level count"):
+    with pytest.raises(
+        PolarisValidationError,
+        match="only a basis='sz'/'re' term, or a basis='cr' factor-by term",
+    ):
         TermSpec(label="s(AttdAge)", variables=("AttdAge",), basis="cr", k=(13,), n_levels=2)
 
 
