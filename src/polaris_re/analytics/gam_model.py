@@ -53,6 +53,18 @@ is explicitly moved, which this module does not do on its own. It does not
 compute an unconditional (Kass-Steffey / Wood-Pya-Saefken) covariance — the
 work order's own §3 scope is ``eta``, selected ``log10(sp)``, and edf, not
 uncertainty.
+
+``"parametric"`` terms (capability ladder rung L4, ``docs/
+PLAN_mgcv_capability_ladder.md`` slice 5) ARE built by
+:func:`assemble_model_design`, via
+:func:`~polaris_re.analytics.gam_stage_a.build_python_parametric_term`
+(:mod:`~polaris_re.analytics.gam_basis_parametric`) — an unpenalized main
+effect or interaction of one or more factors, e.g. the target formula's own
+``FaceSize + Smoke + FaceSize:Smoke``. It contributes zero penalty blocks
+(``TermBlock.n_penalties == 0``), so it is never affected by
+``model.select`` and needs no change to the smoothing-parameter search — the
+existing block-padding logic in this function already handles a term with no
+penalty at all, unchanged.
 """
 
 from collections.abc import Callable, Mapping
@@ -78,6 +90,7 @@ from polaris_re.analytics.gam_stage_a import (
     TermExtract,
     build_python_cr_by_factor_term,
     build_python_cr_term,
+    build_python_parametric_term,
     build_python_re_term,
     build_python_sz_term,
     build_python_ti_term,
@@ -228,11 +241,14 @@ def _build_term_extract(term: TermSpec, data: Mapping[str, np.ndarray]) -> TermE
                 "codes. Set TermSpec.n_levels explicitly."
             )
         return build_python_re_term(group, term.n_levels, term)
+    if term.basis == "parametric":
+        groups = tuple(np.asarray(data[variable], dtype=np.int64) for variable in term.variables)
+        return build_python_parametric_term(groups, term)
     raise PolarisValidationError(
         f"assemble_model_design: TermSpec {term.label!r} has basis={term.basis!r}, "
-        "which PolarisGAM does not build yet — only 'cr', 'ti', 'sz' and 're' are "
-        "wired. 'raw' supplies its own design/penalty directly and has no "
-        "recipe for this function to build from."
+        "which PolarisGAM does not build yet — only 'cr', 'ti', 'sz', 're' and "
+        "'parametric' are wired. 'raw' supplies its own design/penalty directly "
+        "and has no recipe for this function to build from."
     )
 
 
@@ -251,22 +267,26 @@ def assemble_model_design(model: ModelSpec, data: Mapping[str, np.ndarray]) -> M
     (now built on this function) already use.
 
     Args:
-        model: every term must be ``basis="cr"``, ``basis="ti"``, ``basis="sz"``
-            or ``basis="re"`` — see :func:`_build_term_extract`. When
-            ``model.select`` is ``True`` (PLAN slice 7), each term's own
-            null-space penalty
+        model: every term must be ``basis="cr"``, ``basis="ti"``, ``basis="sz"``,
+            ``basis="re"`` or ``basis="parametric"`` — see
+            :func:`_build_term_extract`. When ``model.select`` is ``True`` (PLAN
+            slice 7), each term's own null-space penalty
             (:func:`~polaris_re.analytics.gam_select_penalty.null_space_penalty`)
             is appended after that term's own existing block(s) — skipped for
             a term whose existing blocks are already full rank (nothing left
-            to penalise), never padded in as an all-zero block.
+            to penalise, which is always true of a ``"parametric"`` term:
+            it starts with zero penalty blocks, so there is nothing for
+            ``select`` to double), never padded in as an all-zero block.
         data: covariate arrays keyed by name, e.g. ``{"AttdAge": ..., "PolYear":
             ..., "StudyYear_C": ...}`` — a numeric-``by`` term reads its scaling
             variable from here via ``term.by``, a ``ti`` term reads both of
             ``term.variables`` from here, an ``sz`` term reads its factor's
             0-indexed level codes (``term.variables[0]``) and its smoothed
-            margin's values (``term.variables[1]``) from here, and a ``re``
+            margin's values (``term.variables[1]``) from here, a ``re``
             term reads its single factor's 0-indexed level codes
-            (``term.variables[0]``) from here.
+            (``term.variables[0]``) from here, and a ``parametric`` term reads
+            one 0-indexed level-code array per entry of ``term.variables``
+            (one for a main effect, two or more for an interaction).
 
     Raises:
         PolarisValidationError: if a term names a basis this function does not
@@ -284,7 +304,16 @@ def assemble_model_design(model: ModelSpec, data: Mapping[str, np.ndarray]) -> M
         width = extract.design.shape[1]
         columns.append(extract.design)
         term_s = list(extract.s)
-        if model.select:
+        if model.select and extract.s:
+            # A term with NO existing penalty block (a "parametric" term,
+            # module docstring — the only basis this function builds with
+            # zero blocks) has no null space to penalise, and
+            # null_space_penalty raises on an empty input rather than
+            # returning None for it (its own docstring: "at least one
+            # penalty block"). This is the term-level generalisation of the
+            # existing "already full rank -> None -> skip" branch below, for
+            # the degenerate zero-block case that branch cannot reach on its
+            # own.
             null_result = null_space_penalty(extract.s)
             if null_result is not None:
                 term_s.append(null_result[0])

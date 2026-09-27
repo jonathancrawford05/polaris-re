@@ -126,6 +126,70 @@ def test_re_names_one_variable_carries_no_k_and_requires_n_levels() -> None:
         TermSpec(label="s(GroupFac)", variables=("GroupFac",), basis="re", n_levels=1)
 
 
+def test_parametric_term_carries_no_k_no_knots_and_needs_levels() -> None:
+    """Capability ladder slice 5 (``docs/PLAN_mgcv_capability_ladder.md``): an
+    unpenalized parametric main effect or interaction has no basis dimension
+    or knot recipe of its own — its width is determined entirely by
+    ``levels``, one count per variable."""
+    main_effect = TermSpec(
+        label="FaceSize", variables=("FaceSize",), basis="parametric", levels=(3,)
+    )
+    assert main_effect.k == ()
+    assert main_effect.knots is None
+    assert main_effect.levels == (3,)
+
+    interaction = TermSpec(
+        label="FaceSize:Smoke",
+        variables=("FaceSize", "Smoke"),
+        basis="parametric",
+        levels=(3, 2),
+    )
+    assert interaction.levels == (3, 2)
+
+    with pytest.raises(PolarisValidationError, match="must not carry"):
+        TermSpec(label="FaceSize", variables=("FaceSize",), basis="parametric", k=(3,), levels=(3,))
+    with pytest.raises(PolarisValidationError, match="must not carry knots"):
+        TermSpec(
+            label="FaceSize",
+            variables=("FaceSize",),
+            basis="parametric",
+            knots=(("FaceSize", (1.0, 2.0)),),
+            levels=(3,),
+        )
+    with pytest.raises(PolarisValidationError, match="exactly one level count per variable"):
+        TermSpec(label="FaceSize", variables=("FaceSize",), basis="parametric")
+    with pytest.raises(PolarisValidationError, match="exactly one level count per variable"):
+        TermSpec(
+            label="FaceSize:Smoke",
+            variables=("FaceSize", "Smoke"),
+            basis="parametric",
+            levels=(3,),
+        )
+    with pytest.raises(PolarisValidationError, match="at least 2 levels"):
+        TermSpec(label="FaceSize", variables=("FaceSize",), basis="parametric", levels=(1,))
+    with pytest.raises(PolarisValidationError, match="must not set by"):
+        TermSpec(
+            label="FaceSize",
+            variables=("FaceSize",),
+            basis="parametric",
+            by="x",
+            levels=(3,),
+        )
+    with pytest.raises(PolarisValidationError, match="must not set factor=True"):
+        TermSpec(
+            label="FaceSize",
+            variables=("FaceSize",),
+            basis="parametric",
+            factor=True,
+            levels=(3,),
+        )
+
+
+def test_levels_without_parametric_basis_is_refused() -> None:
+    with pytest.raises(PolarisValidationError, match="only a basis='parametric' term"):
+        TermSpec(label="s(AttdAge)", variables=("AttdAge",), basis="cr", k=(13,), levels=(3,))
+
+
 def test_supplied_knots_may_omit_a_margin_to_mean_default_for_that_margin_only() -> None:
     term = TermSpec(
         label="ti(AttdAge,PolYear)",
@@ -243,6 +307,8 @@ def test_every_supported_basis_constructs_a_minimal_term() -> None:
             TermSpec(label=f"term-{basis}", variables=("id", "x"), basis=basis, k=(8,))
         elif basis == "re":
             TermSpec(label=f"term-{basis}", variables=("id",), basis=basis, n_levels=3)
+        elif basis == "parametric":
+            TermSpec(label=f"term-{basis}", variables=("id",), basis=basis, levels=(3,))
         elif basis == "ti":
             TermSpec(label=f"term-{basis}", variables=("x", "y"), basis=basis, k=(8, 6))
         else:

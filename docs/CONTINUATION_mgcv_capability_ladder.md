@@ -3,8 +3,10 @@
 **Plan:** `docs/PLAN_mgcv_capability_ladder.md`
 **Created:** 2026-09-19, by the session that started slice 1 — as the plan's §3
 requires, and not before (the one-active-epic rule).
-**Status:** **ACTIVE.** Slices 1, 2, 3 and 4 complete; slice 5 (L4, unpenalized
-parametric block) next.
+**Status:** **COMPLETE 2026-09-27.** Slices 1-5 all landed. This closes
+`docs/PLAN_mgcv_capability_ladder.md` — see that plan's own status banner. A
+successor epic for L6-L8 is the expected next ACTIVE EPIC (named,
+deliberately unregistered until sized, `PLAN_mgcv_capability_ladder.md` §5).
 
 ---
 
@@ -16,7 +18,7 @@ parametric block) next.
 | **2** | **L2** `bs="re"` | **DONE** (2026-09-21, ADR-230) — basis built, measured against `mgcv` at **tier 3**, Stage A AND Stage B, **fixed AND free `sp` both landed in this slice** |
 | **3** | **L5** scale-estimated REML | **DONE** (2026-09-26, ADR-231) — the free-scale REML criterion derived from Wood (2011) §2 eq. (4) (paper supplied directly by the maintainer after web access was blocked), measured against `mgcv`'s own `gcv.ubre` at **tier 3** (score, both free-scale families) and the fit-level free-sp re-run (Gaussian). **Removed ladder slice 1's own "fixed `sp` only" qualifier in this slice's PR**, its own acceptance criterion. A real, pre-existing factor-of-2 defect in `_gaussian_deviance_terms` (shipped harmlessly at slice 1, since Gaussian's deviance had only one, scale-invariant consumer until this slice) was found in MEASURE FIRST and fixed |
 | **4** | **L3** factor-`by` | **DONE** (2026-09-26, ADR-232) — the contract decision (a new `by_factor`/`by_level` field, not a widened `by`) resolved before any basis code; construction measured against `mgcv` before writing it (the shared identifiability constraint is the WHOLE-DATA no-`by` one, not a per-level-subset one — refuted first); Stage A exact per level and Stage B **fixed AND free `sp` both landed in this slice**, ONE family (`gaussian(identity)`) throughout since L5 already closed the free-scale blocker |
-| 5 | L4 unpenalized parametric block | not started |
+| **5** | **L4** unpenalized parametric block | **DONE** (2026-09-27, ADR-233) — `TermSpec` gained `basis="parametric"` and a new `levels` field (per-variable level counts, distinct from the existing single-count `n_levels`); design is `mgcv`'s own `contr.treatment` coding (`gam_basis_parametric.py`), zero penalty blocks; found and fixed a real edge case in `assemble_model_design`'s `select=True` branch (`null_space_penalty` raises on an empty block tuple). Stage A exact (no fit needed) and Stage B **fixed AND free `sp` both landed in this slice**, ONE family (`gaussian(identity)`) throughout. **This closes the epic — L1 through L5 are all climbed.** |
 
 ---
 
@@ -329,15 +331,110 @@ measurement above uses ordinary (non-`select`) penalty blocks.
 
 ---
 
-## Carried constraints — read before touching slice 5
+## Slice 5 — what landed
+
+### Built
+
+- **`gam_basis_parametric.parametric_design(groups, levels)`** — the entire
+  construction is `mgcv`'s own `contr.treatment` dummy coding: one 0/1
+  indicator column per non-reference level for a main effect, or the outer
+  product of each named variable's own dummy columns (first-named variable
+  fastest — the exact convention measured against R's `model.matrix()`
+  before this module was written) for an interaction. No knot recipe, no
+  rescaling, no constraint step, and **no penalty at all** — the only basis
+  in this epic with zero blocks.
+- **`TermSpec` gains `basis="parametric"` and a new `levels: tuple[int,
+  ...] | None` field** — one level count per entry of `variables` (one for
+  a main effect, two or more for an interaction), a deliberately SEPARATE
+  field from the existing `n_levels` (always a single count, used by
+  `"sz"`/`"re"`/factor-`by`, each of which names exactly one factor). No
+  `k`, no knots, no `by`, `factor=False` — every basis-recipe field is
+  inapplicable.
+- **`gam_model._build_term_extract`'s dispatch extended** for
+  `"parametric"`, alongside `cr`/`ti`/`sz`/`re`.
+- **`gam_stage_a.build_python_parametric_term` + `PARAMETRIC_BASIS_CLAIM`**
+  — the Stage-A independent producer, plus a new, self-contained
+  `scripts/gam_parametric_stage_a_probe.R` that needs no fit at all: the
+  parametric block is a bare `model.matrix(~FaceSize + Smoke +
+  FaceSize:Smoke, data)` call, split into its three per-term blocks via the
+  `assign` attribute. The R export already matches `RTermPayload`'s shape,
+  so the comparison reuses the SHARED `compare_term_extract` machinery
+  unchanged — no bespoke Stage-A comparator was needed for this rung.
+- **`gam_parametric_conformance.py`** — Stage B, TWO claims:
+  `PARAMETRIC_FIXED_SP_CLAIM` and `PARAMETRIC_FREE_SP_CLAIM`, both
+  `gaussian(identity)` — matching ladder rungs L3/L5's own one-family
+  pattern, since L5 (ADR-231) already closed the free-scale blocker before
+  this slice was written. The free-`sp` per-term `edf` comparison filters
+  Python's own `edf_per_term` to the smooth's own label, since `mgcv`'s
+  `summary(m)$s.table` carries no row for an unpenalized parametric term at
+  all.
+- **A real edge case found and fixed in MEASURE FIRST, before any
+  conformance code**: `null_space_penalty` raises on an empty `s_blocks`
+  tuple rather than returning `None`. `assemble_model_design`'s
+  `select=True` branch called it unconditionally on every term's own
+  blocks — which is exactly `()` for a parametric term, the first basis
+  this function has ever built with zero. Fixed by skipping the call
+  entirely when a term has no existing blocks
+  (`if model.select and extract.s:`), and pinned by a new test
+  (`test_parametric_terms_have_nothing_for_select_to_double`) before it
+  could surface as a runtime crash on the first `select=True` model
+  carrying a parametric term.
+- Closed-form unit tests (`test_gam_basis_parametric.py`) against the
+  algebra (main-effect dummy structure, the interaction's exact column
+  values against a hand-verified R reading, a synthetic 3-variable case
+  with no R counterpart pinning the general fold), plus a closed-form proof
+  in `test_gam_parametric_conformance.py` that a parametric block's own
+  per-term `edf` is provably exactly its own column count regardless of
+  correlation with any other term (derived from `hat = I -
+  (X'WX+S)^{-1}S` and the fact that every column of `S` at a parametric
+  index is identically zero).
+
+### Measured
+
+- **Stage A** (3 terms — `FaceSize`, `Smoke`, `FaceSize:Smoke`):
+  `max_abs_design_diff` exactly `0.000e+00`, tier 3 — no continuous
+  construction step exists for either side to differ about, the same
+  reading `"re"`'s own Stage A got (ADR-230) and for the same reason.
+- **Stage B fixed `sp`** (`n=900`, paired with `s(AttdAge, k=13, bs="cr")`,
+  deliberately unrelated to FaceSize/Smoke): `max_abs_eta_diff=2.698e-14`,
+  `edf_total_diff=0.000e+00`, tier 3.
+- **Stage B free `sp`** (`n=900`, `p=17`, single-start — no `multistart`
+  needed): `max_abs_eta_diff=3.261e-07`, `max_abs_log10_sp_diff=1.05e-05`,
+  `edf_total_diff=+2.45e-05`, `at_bound=False`, `converged=True` on both
+  sides, tier 3 — the tightest free-`sp` reading this epic has produced.
+- **Both regimes `agrees=True`** under ADR-221's imported `2e-2`/`1.0`
+  gate. Tier 3, oracle
+  `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+  full details and run link in ADR-233.
+- **The same suspicion-not-just-a-check pair every prior slice used**: both
+  R probes give `FaceSize`/`Smoke`/their interaction genuinely different
+  effects on the mean, and this module's tests strip every `mgcv`-produced
+  key and confirm `edf_total` still moves with the smooth's own penalty.
+- **`MGCV_FEATURE_COVERAGE.md`**: §2.1 gains a `parametric` row; §2.3's
+  "Unpenalized parametric block" row moves from **NO** to tier 3, fixed AND
+  free `sp`; the L4 ladder row in §4 is marked climbed — **closing the
+  epic**.
+
+**What was NOT attempted.** Only a main effect and a two-way interaction are
+exercised — the target formula names no three-way parametric interaction.
+`select=TRUE`'s null-space penalty was exercised only insofar as this slice
+found and fixed the zero-block edge case above; it was not exercised
+against a model pairing a parametric term with a `select=TRUE` smooth in
+the free-`sp` measurement itself.
+
+---
+
+## Carried constraints — read before starting the successor epic (L6-L8)
 
 Constraints 2-5 below were written for slice 1 and **all still hold**.
 Constraint 1 is **superseded** (L5 closed it, ADR-231) and kept here, struck
 through in substance, so a later reader does not have to reconstruct why
 "fixed `sp` only" no longer applies to Gaussian. Constraint 6 is corrected in
 place (slice 1 itself, not slice 3, was where the "only one family" wording
-was falsified — already fixed, kept here as history). A seventh is added by
-slice 4.
+was falsified — already fixed, kept here as history). A seventh was added by
+slice 4 and remains live for any future basis with more than one penalty
+block. An eighth is added by slice 5, for any future basis with NO penalty
+block at all — the opposite edge case from the seventh.
 
 1. ~~**Fixed `sp` only.**~~ **CLOSED by slice 3 (ADR-231).**
    `gam_reml.reml_score_general` now has a free-scale branch; Gaussian's own
@@ -376,6 +473,14 @@ slice 4.
    Masking (`by_factor_mask_design`) runs AFTER the shared no-`by`
    constraint is absorbed, never before — the reverse order was slice 4's
    own first, refuted hypothesis (ADR-232).
+8. **A zero-penalty term needs a guard before `select=TRUE`, not after.**
+   `null_space_penalty` raises on an empty `s_blocks` tuple rather than
+   returning `None` for it — it was written when every basis in this engine
+   carried at least one penalty block, and slice 5's parametric block was
+   the first to carry none. Any FUTURE unpenalized basis must go through
+   `assemble_model_design`'s `if model.select and extract.s:` guard (not
+   `if model.select:` alone) or it will crash the first time a caller
+   builds a `select=True` model containing it (ADR-233).
 
 ---
 
@@ -389,46 +494,61 @@ than guesses) are both recorded in ADR-231 for review.
 **PR #240 review also flagged a harvesting gap** (a second slice running,
 per the review's own count): quasi-Poisson's fit-level free-`sp` re-run was
 left as a CONTINUATION note (carried constraint 6 above) rather than
-registered, which the work-selection rule cannot reach. **Now registered as
-slice 3b** in `PLAN_mgcv_capability_ladder.md` §3, with a release condition —
-see below.
+registered, which the work-selection rule cannot reach. **Registered as
+slice 3b** in `PLAN_mgcv_capability_ladder.md` §3, with a release condition.
+**Still open, unsized, and not blocking** — the epic this file tracks is
+complete without it; slice 3b is a small side item a future session (or the
+successor L6-L8 epic's own SETUP) may knock out per ADR-209 decision 2
+("run it if it is under an hour").
 
 ---
 
 ## Where to pick up
 
-`docs/PLAN_mgcv_capability_ladder.md` §3, **slice 5 — L4 unpenalized
-parametric block**. Slices 1-4 are closed (ADR-229, ADR-230, ADR-231,
-ADR-232). **Slice 3b** (quasi-Poisson's own fit-level free-`sp` re-run — the
-direct completion of slice 3's feature, registered rather than left as a
-note, ADR-209 decision 1) is open and unsized; it does not block slice 5,
-which remains the plan's own next unchecked slice for work-selection
-purposes.
+**This epic is COMPLETE.** `docs/PLAN_mgcv_capability_ladder.md` §3's five
+slices are all closed: ADR-229 (L1), ADR-230 (L2), ADR-231 (L5), ADR-232
+(L3), ADR-233 (L4). `MGCV_FEATURE_COVERAGE.md` §4 marks every rung L1-L5
+climbed.
 
-**Why it matters, restated from the plan**: the target formula opens with
-`FaceSize + Smoke + FaceSize:Smoke`. `assemble_model_design` builds an
-intercept and then penalized terms only today — there is no route for
-parametric *columns* at all, so the target formula is inexpressible for this
-reason quite independently of any basis. This is the LAST rung this epic's
-own plan names (L1-L5); climbing it closes `PLAN_mgcv_capability_ladder.md`
-itself.
+**What is still open, registered but not part of this epic's own scope:**
 
-Nearest template for the whole basis-plus-conformance shape — R probe,
-conformance module with a declared claim, workflow probe step + compare step
-+ path filters, tier-3 dispatch — remains **slices 1-4**:
-`scripts/gam_gaussian_probe.R` / `gam_re_probe.R` / `gam_re_free_sp_probe.R` /
-`gam_free_scale_reml_score_probe.R` / `gam_gaussian_free_sp_probe.R` /
-`gam_by_factor_probe.R` / `gam_by_factor_free_sp_probe.R` +
+- **Slice 3b** — quasi-Poisson's own fit-level free-`sp` re-run (see "Open
+  questions" above). Small, unsized, does not block anything.
+
+**The next ACTIVE EPIC** is the successor for ladder rungs **L6-L8**
+(`bs="fs"`, `bs="tp"`, `te`/`t2`) — named in
+`MGCV_FEATURE_COVERAGE.md` §4 and `PLAN_mgcv_capability_ladder.md` §5 as the
+expected follow-on, but **deliberately unregistered until it is sized**
+(the same discipline that kept this epic from being registered before it
+had a plan). The session that sizes it creates its own PLAN and its own
+CONTINUATION file, per the one-active-epic rule this file's own creation
+followed (`PLAN_mgcv_capability_ladder.md` §3's own note).
+
+**Nearest templates for that future epic's own basis-plus-conformance
+shape** — R probe, conformance module with a declared claim, workflow probe
+step + compare step + path filters, tier-3 dispatch — are this epic's own
+five slices: `scripts/gam_gaussian_probe.R` / `gam_re_probe.R` /
+`gam_re_free_sp_probe.R` / `gam_free_scale_reml_score_probe.R` /
+`gam_gaussian_free_sp_probe.R` / `gam_by_factor_probe.R` /
+`gam_by_factor_free_sp_probe.R` / `gam_parametric_stage_a_probe.R` /
+`gam_parametric_probe.R` / `gam_parametric_free_sp_probe.R` +
 `src/polaris_re/analytics/gam_gaussian_conformance.py` /
 `gam_re_conformance.py` / `gam_free_scale_reml_conformance.py` /
-`gam_by_factor_conformance.py`.
+`gam_by_factor_conformance.py` / `gam_parametric_conformance.py`. Slice 5's
+own Stage A is the cheapest of the five to imitate for a basis with no
+continuous construction step: no fit needed at all, and the R export can
+target `RTermPayload`'s existing shape directly rather than needing a
+bespoke comparator.
 
 **A near-exact or exact agreement is a suspicion before it is a result** —
-every prior slice in this epic needed a pair of independence tests (strip
-every `mgcv`-produced key; check the compared quantity moves with the thing
-under test) to make its agreements reportable rather than merely green.
-Slice 4's own Stage-A agreement went further still — bit-exact (`0.0`, not
-merely float round-trip), confirmed by deriving the identifiability
-constraint from measurement FIRST (three hypotheses tried in sequence, two
-refuted) and only then writing the basis. Any new slice landing a near-exact
-or exact reading should still carry the strip/perturb pair.
+every slice in this epic needed a pair of independence tests (strip every
+`mgcv`-produced key; check the compared quantity moves with the thing under
+test) to make its agreements reportable rather than merely green. Slice 4's
+own Stage-A agreement went further still — bit-exact (`0.0`, not merely
+float round-trip), confirmed by deriving the identifiability constraint from
+measurement FIRST (three hypotheses tried in sequence, two refuted) and only
+then writing the basis; slice 5's Stage A was bit-exact for a different
+reason — a purely combinatorial construction (no knots, no quantiles) has
+nothing for floating-point round-trip noise to touch in the first place. Any
+future slice landing a near-exact or exact reading should still carry the
+strip/perturb pair.

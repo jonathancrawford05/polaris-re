@@ -1881,3 +1881,17 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 >
 > **NEXT is the capability ladder** (`MGCV_FEATURE_COVERAGE.md` §4), with solver
 > work re-aimed at the target's real block count rather than N=7.
+
+> **Update, 2026-09-27: the capability ladder epic is COMPLETE.**
+> `docs/PLAN_mgcv_capability_ladder.md` (its own CONTINUATION file,
+> `docs/CONTINUATION_mgcv_capability_ladder.md`, tracks the day-to-day
+> record — this note exists only so a reader of THIS file does not have to
+> discover the ladder finished by following the pointer above into a stale
+> plan) landed all five of its slices: L1 `gaussian(identity)` (ADR-229), L2
+> `bs="re"` (ADR-230), L5 scale-estimated REML (ADR-231), L3 factor-`by`
+> (ADR-232), and L4 the unpenalized parametric block (ADR-233, closing the
+> epic). `MGCV_FEATURE_COVERAGE.md` §4 marks every rung L1-L5 climbed. The
+> next ACTIVE EPIC is the successor for ladder rungs L6-L8 (`bs="fs"`,
+> `bs="tp"`, `te`/`t2`), named but deliberately unregistered until sized
+> (`PLAN_mgcv_capability_ladder.md` §5) — the same discipline that kept the
+> now-complete epic from being registered before it had a plan.

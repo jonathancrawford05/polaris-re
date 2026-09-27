@@ -63,6 +63,7 @@ confirmed on the pinned oracle digest, per `ROUTINE_MGCV_PARITY.md`.
 | `sz` | sum-to-zero factor-smooth interaction | **yes** | ✅ tier 3 (ADR-215) | ✅ fixed `sp` only (ADR-217) | free-`sp` search never exercised on this block shape. **DEPRIORITISED to L11** (maintainer, 2026-09-16: "not absolutely necessary") — its penalty count grows with factor levels, unlike `fs` |
 | `raw` | caller supplies design + penalty | n/a | n/a | n/a | not an mgcv basis; the `paraPen` escape hatch |
 | **`re`** | **random effect (identity penalty)** | **yes** (2026-09-21, L2) | ✅ tier 3, exact (ADR-230) | ✅ tier 3, **fixed AND free `sp`** (ADR-230) | Stage A `max_abs_X_diff`/`max_abs_S_diff` exactly `0.000e+00` at both 4 and 7 levels — `absorb.cons` measured to not change mgcv's own output for this basis. Stage B: fixed `sp` (gaussian identity) `max_abs_eta_diff=2.176e-14`; free `sp` (poisson log, so it does not wait on L5) `max_abs_eta_diff=3.226e-05`, `log10(sp)` diff `0.0010` — both inside ADR-221's `2e-2`/`1.0` gate |
+| **`parametric`** | **unpenalized main effect / interaction of factors** | **yes** (2026-09-27, L4) | ✅ tier 3, exact (ADR-233) | ✅ tier 3, **fixed AND free `sp`** (ADR-233) | not an `mgcv` smooth class — `mgcv`'s own formula parser builds it via `model.matrix()` under `contr.treatment`, the same call an `lm()`/`glm()` formula uses, with ZERO smoothing parameters. Stage A `max_abs_design_diff` exactly `0.000e+00` on all 3 terms of the target formula's own `FaceSize + Smoke + FaceSize:Smoke` (no fit needed — the block doesn't depend on `sp`/`y`/the smooth). Stage B (gaussian identity, paired with `s(AttdAge)`), tier 3: fixed `sp` `max_abs_eta_diff=1.066e-14`; free `sp` `max_abs_eta_diff=3.261e-07` — both far inside ADR-221's `2e-2`/`1.0` gate |
 | **`tp`** | **thin-plate regression spline** | **NO** | — | — | **mgcv's DEFAULT — a bare `s(x)` is inexpressible** |
 | `te` | full tensor product | **NO** | — | — | shares `ti`'s machinery minus the `mc` constraint |
 | `t2` | alternative tensor decomposition | **NO** | — | — | genuinely different penalty decomposition |
@@ -146,7 +147,7 @@ column above is the authority.
 | **`fREML`** | **NO** | `bam`'s criterion; a *different* criterion, not a faster REML |
 | **`bam`** | **NO** | **objective item 2**; deferred 2026-08-10 (PLAN §3) |
 | **`discrete = TRUE`** | **NO** | **objective item 2**; a different algorithm (Wood/Li/Shaddick/Augustin) |
-| **Unpenalized parametric block** | **NO** | `assemble_model_design` builds an intercept then penalized terms only — no route for parametric *columns*. The target formula has `FaceSize + Smoke + FaceSize:Smoke` |
+| **Unpenalized parametric block** | ✅ tier 3 (2026-09-27, **L4**, ADR-233) | `gam_basis_parametric.parametric_design` — `mgcv`'s own `contr.treatment` dummy coding, zero smoothing parameters. Closes the LAST rung `PLAN_mgcv_capability_ladder.md` names; the target formula's own `FaceSize + Smoke + FaceSize:Smoke` is expressible |
 | `gamm` / `lme4` route | **NO** | out of scope unless the objective changes |
 | Unconditional covariance (Kass-Steffey / WPS) | ⚠️ known-defective | standing BLOCKER, ADR-190 / ADR-202 |
 
@@ -154,7 +155,7 @@ column above is the authority.
 
 | objective item | status |
 |---|---|
-| 1. A suite of model forms, incl. `ti`, `bs="re"` | **partial** — 4 bases of ~14; `ti` ✅, **`re` ✅ (2026-09-21)**, and mgcv's default `tp` ✗ |
+| 1. A suite of model forms, incl. `ti`, `bs="re"` | **partial** — 5 bases of ~14; `ti` ✅, `re` ✅ (2026-09-21), **the unpenalized parametric block ✅ (2026-09-27)**, and mgcv's default `tp` ✗ |
 | 2. `fREML`, `discrete=TRUE`, `bam` | **not started** — explicitly deferred |
 | 3. `select=TRUE` | **done** ✅ |
 
@@ -191,21 +192,23 @@ Ordered so that each rung is verifiable against `mgcv` with the rungs below it
 already trusted — the maintainer's own instruction: *"a rigorous plan that
 tackles simpler mgcv features first."*
 
-> **L1–L5 are the ACTIVE EPIC as of 2026-09-18** (maintainer direction):
-> **`docs/PLAN_mgcv_capability_ladder.md`**. That plan sequences these rungs into
-> five slices; it does **not** renumber them. Note its one reordering — L5 is
-> pulled forward to slice 3 — because it is on the **critical path to L9/L10**
-> (`fREML` needs free-scale handling) while being the epic's least-measured
-> estimate, and because it closes a **live** hole: `quasipoisson` is marked
-> expressible above and raises at free `sp` today. `PLAN_…ladder.md` §2.1 gives
-> the argument in full, including the case against it.
+> **L1–L5 were the ACTIVE EPIC from 2026-09-18, COMPLETE as of 2026-09-27**
+> (maintainer direction, `docs/PLAN_mgcv_capability_ladder.md`). That plan
+> sequenced these rungs into five slices; it did **not** renumber them. Note its
+> one reordering — L5 was pulled forward to slice 3 — because it is on the
+> **critical path to L9/L10** (`fREML` needs free-scale handling) while being
+> the epic's least-measured estimate, and because it closes a **live** hole:
+> `quasipoisson` is marked expressible above and raised at free `sp` before
+> ADR-231. `PLAN_…ladder.md` §2.1 gives the argument in full, including the
+> case against it. A successor epic for L6-L8 is the expected next ACTIVE EPIC
+> — see §5.
 
 | # | rung | why here | rough size |
 |---|---|---|---|
 | **L1** ✅ | **`gaussian(identity)`** | **CLIMBED 2026-09-19 (ADR-229), fixed `sp` only.** The simplest family. Decouples every later basis check from IRLS confounds: at Gaussian identity the penalized fit is a single linear solve, so a basis disagreement cannot hide behind IRLS convergence. Also what every mgcv textbook check uses. | small |
 | **L2** ✅ | **`bs="re"`** | **CLIMBED 2026-09-21 (ADR-230), fixed AND free `sp`.** Named in the objective. The **cheapest basis in mgcv** — model matrix is the level indicators, penalty is the identity, **always exactly one smoothing parameter** regardless of level count — and the backbone of hierarchical structure. In actuarial terms this *is* credibility: Bühlmann-Straub is a random-effects model. Highest value-to-effort on the board. | small |
 | **L3** ✅ | **factor-`by`** (`s(x, by = fac)`) | **CLIMBED 2026-09-26 (ADR-232), fixed AND free `sp`.** Completes the `by` axis (numeric `by` already done). **Note it is not a term parameter but a term multiplier**: `s(x, by = f)` on a 3-level factor produces *three separate smooths*, each with its own `sp` (measured). | small–medium |
-| **L4** | **Unpenalized parametric block** | The target formula opens with `FaceSize + Smoke + FaceSize:Smoke`. Today `assemble_model_design` cannot carry unpenalized columns at all, so the target formula is inexpressible for this reason *as well*. (Was wiring slice 1c.) | small |
+| **L4** ✅ | **Unpenalized parametric block** | **CLIMBED 2026-09-27 (ADR-233), fixed AND free `sp`.** The target formula opens with `FaceSize + Smoke + FaceSize:Smoke`. `mgcv` builds this via its own `model.matrix()`, zero smoothing parameters — `assemble_model_design` now carries this alongside every penalized basis. (Was wiring slice 1c.) **The last rung this plan names — L1 through L5 are all climbed.** | small |
 | **L5** ✅ | **Scale-estimated REML** | **CLIMBED 2026-09-26 (ADR-231).** Wood (2011) eq. (4) profiled over the unknown scale. Unblocks Gaussian and quasi-Poisson (both registered — Gamma/Tweedie are not registered families regardless of this rung). Removed ladder L1's own "fixed `sp` only" qualifier in the same PR. | medium |
 | **L6** | **`bs="fs"`** — factor-smooth interaction | **Maintainer-requested, 2026-09-16.** The "random smooths" idiom: a separate curve per level, all shrunk toward a common shape. Together with L2 it covers the HGAM taxonomy's group-level models (`docs/MGCV_NOTATION_PRIMER.md` §5). **Its penalty count is `1 + M` (M = the margin's unconstrained null-space dimension) and does NOT grow with factor levels** — measured 3 penalties at 2, 4 and 6 levels (`scripts/mgcv_penalty_count_probe.R`, **tier 3** — mgcv 1.9.4 pinned and 1.9.1 local) — so unlike `sz` it does not inflate the outer search. | medium |
 | **L7** | **`bs="tp"`** | mgcv's **default** basis. Until it exists, a user writing a bare `s(x)` gets something this engine cannot express. Harder — eigen-decomposition of the thin-plate penalty — which is why it sits above the cheap rungs. | medium–large |
@@ -221,9 +224,10 @@ tackles simpler mgcv features first."*
 run open-endedly between them.
 
 **This is no longer a map with nothing behind it.** The ladder's first five rungs
-are registered as an epic with slices, acceptance criteria and a named blocker:
-`docs/PLAN_mgcv_capability_ladder.md` (2026-09-18). A successor epic for L6–L8 is
-expected but deliberately unregistered until it is sized.
+were registered as an epic with slices, acceptance criteria and a named blocker:
+`docs/PLAN_mgcv_capability_ladder.md` (2026-09-18) — **and as of 2026-09-27
+(ADR-233) that epic is COMPLETE: L1 through L5 are all climbed.** A successor
+epic for L6–L8 is expected but deliberately unregistered until it is sized.
 
 ### What the ladder deliberately does not include
 

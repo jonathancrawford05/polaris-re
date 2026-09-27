@@ -37,7 +37,7 @@ __all__ = [
     "factor_by_terms",
 ]
 
-SUPPORTED_BASES: tuple[str, ...] = ("cr", "ti", "sz", "re", "raw")
+SUPPORTED_BASES: tuple[str, ...] = ("cr", "ti", "sz", "re", "parametric", "raw")
 """The basis kinds PLAN §3 puts in scope, plus ``"raw"``.
 
 ``"cr"`` — Wood's cubic regression spline (slice 2). ``"ti"`` — tensor interaction with
@@ -45,11 +45,18 @@ marginal main effects excluded (slice 5). ``"sz"`` — sum-to-zero factor-smooth
 interaction (slice 6). ``"re"`` — the random-effect / level-indicator basis
 (capability ladder rung L2, ``docs/PLAN_mgcv_capability_ladder.md`` slice 2): design is
 the factor's own level-indicator matrix, penalty is the identity — see
-:mod:`polaris_re.analytics.gam_basis_re`. ``"raw"`` is not one of ``mgcv``'s basis
-classes: it names a term whose design and penalty are supplied directly, the existing
-tensor MI surface's own route through ``paraPen`` (ADR-189 decision 1). A ``"raw"`` term
-carries no ``k`` and no knots — the caller supplies the matrices, not a recipe for
-building them — which is why slice 1's harness can be proven against the
+:mod:`polaris_re.analytics.gam_basis_re`. ``"parametric"`` — an unpenalized
+factor main effect or interaction (capability ladder rung L4,
+``docs/PLAN_mgcv_capability_ladder.md`` slice 5), e.g. the target formula's own
+``FaceSize + Smoke + FaceSize:Smoke``: design is mgcv's own ``contr.treatment``
+dummy coding (one main-effect variable) or the outer product of each named
+variable's own dummy columns, first-named variable fastest (two or more
+variables — an interaction); there is no penalty at all — see
+:mod:`polaris_re.analytics.gam_basis_parametric`. ``"raw"`` is not one of ``mgcv``'s
+basis classes: it names a term whose design and penalty are supplied directly, the
+existing tensor MI surface's own route through ``paraPen`` (ADR-189 decision 1). A
+``"raw"`` term carries no ``k`` and no knots — the caller supplies the matrices, not a
+recipe for building them — which is why slice 1's harness can be proven against the
 already-verified tensor design without either side needing an ``mgcv`` smooth-class
 equivalent for it."""
 
@@ -100,6 +107,16 @@ class TermSpec:
             represents, required (and only meaningful) when :attr:`by_factor`
             is set — an input, not derived (Anchor 4), so :attr:`n_levels` must
             also be set and this must lie in ``[0, n_levels)``.
+        levels: One factor-level count per entry of :attr:`variables`, required
+            (and only meaningful) for ``basis="parametric"`` — an unpenalized
+            main effect (one variable) or interaction (two or more), e.g. the
+            target formula's own ``FaceSize + Smoke + FaceSize:Smoke``. An
+            input, never derived from a sample's own observed level codes
+            (Anchor 4), the same discipline :attr:`n_levels` already follows
+            for ``"sz"``/``"re"``/factor-``by``. Distinct from :attr:`n_levels`
+            (always a single count, for a term with exactly one factor) because
+            a ``"parametric"`` interaction term names two or more variables,
+            each with its own level count.
         penalty_order: Derivative order per penalty, where the basis has more than one
             (``cr`` has one; ``ti`` and ``sz`` can carry one per margin). ``None`` means
             "``mgcv``'s default for this basis" rather than "no penalty" — every
@@ -133,6 +150,7 @@ class TermSpec:
     n_levels: int | None = None
     by_factor: str | None = None
     by_level: int | None = None
+    levels: tuple[int, ...] | None = None
 
     def knots_by_variable(self) -> dict[str, tuple[float, ...]]:
         """:attr:`knots` as a plain ``dict``, computed on demand.
@@ -216,6 +234,55 @@ class TermSpec:
                     f"{self.n_levels!r}; re needs n_levels set, >= 2 (mgcv's "
                     f"length(levels(fac)))."
                 )
+        elif self.basis == "parametric":
+            # An unpenalized main effect (one variable) or interaction (two or
+            # more) — mgcv's own contr.treatment dummy coding, built directly
+            # from the factor-level codes and counts (gam_basis_parametric.py).
+            # No basis dimension of its own (no k, no knots) and no single
+            # n_levels (an interaction names one count PER variable, via the
+            # dedicated `levels` field rather than the singular `n_levels`
+            # every other factor-carrying basis uses).
+            if self.k:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} is basis='parametric' and must "
+                    f"not carry k={self.k!r} — an unpenalized parametric block "
+                    f"has no basis dimension of its own; its width is "
+                    f"determined by its factor level count(s) via `levels`."
+                )
+            if self.knots is not None:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} is basis='parametric' and must "
+                    f"not carry knots — there is no recipe for mgcv to place "
+                    f"them against."
+                )
+            if self.by is not None:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} is basis='parametric' and must "
+                    f"not set by={self.by!r} — a numeric-by smooth is a "
+                    f"different mgcv construction from an unpenalized "
+                    f"parametric block."
+                )
+            if self.factor:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} is basis='parametric' and must "
+                    f"not set factor=True — factor=True marks the sz/fs "
+                    f"construction, a different one from an unpenalized "
+                    f"parametric block."
+                )
+            if self.levels is None or len(self.levels) != len(self.variables):
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} is basis='parametric' with "
+                    f"{len(self.variables)} variable(s) but levels="
+                    f"{self.levels!r} — exactly one level count per variable "
+                    f"is required (mgcv's length(levels(fac)) for each named "
+                    f"factor), an input never derived from data (Anchor 4)."
+                )
+            if any(n < 2 for n in self.levels):
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} is basis='parametric' with "
+                    f"levels={self.levels!r} — every named factor needs at "
+                    f"least 2 levels."
+                )
         elif len(self.k) != len(self.variables):
             raise PolarisValidationError(
                 f"TermSpec {self.label!r} has {len(self.variables)} variable(s) but "
@@ -289,6 +356,12 @@ class TermSpec:
                 f"TermSpec {self.label!r} has basis={self.basis!r} but sets "
                 f"n_levels={self.n_levels!r} — only a basis='sz'/'re' term, or a "
                 f"basis='cr' factor-by term, has a factor-level count."
+            )
+        if self.basis != "parametric" and self.levels is not None:
+            raise PolarisValidationError(
+                f"TermSpec {self.label!r} has basis={self.basis!r} but sets "
+                f"levels={self.levels!r} — only a basis='parametric' term carries "
+                f"per-variable level counts."
             )
 
 

@@ -1,5 +1,11 @@
 # Plan: climb the mgcv capability ladder — L1 through L5
 
+> **STATUS: COMPLETE (2026-09-27).** All five slices landed — ADR-229
+> (L1), ADR-230 (L2), ADR-231 (L5), ADR-232 (L3), ADR-233 (L4, this plan's
+> last slice). `docs/MGCV_FEATURE_COVERAGE.md` §4 marks all five rungs
+> climbed. A successor epic for L6-L8 is the expected next ACTIVE EPIC
+> (named, deliberately unregistered until sized — §5 below).
+
 > **This epic exists because feature coverage stopped moving.** The last nine
 > registered slices of `PLAN_mgcv_parity_engine.md` — 7b through 8 — are all
 > outer-optimiser work on **one N=7 structure**, while the stated objective is
@@ -317,7 +323,7 @@ already closed the free-scale blocker, unlike L2's own two-family split):
 3. No iteration needed at either stage. See ADR-232 and
 `docs/CONFORMANCE_LEDGER.md`.
 
-### Slice 5 — L4 Unpenalized parametric block
+### Slice 5 — L4 Unpenalized parametric block — ✅ **DONE 2026-09-27 (ADR-233)**
 
 **Why last, and why it is not optional.** The target formula opens with
 `FaceSize + Smoke + FaceSize:Smoke`. `assemble_model_design` builds an intercept
@@ -331,6 +337,33 @@ block structure.
 **Measure:** Stage B against a `mgcv` fit carrying the same parametric terms.
 
 **Acceptance:** ADR-221, tier 3.
+
+**Landed:** `TermSpec` gained `basis="parametric"` and a new `levels` field
+(one factor-level count per named variable — distinct from the existing
+`n_levels`, since an interaction names two or more counts); the design is
+`mgcv`'s own `contr.treatment` dummy coding (`gam_basis_parametric.py`), with
+the interaction's columns the outer product of each variable's own dummy
+block, first-named variable fastest — measured directly against R's
+`model.matrix(~A+B+A:B)` before any code was written. Zero penalty blocks are
+contributed, which surfaced and fixed a real edge case:
+`null_space_penalty` raises on an empty input rather than returning `None`,
+so `assemble_model_design`'s `select=True` branch needed a guard for a term
+with no existing blocks at all — the first basis this function has ever built
+with none. **Stage A** (no fit needed — the block doesn't depend on `sp`/`y`/
+the smooth): exact per term (`0.000e+00` at print precision on `design_X`,
+all 3 terms of the target formula's own `FaceSize + Smoke + FaceSize:Smoke`),
+both tiers, reusing the SAME `compare_term_extract` machinery every other
+basis's Stage A uses (the R export already matches `RTermPayload`'s shape).
+**Stage B fixed `sp`** (paired with the already-verified `s(AttdAge, k=13,
+bs="cr")`, deliberately unrelated to FaceSize/Smoke): `max_abs_eta_diff=
+1.066e-14`, `edf_total_diff=-7.105e-15`, tier 3 (tier 1: `2.698e-14` /
+`0.000e+00`). **Stage B free `sp`** (ONE family, `gaussian(identity)`,
+matching L3/L5 — L5 already closed the free-scale blocker):
+`max_abs_eta_diff=3.261e-07`, `edf_total_diff=+0.0000` (tier 1: `+2.45e-05`),
+`agrees=True`, tier 3 — the tightest free-`sp` reading this epic has
+produced. No iteration needed at either stage. See ADR-233 and
+`docs/CONFORMANCE_LEDGER.md`. **This is the last rung this plan names — L1
+through L5 are now all climbed, and the capability ladder epic is complete.**
 
 ---
 

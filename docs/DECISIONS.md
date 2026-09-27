@@ -23907,3 +23907,221 @@ names no factor-`by` term over any other basis, and none is attempted here.
 was not exercised against a factor-`by` block shape in this slice; the four
 `by_factor_terms`-generated blocks in the free-`sp` measurement above are
 ordinary (non-`select`) penalty blocks.
+
+## ADR-233: Capability ladder rung L4 — the unpenalized parametric block (`FaceSize + Smoke + FaceSize:Smoke`) reproduces `mgcv` exactly at Stage A and at fixed AND free `sp`
+
+**Date:** 2026-09-27
+**Status:** Accepted
+**Supersedes:** nothing. **Extends:** ADR-193 (Stage-A parity), ADR-221 (the
+committed `eta`/`edf_total` gate, imported verbatim), ADR-231 (ladder L5,
+whose free-scale branch this slice reuses without needing a family switch).
+**Epic:** `docs/PLAN_mgcv_capability_ladder.md`, slice 5 — the LAST rung this
+epic's own plan names (L1-L5). Closes the capability ladder epic.
+**Ledger:** three rows — Stage A, Stage B fixed `sp`, Stage B free `sp`.
+
+### The gap before
+
+`assemble_model_design` built an intercept and then penalized terms only —
+`"cr"`, `"ti"`, `"sz"` and `"re"`. There was no route for unpenalized
+parametric *columns* at all. The target formula
+(`docs/MGCV_FEATURE_COVERAGE.md` §1) opens with `FaceSize + Smoke +
+FaceSize:Smoke` — three parametric terms, not smooths — so it was
+inexpressible for this reason quite independently of any basis question.
+
+### The construction — no spline machinery, no penalty, no constraint
+
+Unlike every other basis in this engine, a parametric main effect or
+interaction is not one of `mgcv`'s smooth classes. `gam()`'s formula parser
+builds its parametric block with the SAME `model.matrix()` call an
+`lm()`/`glm()` formula would use, under R's default `contr.treatment`
+contrasts, and it carries **zero** smoothing parameters — it contributes no
+rows to `paraPen`/the smooth list at all. `gam_basis_parametric.py`'s
+`parametric_design` mirrors this: one 0-indexed factor-level-code array per
+named variable, treatment-coded (drop level 0, keep one indicator column per
+remaining level), and — for an interaction — the outer product of the named
+variables' own dummy columns.
+
+**The convention, measured directly against R before any code was written
+(Anchor 8):**
+
+```r
+> A <- factor(c("a0","a1","a2","a0","a1","a2"), levels=c("a0","a1","a2"))
+> B <- factor(c("b0","b0","b0","b1","b1","b1"), levels=c("b0","b1"))
+> colnames(model.matrix(~A + B + A:B, data.frame(A=A,B=B)))
+[1] "(Intercept)" "Aa1" "Aa2" "Bb1" "Aa1:Bb1" "Aa2:Bb1"
+```
+
+A main effect drops the reference level and keeps one column per remaining
+level in level order; an interaction's columns are the outer product of the
+named variables' own main-effect columns, **first-named variable fastest**.
+`parametric_design` builds this by folding each subsequent variable in as the
+new *slowest* axis (`np.einsum("ni,nj->nji", design, dummy).reshape(...)`),
+which keeps the first-named variable fastest throughout regardless of how
+many variables are folded in — verified with a synthetic 3-variable case
+that has no R equivalent to check against
+(`tests/test_analytics/test_gam_basis_parametric.py`).
+
+**Column order does not need to match `mgcv`'s for Stage B (Anchor 2).**
+Coefficients are basis-dependent; `eta` is not. This module still matches
+`mgcv`'s own order exactly (confirmed at Stage A, below) — but that
+exactness is a Stage-A finding, not a Stage-B dependency.
+
+### The contract decision
+
+`TermSpec` gains `basis="parametric"` and a new field, `levels: tuple[int,
+...] | None` — one factor-level count per entry of `variables` (one for a
+main effect, two or more for an interaction), distinct from the existing
+`n_levels` (always a single count, for a term with exactly one factor,
+already used by `"sz"`/`"re"`/factor-`by`). A parametric term carries no `k`,
+no knots, no `by`, and `factor=False` — every field that describes a *basis
+recipe* is inapplicable, since there is no basis to build beyond the
+level-indicator arithmetic itself.
+
+**A real edge case found and fixed in MEASURE FIRST, before any conformance
+code:** `null_space_penalty` raises on an empty `s_blocks` tuple (its own
+documented contract — "at least one penalty block") rather than returning
+`None` for it. `assemble_model_design`'s existing `select=True` branch called
+it unconditionally on every term's own penalty blocks, which is exactly `()`
+for a parametric term — the first basis this function has ever built with
+zero blocks. Fixed by skipping the call entirely when a term has no existing
+blocks (`if model.select and extract.s:`), the degenerate case the ordinary
+"already full rank → `None` → skip" path cannot reach on its own. Caught by
+a new test (`test_parametric_terms_have_nothing_for_select_to_double`)
+before it could surface as a runtime crash on the first `select=True` model
+carrying a parametric term.
+
+### Stage A — exact, tier 1 AND tier 3, first measurement, no fit needed
+
+`PARAMETRIC_BASIS_CLAIM` (`gam_stage_a.py`) declares `design_X`
+`INDEPENDENT`: `build_python_parametric_term` never reads
+`gam_parametric_stage_a_probe.R`'s own `X`, only the shared
+`group`/`levels` recipe it exports. Unlike every prior basis's Stage A, this
+comparison needs **no fit at all** — the parametric block's columns do not
+depend on `sp`, `y`, or the smooth part of the formula, so the R side is a
+bare `model.matrix(~FaceSize + Smoke + FaceSize:Smoke, data)` call, split
+into its three per-term blocks via the `assign` attribute (which formula
+term each column belongs to) rather than any column-name parsing. The R
+export already matches `RTermPayload`'s shape exactly
+(`index_start`/`index_end`/`X`/`S`/`rank`/`knots`), so the comparison reuses
+the SAME `compare_term_extract` machinery every other basis's Stage A
+uses — no bespoke comparator needed. `S`/`rank` are empty lists on both
+sides: an unpenalized block carries no penalty at all, so there is no
+`penalty_S`/`rank` column in this claim, unlike `cr`/`ti`/`sz`/`re`.
+
+| term | max abs `X` diff | index range agrees |
+|---|---:|---|
+| `FaceSize` (3 levels) | `0.000e+00` | yes |
+| `Smoke` (2 levels) | `0.000e+00` | yes |
+| `FaceSize:Smoke` (interaction) | `0.000e+00` | yes |
+
+Tier 1 (R 4.3.3 / mgcv 1.9.1, local apt): **bit-exact**, `0.000e+00` on all
+three terms — the same reading as `"re"`'s own Stage A (ADR-230), and for
+the same reason: a purely combinatorial construction with no continuous
+placement step (no knots, no quantiles) has nothing for floating-point
+round-trip noise to touch. Tier 3 (R 4.6.1 / mgcv 1.9.4, CI run
+[36289418480](https://github.com/jonathancrawford05/polaris-re/actions/runs/36289418480)):
+**identical, bit-exact `0.000e+00` on all three terms**, `agrees=True`.
+
+### Stage B — both `sp` regimes, ONE family throughout
+
+`gam_parametric_conformance.py` pairs the NEW parametric block
+(`FaceSize + Smoke + FaceSize:Smoke`, three levels / two levels) with the
+already-verified `cr` term (`s(AttdAge, k=13, bs="cr")`) — deliberately a
+DIFFERENT covariate from the parametric block's own factors, so the two
+cannot be confounded. Matching ladder rungs L3/L5, **both regimes use
+`gaussian(identity)`**: rung L5 (ADR-231) already closed the free-scale
+blocker before this slice was written, so there is no remaining reason to
+switch families.
+
+`PARAMETRIC_FIXED_SP_CLAIM` / `PARAMETRIC_FREE_SP_CLAIM` declare every
+quantity `INDEPENDENT` — `fit_parametric_fixed_sp_case` /
+`fit_parametric_free_sp_case` take `RParametricFixedSpRecipe` /
+`RParametricFreeSpRecipe`, which structurally exclude every `mgcv`-produced
+key (`eta`, `coef`, `sp`, `edf_total`, `term_edf`).
+
+**Fixed `sp`** (`n=900`, one penalty block — the smooth's own; the
+parametric block contributes none):
+
+| quantity | tier 1 | tier 3 |
+|---|---:|---:|
+| `max_abs_eta_diff` | `2.698e-14` | `1.066e-14` |
+| `edf_total_diff` | `0.000e+00` | `-7.105e-15` |
+| Polaris `edf_total` | `17.337313` | `17.337313` (mgcv identical) |
+| offset tripwire | `0.000e+00` | `0.000e+00` |
+
+`agrees=True` at both tiers, first measurement, no iteration needed.
+
+**Free `sp`** (`n=900`, `p=17`):
+
+| quantity | tier 1 | tier 3 |
+|---|---:|---:|
+| `max_abs_eta_diff` | `3.261e-07` | `3.261e-07` |
+| `max_abs_log10_sp_diff` (reported, not gated) | `1.05e-05` | `0.0000` (< 5e-5 at 4dp) |
+| `edf_total_diff` | `+2.45e-05` | `+0.0000` (< 5e-5 at 4dp) |
+| `max_abs_term_edf_diff` (smooth's own edf only) | `2.45e-05` | `0.0000` (< 5e-5 at 4dp) |
+| offset tripwire | `1.776e-15` | `8.882e-16` |
+
+`converged=True` both sides, `at_bound=False`, `agrees=True` at BOTH tiers —
+inside ADR-221's `2e-2`/`1.0` committed gate by four to five orders of
+magnitude, tighter than any prior ladder rung's free-`sp` reading in this
+epic. First measurement, no iteration needed, no `multistart` required (a
+single penalized block is far smaller than the epic's 7-block `select=TRUE`
+fixtures that needed it).
+
+**Note what `compare_parametric_free_sp_case` compares for per-term `edf`:**
+`mgcv`'s `summary(m)$s.table` carries a row only for the smooth term — an
+unpenalized parametric block has no `s.table` entry at all (mgcv does not
+report parametric coefficients' individual "edf" there; each is implicitly
+1, by the definition of unpenalized). So the per-term `edf` comparison
+filters Python's own `edf_per_term` to the smooth's label only, matching
+what `mgcv` actually reports, rather than inventing a comparison `mgcv`
+itself does not make.
+
+Tier 3, run
+[36289418480](https://github.com/jonathancrawford05/polaris-re/actions/runs/36289418480),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+R 4.6.1 / mgcv 1.9.4. Required conformance levels 1-3 of the existing
+ten-cell suite also still agree on this run (no regression); level 4
+unchanged (DISAGREES, ADR-190, permanently expected); level 5 agrees.
+
+### A closed-form aside, not part of the `mgcv` claim
+
+`_per_term_edf`'s hat-matrix diagonal sum, restricted to the parametric
+block's own columns, is provably **exactly** the block's own width
+regardless of correlation with any other term: writing `hat = I -
+(X'WX+S)^{-1}S` (since `X'WX+S-S=X'WX`), every column of `S` at a parametric
+index is identically zero (the penalty is block-structured with a single
+non-zero square block at the smooth's own span), so
+`[(X'WX+S)^{-1}S]_ii = 0` for every parametric index `i`, making
+`diag(hat)_i = 1` exactly. `tests/test_analytics/test_gam_parametric_conformance.py`
+pins this (`edf_per_term["FaceSize"] == 2`, etc.) as a closed-form check on
+Polaris's own arithmetic — not a claim about `mgcv`, which reports no
+per-parametric-coefficient edf to compare against at all.
+
+### Consequences
+
+- `MGCV_FEATURE_COVERAGE.md` gains a `parametric` row in §2.1 and moves the
+  "Unpenalized parametric block" row in §2.3 from **NO** to tier 3; the L4
+  ladder row in §4 is marked climbed. **This closes
+  `docs/PLAN_mgcv_capability_ladder.md` — L1 through L5 are now all
+  climbed.**
+- The target formula's own parametric opening (`FaceSize + Smoke +
+  FaceSize:Smoke`) is expressible for the first time, independent of any
+  basis question — the last structural gap this five-slice epic's own plan
+  named.
+- A successor epic (L6-L8: `bs="fs"`, `bs="tp"`, `te`/`t2`) is the expected
+  follow-on, named but deliberately unregistered until sized
+  (`PLAN_mgcv_capability_ladder.md` §5).
+
+### What this does not settle
+
+Only a main effect and a two-way interaction are exercised — the target
+formula names no three-way parametric interaction, and none is attempted
+here (though `parametric_design`'s own fold generalises to any number of
+variables, verified by a synthetic 3-variable closed-form test with no `mgcv`
+counterpart to check against). `select=TRUE`'s null-space penalty was
+exercised only insofar as this slice found and fixed the zero-block edge
+case above — it was not exercised against a model where a parametric term
+sits alongside a `select=TRUE` smooth in the free-`sp` measurement itself
+(the free-`sp` Stage B reading above uses ordinary, non-`select` penalty
+blocks, matching every prior ladder rung's own Stage B scope).

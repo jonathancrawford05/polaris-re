@@ -91,6 +91,7 @@ from polaris_re.analytics.gam_basis_cr import (
     sz_basis,
     ti_basis,
 )
+from polaris_re.analytics.gam_basis_parametric import parametric_design
 from polaris_re.analytics.gam_basis_re import re_basis
 from polaris_re.analytics.gam_term_spec import SUPPORTED_BASES, TermSpec
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
@@ -104,6 +105,7 @@ __all__ = [
     "CR_BASIS_CLAIM",
     "CR_BY_BASIS_CLAIM",
     "CR_BY_FACTOR_BASIS_CLAIM",
+    "PARAMETRIC_BASIS_CLAIM",
     "RAW_PATH_CLAIM",
     "RE_BASIS_CLAIM",
     "SMOOTH_PATH_CLAIM",
@@ -114,6 +116,7 @@ __all__ = [
     "TermExtractComparison",
     "build_python_cr_by_factor_term",
     "build_python_cr_term",
+    "build_python_parametric_term",
     "build_python_re_term",
     "build_python_sz_term",
     "build_python_ti_term",
@@ -691,6 +694,53 @@ the basis, not a broken round trip (ADR-193's "what a good session looks
 like")."""
 
 
+PARAMETRIC_BASIS_CLAIM = VerificationClaim(
+    claim=(
+        "polaris_re.analytics.gam_basis_parametric builds the unpenalized "
+        "parametric block (a main effect or interaction of one or more "
+        "factors, design_X) from the 0-indexed factor-level codes and the "
+        "level count(s) alone, matching mgcv's own contr.treatment "
+        "convention by construction (module docstring's measured "
+        "first-named-variable-fastest rule), never reading mgcv's output; "
+        "scripts/gam_parametric_stage_a_probe.R computes the same block via "
+        "R's own model.matrix(~term, data), the exact call mgcv's gam() "
+        "uses internally to build a formula's parametric part -- no fit is "
+        "needed, since the parametric block does not depend on sp, y or the "
+        "smooth part of the formula. Compared on design_X only -- there is "
+        "no penalty_S or rank, since this block carries no penalty at all."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="design_X",
+            left_producer=(
+                "gam_basis_parametric.parametric_design (treatment-coded dummy "
+                "columns / their outer product)"
+            ),
+            right_producer=(
+                "R model.matrix(~term, data) under contr.treatment, split by term "
+                "via the `assign` attribute"
+            ),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+    ),
+)
+"""The Python parametric block's provenance (ADR-193) — capability ladder rung
+L4's Stage-A claim.
+
+``design_X`` is computed by two distinct implementations from the same
+recipe (the 0-indexed factor-level code per row and the level count(s)):
+:func:`build_python_parametric_term` never reads
+``scripts/gam_parametric_stage_a_probe.R``'s own ``X``, only the shared
+``group``/``levels`` recipe. There is no ``penalty_S``/``rank`` in this
+claim — unlike every other basis in this module, an unpenalized parametric
+block carries no penalty, so :class:`TermExtract` is built with ``s=()``
+(the same empty-penalty convention the existing ``"raw"`` factor-block path,
+:func:`extract_raw_terms`, already uses).
+
+A disagreement on ``design_X`` is a real result about the encoding, not a
+broken round trip (ADR-193's "what a good session looks like")."""
+
+
 @dataclass(frozen=True)
 class TermExtract:
     """One term's Stage-A artefacts, mirroring what ``gam_term_extract.R`` emits.
@@ -1112,6 +1162,45 @@ def build_python_re_term(group: np.ndarray, n_levels: int, term: TermSpec) -> Te
         s=(s,),
         rank=(rank,),
         evidence=RE_BASIS_CLAIM,
+        knots=None,
+    )
+
+
+def build_python_parametric_term(groups: tuple[np.ndarray, ...], term: TermSpec) -> TermExtract:
+    """The independent Python producer for a ``basis="parametric"`` term
+    (capability ladder rung L4, ``docs/PLAN_mgcv_capability_ladder.md`` slice 5) —
+    an unpenalized factor main effect (one variable) or interaction (two or more).
+
+    Builds ``design_X`` from ``groups``/``term.levels`` alone via
+    :func:`~polaris_re.analytics.gam_basis_parametric.parametric_design` — never
+    from ``mgcv``'s output. Same mechanical-test shape as
+    :func:`build_python_re_term`: the signature takes only the shared recipe
+    (one 0-indexed group array per variable) and ``term`` (the shared spec),
+    not an R payload.
+
+    Args:
+        groups: One 0-indexed factor-level-code array per entry of
+            ``term.variables``, in that order.
+        term: Must have ``basis="parametric"``. ``TermSpec.__post_init__``
+            already guarantees ``levels`` is set with one entry per variable,
+            each ``>= 2`` — no redundant re-check here.
+    """
+    if term.basis != "parametric":
+        raise PolarisValidationError(
+            f"build_python_parametric_term only handles basis='parametric'; "
+            f"{term.label!r} is basis={term.basis!r}."
+        )
+    assert term.levels is not None  # TermSpec guarantees this for basis='parametric'
+    design = parametric_design(groups, term.levels)
+
+    return TermExtract(
+        label=term.label,
+        index_start=0,
+        index_end=design.shape[1],
+        design=design,
+        s=(),
+        rank=(),
+        evidence=PARAMETRIC_BASIS_CLAIM,
         knots=None,
     )
 
