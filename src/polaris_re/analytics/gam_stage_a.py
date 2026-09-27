@@ -84,6 +84,7 @@ import numpy as np
 from polaris_re.analytics.experience_mgcv_conformance import DesignExport
 from polaris_re.analytics.gam_basis_cr import (
     absorb_sum_to_zero_constraint,
+    by_factor_mask_design,
     by_scale_design,
     cr_basis,
     cr_default_knots,
@@ -102,6 +103,7 @@ from polaris_re.core.verification import (
 __all__ = [
     "CR_BASIS_CLAIM",
     "CR_BY_BASIS_CLAIM",
+    "CR_BY_FACTOR_BASIS_CLAIM",
     "RAW_PATH_CLAIM",
     "RE_BASIS_CLAIM",
     "SMOOTH_PATH_CLAIM",
@@ -110,6 +112,7 @@ __all__ = [
     "RTermPayload",
     "TermExtract",
     "TermExtractComparison",
+    "build_python_cr_by_factor_term",
     "build_python_cr_term",
     "build_python_re_term",
     "build_python_sz_term",
@@ -165,15 +168,25 @@ class RTermPayload(TypedDict):
 
     group: list[int] | None
     """0-indexed factor-level code per row (slice 6, ``bs="sz"``; ladder slice 2,
-    ``bs="re"``) — shared recipe context like ``x``, present on
-    ``extract_smooth_sz`` and ``extract_smooth_re`` entries. ``None`` for every
-    other case. A ``"re"`` entry is distinguished from a ``"sz"`` one by ``x``
-    being ``None`` — ``"re"`` has no smoothed margin, only the factor."""
+    ``bs="re"``; ladder slice 4, factor-``by``) — shared recipe context like
+    ``x``, present on ``extract_smooth_sz``, ``extract_smooth_re`` and
+    ``extract_smooth_by_factor`` entries. ``None`` for every other case. A
+    ``"re"`` entry is distinguished from a ``"sz"``/factor-``by`` one by ``x``
+    being ``None`` — ``"re"`` has no smoothed margin, only the factor; a
+    factor-``by`` entry is distinguished from ``"sz"`` by carrying a non-``None``
+    ``by_level``."""
 
     n_levels: int | None
-    """Number of factor levels (slice 6, ``bs="sz"``; ladder slice 2, ``bs="re"``)
-    — shared recipe context, present on ``extract_smooth_sz`` and
-    ``extract_smooth_re`` entries. ``None`` for every other case."""
+    """Number of factor levels (slice 6, ``bs="sz"``; ladder slice 2, ``bs="re"``;
+    ladder slice 4, factor-``by``) — shared recipe context, present on
+    ``extract_smooth_sz``, ``extract_smooth_re`` and ``extract_smooth_by_factor``
+    entries. ``None`` for every other case."""
+
+    by_level: int | None
+    """Which 0-indexed level of ``group`` this entry represents (ladder slice 4,
+    factor-``by``) — shared recipe context, present only on
+    ``extract_smooth_by_factor`` entries. A ``"sz"``/``"re"`` entry carries every
+    level's own block inside one payload instead, so this is ``None`` there."""
 
 
 _AGREEMENT_TOLERANCE = 1e-9
@@ -418,6 +431,67 @@ by-construction genuinely differs on both sides: the Python side row-scales an
 ``by=z``. Split into its own claim rather than folded into
 :data:`CR_BASIS_CLAIM`'s strings so that ``evidence_markdown`` publishes a legend
 that names what actually produced the rows underneath it (PR #206 review [P1])."""
+
+
+CR_BY_FACTOR_BASIS_CLAIM = VerificationClaim(
+    claim=(
+        "polaris_re.analytics.gam_basis_cr builds one level of a factor-by cr "
+        "smooth (design_X, penalty_S) by computing the ordinary no-by cr "
+        "construction (cr_basis + absorb_sum_to_zero_constraint) on the WHOLE "
+        "covariate column, then zeroing every row outside that level "
+        "(by_factor_mask_design) -- mgcv's own rule, measured (module "
+        "docstring): a factor by is a term multiplier, and every level shares "
+        "the SAME constrained design/penalty before masking; "
+        "gam_term_extract.R's smoothCon(s(x, by=fac, bs='cr', k), "
+        "absorb.cons=TRUE) branch computes the same quantities via mgcv's own "
+        "C implementation, one list entry per level; compared on design_X, "
+        "penalty_S and rank, per level."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="design_X",
+            left_producer=(
+                "gam_basis_cr.cr_basis + absorb_sum_to_zero_constraint + "
+                "by_factor_mask_design (the shared no-by construction, masked to one level)"
+            ),
+            right_producer=(
+                "mgcv smoothCon(s(x, by=fac, bs='cr', k), absorb.cons=TRUE)[[level]]$X"
+            ),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="penalty_S",
+            left_producer=(
+                "gam_basis_cr.cr_basis (Wood's penalty, shared unchanged across every level)"
+            ),
+            right_producer=(
+                "mgcv smoothCon(s(x, by=fac, ...))[[level]]$S — after mgcv's own scale.penalty"
+            ),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="rank",
+            left_producer="numpy.linalg.matrix_rank on the Python-constrained penalty block",
+            right_producer="mgcv smoothCon(s(x, by=fac, ...))[[level]]$rank",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+    ),
+)
+"""The Python factor-``by`` ``cr`` basis's provenance (ADR-193) — capability
+ladder rung L3's Stage-A claim.
+
+**Genuinely different producers from :data:`CR_BASIS_CLAIM`/:data:`CR_BY_BASIS_CLAIM`
+despite reusing the same underlying construction call**: this claim's own
+Python side additionally applies :func:`~polaris_re.analytics.gam_basis_cr.by_factor_mask_design`,
+which neither of the other two claims' producers call, so it carries its own
+producer strings rather than reusing theirs (PR #206 review [P1]'s own
+discipline, applied here).
+
+**Knots are not part of this claim**, for the same reason :data:`CR_BASIS_CLAIM`
+excludes them. **Scope: the ``by`` variable's level count is an input
+(``TermSpec.n_levels``), never derived from a sample's own observed factor
+codes** (Anchor 4) — the same discipline :data:`SZ_BASIS_CLAIM`/:data:`RE_BASIS_CLAIM`
+already follow for their own ``n_levels``."""
 
 
 TI_BASIS_CLAIM = VerificationClaim(
@@ -1039,6 +1113,64 @@ def build_python_re_term(group: np.ndarray, n_levels: int, term: TermSpec) -> Te
         rank=(rank,),
         evidence=RE_BASIS_CLAIM,
         knots=None,
+    )
+
+
+def build_python_cr_by_factor_term(x: np.ndarray, group: np.ndarray, term: TermSpec) -> TermExtract:
+    """The independent Python producer for ONE LEVEL of a factor-``by`` ``bs="cr"``
+    term (capability ladder rung L3, ``docs/PLAN_mgcv_capability_ladder.md`` slice 4,
+    e.g. ``s(x, by=fac, bs="cr")``).
+
+    Builds ``design_X``/``penalty_S`` from ``x`` (the WHOLE covariate column, every
+    row) and ``term``'s own recipe (``k``, supplied knots if any, ``term.by_level``)
+    via :mod:`polaris_re.analytics.gam_basis_cr` — never from ``mgcv``'s output. Same
+    mechanical-test shape as :func:`build_python_cr_term`: the signature takes only
+    ``x``/``group`` (the shared covariate recipe) and ``term`` (the shared spec), not
+    an R payload.
+
+    ``term.by_factor``/``term.by_level`` select the masking (module docstring of
+    :mod:`~polaris_re.analytics.gam_basis_cr`): the shared no-``by`` constrained
+    basis is computed on ALL of ``x`` (not restricted to this level — mgcv's own
+    default-knot placement and identifiability constraint use the whole column),
+    then every row outside ``group == term.by_level`` is zeroed.
+
+    Args:
+        x: The covariate values (the WHOLE column, every level), read off the R
+            payload's own ``"x"`` field by the *caller*.
+        group: 0-indexed factor-level code per row, read off the R payload's own
+            ``"group"`` field by the *caller*.
+        term: Must have ``basis="cr"`` with ``by_factor``/``by_level`` both set
+            (:class:`TermSpec`'s own validation guarantees ``by_level`` lies in
+            ``[0, n_levels)``).
+    """
+    if term.basis != "cr" or term.by_factor is None:
+        raise PolarisValidationError(
+            f"build_python_cr_by_factor_term needs basis='cr' with by_factor set; "
+            f"{term.label!r} has basis={term.basis!r}, by_factor={term.by_factor!r}."
+        )
+    assert term.by_level is not None  # TermSpec guarantees this alongside by_factor
+    x = np.asarray(x, dtype=np.float64)
+    group = np.asarray(group, dtype=np.int64)
+    k = term.k[0]
+    supplied = term.knots_by_variable().get(term.variables[0])
+    knots = (
+        np.asarray(supplied, dtype=np.float64) if supplied is not None else cr_default_knots(x, k)
+    )
+
+    design_unc, s_unc = cr_basis(x, knots)
+    design_shared, s = absorb_sum_to_zero_constraint(design_unc, s_unc)
+    design = by_factor_mask_design(design_shared, group, term.by_level)
+    rank = int(np.linalg.matrix_rank(s))
+
+    return TermExtract(
+        label=term.label,
+        index_start=0,
+        index_end=design.shape[1],
+        design=design,
+        s=(s,),
+        rank=(rank,),
+        evidence=CR_BY_FACTOR_BASIS_CLAIM,
+        knots=tuple(float(v) for v in knots),
     )
 
 

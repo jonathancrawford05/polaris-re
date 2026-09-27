@@ -7,7 +7,12 @@ R-side exchange looking well-formed.
 
 import pytest
 
-from polaris_re.analytics.gam_term_spec import SUPPORTED_BASES, ModelSpec, TermSpec
+from polaris_re.analytics.gam_term_spec import (
+    SUPPORTED_BASES,
+    ModelSpec,
+    TermSpec,
+    factor_by_terms,
+)
 from polaris_re.core.exceptions import PolarisValidationError
 
 
@@ -94,7 +99,10 @@ def test_sz_n_levels_is_optional_and_only_valid_on_sz() -> None:
             n_levels=1,
         )
 
-    with pytest.raises(PolarisValidationError, match="only a basis='sz' or basis='re'"):
+    with pytest.raises(
+        PolarisValidationError,
+        match="only a basis='sz'/'re' term, or a basis='cr' factor-by term",
+    ):
         TermSpec(label="s(AttdAge)", variables=("AttdAge",), basis="cr", k=(13,), n_levels=2)
 
 
@@ -289,4 +297,146 @@ def test_duplicate_term_labels_are_refused() -> None:
             family="binomial",
             link="cloglog",
             terms=(_cr(), _cr()),
+        )
+
+
+# --- factor by (capability ladder rung L3) ----------------------------------------
+
+
+def test_a_factor_by_term_constructs() -> None:
+    term = TermSpec(
+        label="s(AttdAge):0",
+        variables=("AttdAge",),
+        basis="cr",
+        k=(13,),
+        by_factor="GroupFac",
+        by_level=0,
+        n_levels=3,
+    )
+    assert term.by_factor == "GroupFac"
+    assert term.by_level == 0
+    assert term.n_levels == 3
+    assert term.by is None
+    assert not term.factor
+
+
+def test_by_factor_needs_by_level_and_vice_versa() -> None:
+    with pytest.raises(PolarisValidationError, match="needs both or neither"):
+        TermSpec(label="s(x)", variables=("x",), basis="cr", k=(6,), by_factor="fac", n_levels=3)
+    with pytest.raises(PolarisValidationError, match="needs both or neither"):
+        TermSpec(label="s(x)", variables=("x",), basis="cr", k=(6,), by_level=0, n_levels=3)
+
+
+def test_by_factor_only_valid_for_cr() -> None:
+    with pytest.raises(PolarisValidationError, match="only built for basis='cr'"):
+        TermSpec(
+            label="term",
+            variables=("id",),
+            basis="re",
+            n_levels=3,
+            by_factor="fac",
+            by_level=0,
+        )
+
+
+def test_by_factor_and_numeric_by_are_mutually_exclusive() -> None:
+    with pytest.raises(PolarisValidationError, match="a term is one or the other"):
+        TermSpec(
+            label="s(x)",
+            variables=("x",),
+            basis="cr",
+            k=(6,),
+            by="z",
+            by_factor="fac",
+            by_level=0,
+            n_levels=3,
+        )
+
+
+def test_by_factor_and_factor_flag_are_mutually_exclusive() -> None:
+    with pytest.raises(PolarisValidationError, match="factor=True marks the sz/fs"):
+        TermSpec(
+            label="s(x)",
+            variables=("x",),
+            basis="cr",
+            k=(6,),
+            factor=True,
+            by_factor="fac",
+            by_level=0,
+            n_levels=3,
+        )
+
+
+def test_by_factor_needs_n_levels_set() -> None:
+    with pytest.raises(PolarisValidationError, match="n_levels set"):
+        TermSpec(label="s(x)", variables=("x",), basis="cr", k=(6,), by_factor="fac", by_level=0)
+
+
+def test_by_level_must_be_in_range() -> None:
+    with pytest.raises(PolarisValidationError, match=r"must lie in \[0, 3\)"):
+        TermSpec(
+            label="s(x)",
+            variables=("x",),
+            basis="cr",
+            k=(6,),
+            by_factor="fac",
+            by_level=3,
+            n_levels=3,
+        )
+
+
+def test_n_levels_without_by_factor_is_refused_for_cr() -> None:
+    with pytest.raises(PolarisValidationError, match="factor-level count"):
+        TermSpec(label="s(x)", variables=("x",), basis="cr", k=(6,), n_levels=3)
+
+
+def test_factor_by_terms_builds_one_term_per_level() -> None:
+    terms = factor_by_terms(
+        base_label="s(AttdAge)",
+        variable="AttdAge",
+        k=13,
+        by_factor="GroupFac",
+        n_levels=3,
+    )
+    assert len(terms) == 3
+    assert [t.label for t in terms] == ["s(AttdAge):0", "s(AttdAge):1", "s(AttdAge):2"]
+    for level, term in enumerate(terms):
+        assert term.basis == "cr"
+        assert term.by_factor == "GroupFac"
+        assert term.by_level == level
+        assert term.n_levels == 3
+        assert term.k == (13,)
+        assert term.knots is None
+
+
+def test_factor_by_terms_carries_supplied_knots_to_every_level() -> None:
+    knots = (1.0, 2.0, 4.0, 7.0)
+    terms = factor_by_terms(
+        base_label="s(x)", variable="x", k=4, by_factor="fac", n_levels=2, knots=knots
+    )
+    for term in terms:
+        assert term.knots == (("x", knots),)
+
+
+def test_factor_by_terms_accepts_custom_level_labels() -> None:
+    terms = factor_by_terms(
+        base_label="s(x)",
+        variable="x",
+        k=4,
+        by_factor="fac",
+        n_levels=2,
+        level_labels=("A", "B"),
+    )
+    assert [t.label for t in terms] == ["s(x):A", "s(x):B"]
+
+
+def test_factor_by_terms_rejects_mismatched_level_labels() -> None:
+    with pytest.raises(PolarisValidationError, match="one label per level"):
+        factor_by_terms(
+            base_label="s(x)",
+            variable="x",
+            k=4,
+            by_factor="fac",
+            n_levels=3,
+            level_labels=("A", "B"),
         )

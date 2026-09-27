@@ -4083,3 +4083,16 @@ on the FD path) lives now.
   process weight, not mathematics, is the drag. *Source: maintainer direction
   2026-09-15 (1st-order — a throughput constraint on every future slice).*
   **IMPORTANT.**
+
+### Harvested 2026-09-26b — slice 4: factor-`by` climbed, one cosmetic pre-existing quirk noted
+
+- **`gam_term_extract.R`'s Stage-A "sz" report step mislabels non-`sz` cases as
+  `UNKNOWN CASE`.** The step iterates every `smooth_designs` entry against its
+  own `_SZ_CASES`-only dictionary; it already did this for `re-4level`/
+  `re-7level` before this slice, and now also lists the new
+  `by-factor-default-knots-k6-3level:*` / `by-factor-target-attdage-k13:*`
+  entries the same way. `continue-on-error: true`, gates nothing, and every
+  case IS correctly compared by its own dedicated report elsewhere in the same
+  job — this is purely a stale filter in one diagnostic's own display logic.
+  *Source: this session (3rd-order, PARKED — a one-line filter fix
+  cosmetic-only, no measurement or acceptance criterion depends on it).*
