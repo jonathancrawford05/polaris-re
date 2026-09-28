@@ -1,4 +1,4 @@
-# Plan: climb the mgcv capability ladder — L1 through L5, reopened for the narrow target formula
+# Plan: climb the mgcv capability ladder — L1 through L5, reopened for a narrow near-term target formula
 
 > **STATUS: IN PROGRESS (REOPENED 2026-09-27) — NEXT: Slice 6.** L1-L5 (the
 > original five slices) are COMPLETE — ADR-229 (L1), ADR-230 (L2), ADR-231
@@ -172,20 +172,33 @@ criteria — that is its whole job here. It is **not** the reason L5 runs third;
 
 ### 2.3 Reopened 2026-09-27 — why Slices 6-7 outrank L6-L11, stated before it is re-litigated
 
+**Naming note, so this section is not re-litigated by a term collision:**
+`MGCV_FEATURE_COVERAGE.md` §1 already uses "the target formula" /
+"the concrete reference point" for `hgam_formula` — the full
+`bam(..., discrete = TRUE, select = TRUE)` call, which DOES include four
+`s(…, bs="sz")` terms. This section is about a DIFFERENT, narrower thing:
+the maintainer's near-term dev target. Everywhere below, "target formula"
+means **the narrow near-term target formula** — `cr` + `re` (+ `ti`) plus
+quasi-Poisson dispersion handling — never §1's `hgam_formula`. This is also
+*why* L6-L11 are reordered rather than dropped: §1's own reference formula
+still needs `sz`/`bam` eventually, just not for this narrower, nearer-term
+piece of work.
+
 `MGCV_FEATURE_COVERAGE.md` §4 names the L6-L11 breadth rungs (`fs`, `tp`,
 `te`/`t2`, `fREML`, `bam`+`discrete`, `sz` free-`sp`) as this epic's expected
 successor, and §5 below still calls that "the expected follow-on." That is
-still true **in general** — it is not true **for the maintainer's current
+still true **in general** — it is not true **for the narrow near-term
 target formula**, which is built from `cr` + `re` (+ `ti`, already climbed
 before this epic existed) and needs quasi-Poisson dispersion handling in both
-directions mgcv supports. Checking the target formula against L6-L11's own
-membership: **it uses none of them.** `fs`/`tp`/`te`/`t2` are marginal- or
-construction-axis bases the target never calls; `bam`/`discrete`/`fREML` are
-a fitting *algorithm* the target does not require; `sz` free-`sp` is a
-different basis entirely.
+directions mgcv supports. Checking the narrow near-term target formula
+against L6-L11's own membership: **it uses none of them.** `fs`/`tp`/`te`/`t2`
+are marginal- or construction-axis bases it never calls; `bam`/`discrete`/
+`fREML` are a fitting *algorithm* it does not require; `sz` free-`sp` is a
+different basis entirely — all four remain part of §1's own reference
+formula, just not this narrower one.
 
-**What the target formula DOES still need that nothing in this epic or its
-predecessor has measured:**
+**What the narrow near-term target formula DOES still need that nothing in
+this epic or its predecessor has measured:**
 
 1. **`cr` + `re` + `ti` fit jointly, in one model.** Individually verified —
    `cr` (ADR-194), `re` (ADR-230), `ti` (ADR-205/ADR-206) — but never all
@@ -470,7 +483,7 @@ Stage B in this epic (e.g. ADR-206, ADR-232).
 and is independently verified. This is the cheapest possible slice shape:
 compose, don't invent.
 
-### Slice 7 — quasi-Poisson dispersion: estimated (Slice 3b) and externally-supplied/fixed (new)
+### Slice 7 — quasi-Poisson dispersion: externally-supplied/fixed `scale` (the "estimate" mode is Slice 3b)
 
 **Why.** mgcv's quasi-Poisson supports two distinct dispersion modes: `scale`
 left unset (estimated from the Pearson residuals, mgcv's default) and
@@ -556,8 +569,9 @@ Running 3b first is still recommended purely so "the quasi-Poisson story" in
 
 > **Reordered, not removed, 2026-09-27 (§2.3).** These rungs were "the
 > expected follow-on" when L1-L5 closed. They still are, in general — just
-> not before Slices 6-7, which the maintainer's actual target formula needs
-> and none of these rungs touch.
+> not before Slices 6-7, which the narrow near-term target formula needs and
+> none of these rungs touch. (§1's own reference formula still needs
+> `sz`/`bam` eventually — see §2.3's naming note.)
 
 | rung | why not here |
 |---|---|

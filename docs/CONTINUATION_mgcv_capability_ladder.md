@@ -40,8 +40,11 @@ verified before this epic existed), plus quasi-Poisson dispersion handling in
 both directions `mgcv` supports (estimated and externally-supplied/fixed).
 Checked against that formula, **the L6-L11 breadth rungs this file and the
 plan named as "the expected next ACTIVE EPIC" are not on the critical path at
-all** — the target formula uses none of `fs`/`tp`/`te`/`t2`/`bam`/`sz`
-free-`sp`.
+all** — this narrow near-term target formula uses none of
+`fs`/`tp`/`te`/`t2`/`bam`/`sz` free-`sp`. (`MGCV_FEATURE_COVERAGE.md` §1's own
+reference formula — the full `hgam_formula` — DOES use `sz` and `bam`; this
+is about a narrower, nearer-term piece of work, not a claim that §1's formula
+changed. See the plan's own §2.3 naming note.)
 
 **What's actually missing for the real target, found by checking rather than
 assuming:**
