@@ -1,10 +1,29 @@
-# Plan: climb the mgcv capability ladder — L1 through L5
+# Plan: climb the mgcv capability ladder — L1 through L5, reopened for a narrow near-term target formula
 
-> **STATUS: COMPLETE (2026-09-27).** All five slices landed — ADR-229
-> (L1), ADR-230 (L2), ADR-231 (L5), ADR-232 (L3), ADR-233 (L4, this plan's
-> last slice). `docs/MGCV_FEATURE_COVERAGE.md` §4 marks all five rungs
-> climbed. A successor epic for L6-L8 is the expected next ACTIVE EPIC
-> (named, deliberately unregistered until sized — §5 below).
+> **STATUS: IN PROGRESS (REOPENED 2026-09-27) — NEXT: Slice 6.** L1-L5 (the
+> original five slices) are COMPLETE — ADR-229 (L1), ADR-230 (L2), ADR-231
+> (L5), ADR-232 (L3), ADR-233 (L4). `docs/MGCV_FEATURE_COVERAGE.md` §4 marks
+> all five rungs climbed. **Nothing about Slices 1-5 or their ADRs changes
+> below — this reopening only appends.** Slices 6-7 are registered below and
+> this is this epic's own next work — **not a queue-empty state.**
+
+> **REOPENED 2026-09-27, maintainer direction.** The maintainer's own
+> near-term dev target is a formula built from `cr` + `re` (+ already-verified
+> `ti`) — **not** the L6-L11 breadth track this plan's §5 names as the
+> expected follow-on — plus quasi-Poisson dispersion handling in BOTH modes
+> mgcv supports: estimated and externally-supplied/fixed. Two things justify
+> reopening this file rather than starting a separate epic: (1) the new work
+> is compositional/family-axis, not a new basis, so it does not fit
+> `MGCV_FEATURE_COVERAGE.md`'s own "L-rung" numbering without distorting it,
+> and (2) every piece of harness this needs — the R-probe/conformance-module/
+> workflow-step shape, the provenance discipline, the ADR-221 gate — is this
+> epic's own, freshly exercised five times. Splitting it into a new plan file
+> would duplicate scaffolding this file already has. **L6-L11 are not
+> abandoned** — they remain named in §5, now explicitly BEHIND Slices 6-7
+> rather than immediately next, because the maintainer's actual target
+> formula touches none of `fs`/`tp`/`te`/`t2`/`bam`/`sz`-free-`sp`. See the
+> new §2.3 below for the full reasoning and `docs/CONTINUATION_mgcv_capability_ladder.md`
+> for the reopening's own record.
 
 > **This epic exists because feature coverage stopped moving.** The last nine
 > registered slices of `PLAN_mgcv_parity_engine.md` — 7b through 8 — are all
@@ -23,10 +42,16 @@ plan does not restate it, it sequences it); `docs/MGCV_NOTATION_PRIMER.md` (what
 the notation denotes, with its assertion probe); `PLAN_mgcv_parity_engine.md`
 (the engine, the conformance harness and every rung already standing).
 **Demotes:** nothing. `PLAN_gam_production_wiring.md` was already demoted
-2026-09-16 (ADR-227 amendment 1) and its slices 2–5 sit behind this epic.
-**Total slices:** **5**, covering ladder rungs **L1–L5**.
-**Estimated scope:** ~6–9 dev-days autonomous, plus tier-3 dispatches. Slices 1,
-2 and 5 are small; slice 3 is the one with real numerical content.
+2026-09-16 (ADR-227 amendment 1) and its slices 2–5 sit behind this epic. The
+L6-L11 breadth rungs (§5) are not demoted either — they are simply no longer
+next, per the reopening above.
+**Total slices:** **7** — the original **5**, covering ladder rungs **L1–L5**
+(closed), plus **Slices 6-7**, added 2026-09-27 for the narrow target
+formula's own composition and dispersion-handling gaps (neither is a new
+L-rung — see §2.3).
+**Estimated scope:** ~6–9 dev-days autonomous for Slices 1-5 (spent), plus
+tier-3 dispatches. Slices 6-7 are each small-to-medium and unsized in detail
+until their own MEASURE FIRST step runs — see each slice's own text for why.
 
 ---
 
@@ -144,6 +169,64 @@ it. The citation above is the check.
 **Note what it does and does not license.** It constrains slice 1's acceptance
 criteria — that is its whole job here. It is **not** the reason L5 runs third;
 §2.1 says why that is, and says why this was the wrong argument for it.
+
+### 2.3 Reopened 2026-09-27 — why Slices 6-7 outrank L6-L11, stated before it is re-litigated
+
+**Naming note, so this section is not re-litigated by a term collision:**
+`MGCV_FEATURE_COVERAGE.md` §1 already uses "the target formula" /
+"the concrete reference point" for `hgam_formula` — the full
+`bam(..., discrete = TRUE, select = TRUE)` call, which DOES include four
+`s(…, bs="sz")` terms. This section is about a DIFFERENT, narrower thing:
+the maintainer's near-term dev target. Everywhere below, "target formula"
+means **the narrow near-term target formula** — `cr` + `re` (+ `ti`) plus
+quasi-Poisson dispersion handling — never §1's `hgam_formula`. This is also
+*why* L6-L11 are reordered rather than dropped: §1's own reference formula
+still needs `sz`/`bam` eventually, just not for this narrower, nearer-term
+piece of work.
+
+`MGCV_FEATURE_COVERAGE.md` §4 names the L6-L11 breadth rungs (`fs`, `tp`,
+`te`/`t2`, `fREML`, `bam`+`discrete`, `sz` free-`sp`) as this epic's expected
+successor, and §5 below still calls that "the expected follow-on." That is
+still true **in general** — it is not true **for the narrow near-term
+target formula**, which is built from `cr` + `re` (+ `ti`, already climbed
+before this epic existed) and needs quasi-Poisson dispersion handling in both
+directions mgcv supports. Checking the narrow near-term target formula
+against L6-L11's own membership: **it uses none of them.** `fs`/`tp`/`te`/`t2`
+are marginal- or construction-axis bases it never calls; `bam`/`discrete`/
+`fREML` are a fitting *algorithm* it does not require; `sz` free-`sp` is a
+different basis entirely — all four remain part of §1's own reference
+formula, just not this narrower one.
+
+**What the narrow near-term target formula DOES still need that nothing in
+this epic or its predecessor has measured:**
+
+1. **`cr` + `re` + `ti` fit jointly, in one model.** Individually verified —
+   `cr` (ADR-194), `re` (ADR-230), `ti` (ADR-205/ADR-206) — but never all
+   three together. The only scripts that mention `re` and `ti` in the same
+   file (`gam_term_extract.R`, `mgcv_penalty_count_probe.R`) extract penalty
+   *structure*, they do not fit anything. This is Slice 6.
+2. **Quasi-Poisson with an externally-supplied, fixed dispersion** — mgcv's
+   `scale = <value>` argument, as distinct from the already-scoped
+   "estimate the dispersion" mode (Slice 3b, registered, not yet run).
+   Neither mode has a committed measurement today. This is Slice 7.
+
+**Why append here rather than open a new epic.** Both gaps are
+*compositional/family-axis*, not a new basis — `MGCV_FEATURE_COVERAGE.md`'s
+`§4` ladder table has no row shape for "three already-verified bases, fit
+together" or "an existing family, given a fixed instead of profiled scale."
+Forcing them into new `L`-numbers would misrepresent what they are. And every
+piece of scaffolding they need — the R-probe / conformance-module /
+workflow-step / `VerificationClaim` shape, the ADR-221 gate, the tier
+discipline — is this epic's own, freshly exercised five times running. A new
+plan file would either duplicate that scaffolding narrative or point back
+here for all of it, so the slice sequence continues here instead
+(`PLAN_gam_production_wiring.md`'s own precedent for extending rather than
+forking — see its slices 1b/1c note).
+
+**What this does NOT do:** it does not renumber or deprioritize L1-L5, does
+not delete L6-L11 from §5, and does not decide that L6-L11 will never
+happen — only that they are not next. If a future target formula needs
+`bs="fs"` or `te`, that work is still exactly where §5 leaves it.
 
 ---
 
@@ -362,8 +445,102 @@ matching L3/L5 — L5 already closed the free-scale blocker):
 `max_abs_eta_diff=3.261e-07`, `edf_total_diff=+0.0000` (tier 1: `+2.45e-05`),
 `agrees=True`, tier 3 — the tightest free-`sp` reading this epic has
 produced. No iteration needed at either stage. See ADR-233 and
-`docs/CONFORMANCE_LEDGER.md`. **This is the last rung this plan names — L1
-through L5 are now all climbed, and the capability ladder epic is complete.**
+`docs/CONFORMANCE_LEDGER.md`. **This was the last rung the ORIGINAL five-slice
+plan named — L1 through L5 are all climbed.** Slices 6-7 below are the
+2026-09-27 reopening's own scope (§2.3).
+
+---
+
+### Slice 6 — `cr` + `re` + `ti` joint Stage-B composition
+
+**Why.** The three bases are each independently tier-3 verified (ADR-194,
+ADR-230, ADR-205/206), but never fit together in one model. `assemble_model_design`
+already dispatches all three independently, so this slice's own first
+question is whether MEASURE FIRST finds anything to build at all, or whether
+this is purely a measurement gap.
+
+**Build:** none anticipated. If MEASURE FIRST surfaces a real interaction —
+for example `re`'s identity-penalty block sized or ordered incorrectly
+alongside `ti`'s tensor block under `select=TRUE`'s null-space augmentation —
+that finding becomes this slice's actual scope, sized after the probe, not
+guessed at here.
+
+**Measure:** a new R probe fitting the shared design
+(`s(x1, k=.., bs="cr") + s(fac, bs="re") + ti(x1, x2, k=.., bs="cr")`, or the
+caller's real covariates once named) natively in `mgcv`; the Polaris side via
+`assemble_model_design` + `fit_polaris_gam`. `gaussian(identity)` first —
+decouples the composition check from IRLS convergence, matching every prior
+slice's own reasoning for starting there (L1/L5 already closed the free-scale
+blocker for it) — then the production family if different. Both fixed and
+free `sp`, and under `select=TRUE` if the target formula uses it (confirm
+before writing the probe, not after).
+
+**Acceptance:** ADR-221, tier 3, INDEPENDENT on `eta`, `edf_total`, and
+per-block `log10(sp)` at free `sp` — same shape as every joint-composition
+Stage B in this epic (e.g. ADR-206, ADR-232).
+
+**Depends on:** nothing new — every producer this slice needs already exists
+and is independently verified. This is the cheapest possible slice shape:
+compose, don't invent.
+
+### Slice 7 — quasi-Poisson dispersion: externally-supplied/fixed `scale` (the "estimate" mode is Slice 3b)
+
+**Why.** mgcv's quasi-Poisson supports two distinct dispersion modes: `scale`
+left unset (estimated from the Pearson residuals, mgcv's default) and
+`scale = <value>` (held fixed at a caller-supplied number — used, for
+example, when a dispersion estimated on a baseline period is then held
+constant while scoring later data against it). **Neither is measured against
+`mgcv` today.** The "estimate" mode is Slice 3b (registered 2026-09-26, PR
+#240 review, not yet run — see its own entry above; nothing about it changes
+here). This entry is the "fixed/supplied" mode, which is not registered
+anywhere before this reopening.
+
+**MEASURE FIRST — a hypothesis to verify before writing anything, per this
+epic's own discipline (never guess a derivation).** `gam_reml.reml_score_general`'s
+known-scale branch (`family.dispersion_fixed=True`) already accepts an
+arbitrary `gamma`, and its own validation error states outright that "the
+known-scale formula's `gamma` literally substitutes for a FIXED phi"
+(`gam_reml.py`, the `dispersion_fixed=False`-and-`gamma!=1.0` raise).
+`gam_family.quasipoisson_log()` and `poisson_log()` share the identical
+`link`, `variance` and `deviance_terms` — `quasipoisson_log()`'s own
+docstring says so — and differ **only** in `dispersion_fixed`. `gamma` is
+already threaded, unmodified, all the way from `fit_polaris_gam`'s own public
+signature (`gam_model.py`) down through `select_lambdas_continuous` to
+`reml_score_general`. Putting those three facts together, the **hypothesis**
+is: `fit_polaris_gam(ModelSpec(family="poisson", link="log", ...), data, y,
+gamma=phi_fixed)` **already computes** the fixed-dispersion quasi-Poisson fit,
+with zero new production code. Verify this at tier 1 first, against `mgcv`'s
+own `gam(family=quasipoisson(link="log"), scale=phi_fixed)` (and confirm
+whether `mgcv` itself treats `poisson(scale=phi_fixed)` and
+`quasipoisson(scale=phi_fixed)` identically once `scale` is fixed — they may
+not be the same call in `mgcv`, and that difference, if any, is exactly what
+this step exists to catch) — **before** assuming the hypothesis and writing
+any conformance code around it. If it holds, this is a measurement slice, not
+a construction one. If it is refuted, the refutation is the finding, and it
+resizes this slice's own Build section rather than being argued around.
+
+**Build:** if the hypothesis holds — none at the criterion level; likely a
+thin `ModelSpec`-level convenience so a caller can ask for
+"quasi-Poisson, fixed scale" without needing to know the `poisson`+`gamma`
+equivalence, plus the coverage-doc row. If refuted, whatever the probe shows
+is missing.
+
+**Measure:** an R probe fitting the shared design under
+`gam(family=quasipoisson(link="log"), scale=<fixed value>)` at two values —
+one near the data's own naive Pearson-residual dispersion estimate, one far
+from it, so the comparison cannot be vacuously close — compared INDEPENDENT
+against `reml_score_general`/`fit_polaris_gam` with the corresponding
+`gamma`. Score-level comparison is PAIRWISE, matching ADR-231's own
+precedent (quasi-likelihood carries no proper additive constant, the same
+reason its "estimate" mode is compared pairwise).
+
+**Acceptance:** ADR-221 at the fit level (`eta`/`edf_total`), the ADR-231
+pairwise-score convention at the criterion level, tier 3.
+
+**Depends on:** nothing technically (this is the `dispersion_fixed=True`
+branch, Slice 3b is the `dispersion_fixed=False` one — different code paths).
+Running 3b first is still recommended purely so "the quasi-Poisson story" in
+`MGCV_FEATURE_COVERAGE.md` closes in one pass rather than two.
 
 ---
 
@@ -390,6 +567,12 @@ through L5 are now all climbed, and the capability ladder epic is complete.**
 
 ## 5. Out of scope, named so the boundary is not renegotiated slice by slice
 
+> **Reordered, not removed, 2026-09-27 (§2.3).** These rungs were "the
+> expected follow-on" when L1-L5 closed. They still are, in general — just
+> not before Slices 6-7, which the narrow near-term target formula needs and
+> none of these rungs touch. (§1's own reference formula still needs
+> `sz`/`bam` eventually — see §2.3's naming note.)
+
 | rung | why not here |
 |---|---|
 | **L6** `bs="fs"` | maintainer-requested and real, but it consumes a margin and the margin axis is not finished — `tp` (L7) is still absent |
@@ -398,8 +581,10 @@ through L5 are now all climbed, and the capability ladder epic is complete.**
 | **L9–L10** `fREML`, `bam` + `discrete` | objective item 2, and `bam` is a different algorithm rather than a faster `gam`. Its own epic — **scheduled, not deferred indefinitely** |
 | **L11** `sz` free-`sp` | deprioritised by the maintainer 2026-09-16 (*"not absolutely necessary… we come back for it"*); its penalty count grows one per factor level |
 
-A successor epic covering L6–L8 is the expected follow-on. It is not registered
-here, because registering slices nobody has sized is how slice 1b happened.
+A successor epic covering L6–L8 remains a legitimate future follow-on. It is
+still not registered here, because registering slices nobody has sized is how
+slice 1b happened — and now it is also explicitly behind Slices 6-7 in
+priority (§2.3), not merely unsized.
 
 ---
 
