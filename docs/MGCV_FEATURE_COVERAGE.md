@@ -100,7 +100,7 @@ each other.
 | family / link | expressible? | Stage B | notes |
 |---|---|---|---|
 | `poisson(log)` | **yes** | ✅ tier 3 (ADR-195) | |
-| `quasipoisson(log)` | **yes** | ✅ tier 3, **score-level only** (ADR-231) | `reml_score_general`'s free-scale branch (L5, ADR-231) reproduces `mgcv`'s own `m$gcv.ubre` **pairwise-difference** (quasi-likelihood has no proper saturated log-likelihood, so the absolute score carries its own small additive residual — same convention ADR-196 already accepted for the known-scale Poisson criterion). The FIT-level free-sp measurement (a `PolarisGAM` re-run analogous to Gaussian's) is not yet done — see §2.3 |
+| `quasipoisson(log)` | **yes** | ✅ tier 3, **score-level only** (ADR-231) | `reml_score_general`'s free-scale branch (L5, ADR-231) reproduces `mgcv`'s own `m$gcv.ubre` **pairwise-difference** (quasi-likelihood has no proper saturated log-likelihood, so the absolute score carries its own small additive residual — same convention ADR-196 already accepted for the known-scale Poisson criterion). The FIT-level free-sp measurement (a `PolarisGAM` re-run analogous to Gaussian's) is not yet done — see §2.3. **Neither is the OTHER mgcv dispersion mode** — an externally-supplied fixed `scale`, distinct from estimating it — registered separately as ladder Slice 7 (`PLAN_mgcv_capability_ladder.md`), not yet measured either |
 | `binomial(logit)` | **yes** | ✅ tier 3 (ADR-195) | |
 | `binomial(cloglog)` | **yes** | ✅ tier 3 (ADR-195) | the target formula's own family |
 | **`gaussian(identity)`** | **yes** (2026-09-19, L1) | ✅ tier 3 fixed `sp` (ADR-229); ✅ **free `sp`, tier 3** (ADR-231) | `eta` and `edf_total` agree to **order `1e-14`** at fixed `sp` against ADR-221's committed criterion (`2e-2` / `1.0`), on the tier-3-verified three-term design with only the family changed. **No single figure is quoted here on purpose**: the reading is NOT bit-reproducible across oracle runs — five runs gave three distinct `max_abs_eta_diff` values and two distinct `edf_total_diff` values, while `edf_total` read `55.972550` on both sides every time. Treat a last-bits difference as host noise, not a regression; **ADR-229** has the numbers and the (unestablished) mechanism. **FREE `sp`, unblocked 2026-09-26 (L5, ADR-231)**: the IDENTICAL recipe refit under `mgcv`'s own free-sp REML selection agrees on the first measurement — see ADR-231 for the tier-3 figures. Also closed-form verified (IRLS vs `lstsq` and vs the closed-form ridge, both `1e-12`) |
@@ -147,7 +147,9 @@ column above is the authority.
 | **`fREML`** | **NO** | `bam`'s criterion; a *different* criterion, not a faster REML |
 | **`bam`** | **NO** | **objective item 2**; deferred 2026-08-10 (PLAN §3) |
 | **`discrete = TRUE`** | **NO** | **objective item 2**; a different algorithm (Wood/Li/Shaddick/Augustin) |
-| **Unpenalized parametric block** | ✅ tier 3 (2026-09-27, **L4**, ADR-233) | `gam_basis_parametric.parametric_design` — `mgcv`'s own `contr.treatment` dummy coding, zero smoothing parameters. Closes the LAST rung `PLAN_mgcv_capability_ladder.md` names; the target formula's own `FaceSize + Smoke + FaceSize:Smoke` is expressible |
+| **Unpenalized parametric block** | ✅ tier 3 (2026-09-27, **L4**, ADR-233) | `gam_basis_parametric.parametric_design` — `mgcv`'s own `contr.treatment` dummy coding, zero smoothing parameters. Closes the LAST rung `PLAN_mgcv_capability_ladder.md`'s ORIGINAL five slices name; the target formula's own `FaceSize + Smoke + FaceSize:Smoke` is expressible |
+| **`cr` + `re` + `ti` fit jointly, one model** | **NOT MEASURED** (registered 2026-09-27, `PLAN_mgcv_capability_ladder.md` Slice 6) | Each basis individually tier-3 verified (ADR-194, ADR-230, ADR-205/206); the three have never been fit together. Only structural (non-fitting) scripts combine `re` and `ti` today |
+| **Quasi-Poisson: externally-supplied/fixed dispersion** (`mgcv`'s `scale = <value>`) | **NOT MEASURED** (registered 2026-09-27, Slice 7) | Distinct from "estimate the dispersion" (Slice 3b, also not yet run — see §2.2). Plan Slice 7 records a MEASURE-FIRST hypothesis that this may already work end to end via `fit_polaris_gam(..., gamma=phi_fixed)` on a `dispersion_fixed=True` family sharing quasi-Poisson's mean/variance — unverified, not yet claimed |
 | `gamm` / `lme4` route | **NO** | out of scope unless the objective changes |
 | Unconditional covariance (Kass-Steffey / WPS) | ⚠️ known-defective | standing BLOCKER, ADR-190 / ADR-202 |
 
@@ -203,6 +205,19 @@ tackles simpler mgcv features first."*
 > case against it. A successor epic for L6-L8 is the expected next ACTIVE EPIC
 > — see §5.
 
+> **REOPENED 2026-09-27** (`PLAN_mgcv_capability_ladder.md` §2.3, maintainer
+> direction). The near-term target formula is `cr` + `re` (+ `ti`) plus both
+> quasi-Poisson dispersion modes — **none of L6-L11 below.** Two new slices
+> (6, 7) were added to the SAME plan for the resulting gaps: fitting
+> `cr`+`re`+`ti` jointly (never done — each is individually verified,
+> nothing has fit all three together), and quasi-Poisson's
+> externally-supplied/fixed dispersion mode (mgcv's `scale=`, distinct from
+> "estimate," which is Slice 3b and also not yet run). Neither is a new
+> `L`-rung — both are compositional/family-axis gaps, not a new basis — so
+> they are not added to the table below; see the two new §2.3/§2.2 rows and
+> the PLAN's own Slice 6/7 text. **L6-L11 are reordered behind Slices 6-7,
+> not dropped.**
+
 | # | rung | why here | rough size |
 |---|---|---|---|
 | **L1** ✅ | **`gaussian(identity)`** | **CLIMBED 2026-09-19 (ADR-229), fixed `sp` only.** The simplest family. Decouples every later basis check from IRLS confounds: at Gaussian identity the penalized fit is a single linear solve, so a basis disagreement cannot hide behind IRLS convergence. Also what every mgcv textbook check uses. | small |
@@ -225,9 +240,11 @@ run open-endedly between them.
 
 **This is no longer a map with nothing behind it.** The ladder's first five rungs
 were registered as an epic with slices, acceptance criteria and a named blocker:
-`docs/PLAN_mgcv_capability_ladder.md` (2026-09-18) — **and as of 2026-09-27
-(ADR-233) that epic is COMPLETE: L1 through L5 are all climbed.** A successor
-epic for L6–L8 is expected but deliberately unregistered until it is sized.
+`docs/PLAN_mgcv_capability_ladder.md` (2026-09-18) — **L1 through L5 are all
+climbed (ADR-233), and the same plan was reopened the same day (§2.3) with
+Slices 6-7** for the maintainer's actual near-term target formula. A
+successor epic for L6–L8 remains expected but deliberately unregistered
+until it is sized, and is now explicitly behind Slices 6-7 as well.
 
 ### What the ladder deliberately does not include
 
