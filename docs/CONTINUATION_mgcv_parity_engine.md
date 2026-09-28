@@ -1912,3 +1912,10 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > `ROUTINE_MGCV_PARITY.md`'s own work-selection rule ("the PLAN's next
 > unchecked slice") now resolves unambiguously to Slice 6 in
 > `PLAN_mgcv_capability_ladder.md` §3.
+
+> **Update, 2026-09-28: ladder Slice 6 is DONE (ADR-234).** `cr` + `re` + `ti` fit
+> jointly agrees with `mgcv` at fixed and free `sp` (INDEPENDENT; tier 3, R 4.6.1 /
+> mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, run 36476048762: fixed-`sp` `eta` diff 2.5e-14,
+> free-`sp` `eta` diff 6.1e-07 gaussian / 3.0e-05 poisson). No production code
+> changed. **Next: ladder Slice 3b (quasi-Poisson estimated dispersion), then
+> Slice 7 (fixed `scale`).**

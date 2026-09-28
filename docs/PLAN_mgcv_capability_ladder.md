@@ -1,6 +1,6 @@
 # Plan: climb the mgcv capability ladder — L1 through L5, reopened for a narrow near-term target formula
 
-> **STATUS: IN PROGRESS (REOPENED 2026-09-27) — NEXT: Slice 6.** L1-L5 (the
+> **STATUS: IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); NEXT: Slice 3b, then Slice 7.** L1-L5 (the
 > original five slices) are COMPLETE — ADR-229 (L1), ADR-230 (L2), ADR-231
 > (L5), ADR-232 (L3), ADR-233 (L4). `docs/MGCV_FEATURE_COVERAGE.md` §4 marks
 > all five rungs climbed. **Nothing about Slices 1-5 or their ADRs changes
@@ -451,7 +451,9 @@ plan named — L1 through L5 are all climbed.** Slices 6-7 below are the
 
 ---
 
-### Slice 6 — `cr` + `re` + `ti` joint Stage-B composition
+### Slice 6 — `cr` + `re` + `ti` joint Stage-B composition — ✅ **DONE 2026-09-28 (ADR-234)**
+
+> Landed as a pure measurement slice (no production code). INDEPENDENT, tier 1 and tier 3 identical in verdict; see ADR-234 and `docs/CONFORMANCE_LEDGER.md`. `select=TRUE` on the composition was not run (target's use of it unconfirmed) — registered below as Slice 6b.
 
 **Why.** The three bases are each independently tier-3 verified (ADR-194,
 ADR-230, ADR-205/206), but never fit together in one model. `assemble_model_design`
@@ -482,6 +484,16 @@ Stage B in this epic (e.g. ADR-206, ADR-232).
 **Depends on:** nothing new — every producer this slice needs already exists
 and is independently verified. This is the cheapest possible slice shape:
 compose, don't invent.
+
+### Slice 6b — `select=TRUE` on the `cr` + `re` + `ti` composition (registered 2026-09-28, not started)
+
+**Why.** Slice 6's own text said to confirm before writing the probe whether the
+narrow target uses `select=TRUE`; that is unconfirmed, so the composition was
+measured without it. **Release condition:** maintainer confirms the narrow
+target uses `select=TRUE` (a maintainer call, per ROUTINE_MGCV_PARITY.md). If
+so: same probe with `select=TRUE` (doubled blocks, ADR-217/218 multistart
+caveats apply), ADR-221 gate, tier 3. Also carries the second-null-direction
+sparsity note from ADR-234 if the design is shrunk.
 
 ### Slice 7 — quasi-Poisson dispersion: externally-supplied/fixed `scale` (the "estimate" mode is Slice 3b)
 

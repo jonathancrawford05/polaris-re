@@ -24125,3 +24125,64 @@ case above — it was not exercised against a model where a parametric term
 sits alongside a `select=TRUE` smooth in the free-`sp` measurement itself
 (the free-`sp` Stage B reading above uses ordinary, non-`select` penalty
 blocks, matching every prior ladder rung's own Stage B scope).
+
+
+## ADR-234: Capability ladder slice 6 — `cr` + `re` + `ti` fit jointly reproduces `mgcv` at fixed AND free `sp` (INDEPENDENT, tier 1 and tier 3)
+
+**Status:** Accepted, 2026-09-28. **Claim sentence (written before the code):**
+`polaris_re` assembles `s(AttdAge,k=13,bs="cr") + s(GroupFac,bs="re") +
+ti(AttdAge,PolYear,k=c(13,6),bs="cr")` through `assemble_model_design` from a
+shared recipe and fits it (`penalized_irls_general` at supplied `sp`, or
+`fit_polaris_gam`'s own REML selection); `mgcv` computes the same model via
+`gam()`; compared on `eta`, `edf_total`, per-block `log10(sp)` and per-term `edf`
+against ADR-221's committed criterion (imported, Anchor W5).
+
+### Context
+
+`cr` (ADR-194), `re` (ADR-230) and `ti` (ADR-205/206) were each tier-3 verified
+but never fit together; this is the maintainer's narrow near-term target
+structure (PLAN_mgcv_capability_ladder.md §2.3). MEASURE FIRST found nothing to
+build: `assemble_model_design` already dispatches all three.
+
+### Provenance (ADR-193)
+
+Every column INDEPENDENT. `fit_cr_re_ti_fixed_sp_case` / `fit_cr_re_ti_free_sp_case`
+take recipe types carrying no `eta`/`coef`/`mgcv_sp`/`edf_total` key. `sp_fixed`
+(fixed case only) is an input to both sides, not a compared quantity. One
+alignment guard (mgcv's `s.table` row order) raises rather than compares.
+
+### Measurement
+
+Three cases, one dataset (n=900, seed 20260928): `gaussian_fixed`,
+`gaussian_free`, `poisson_free` (fixed-dispersion stand-in for quasi-Poisson,
+which is slices 3b/7). Tier 3 = R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+run [36476048762](https://github.com/jonathancrawford05/polaris-re/actions/runs/36476048762); tier 1 = R 4.3.3 / mgcv 1.9.1.
+
+| case | metric | tier 1 | tier 3 |
+|---|---|---:|---:|
+| gaussian_fixed | max abs `eta` diff | 2.115e-14 | 2.515e-14 |
+| gaussian_fixed | `edf_total` diff | -1.421e-13 | -1.421e-13 |
+| gaussian_free | max abs `eta` diff | 6.119e-07 | 6.119e-07 |
+| gaussian_free | max abs `log10(sp)` diff | 5.1e-06 | 0.0000 (4dp) |
+| gaussian_free | `edf_total` diff | +3.6e-05 | +0.0000 (4dp) |
+| poisson_free | max abs `eta` diff | 2.960e-05 | 2.960e-05 |
+| poisson_free | max abs `log10(sp)` diff | 1.2e-04 | 0.0001 (4dp) |
+| poisson_free | `edf_total` diff | -1.1e-04 | -0.0001 (4dp) |
+
+All `agrees=True`, `converged=True`, `at_bound=False`; offset tripwire 0.
+
+### Suspicion, not just a check
+
+Near-exact agreement is treated as suspect first: tests strip every mgcv key
+and show a bit-identical fit; each of the four penalty blocks measurably moves
+`edf_total`; dropping `ti` moves `eta` by >0.05 (the ti block carries real
+signal); the fixed fit equals a direct `(X'X+S)^-1 X'y` solve to 1e-9. Not
+mutation-tested beyond these.
+
+### What this does not settle
+
+One dataset, one seed; single-start search sufficed (no multistart needed).
+`select=TRUE` was not exercised on the composition (the PLAN said to confirm
+whether the target uses it first — unconfirmed). The design carries the known
+penalised intercept/`re` collinearity (rank = p-1 at n=900), identical in
+mgcv. quasi-Poisson dispersion is Slices 3b/7, not measured here.
