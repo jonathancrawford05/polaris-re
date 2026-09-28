@@ -3,15 +3,16 @@
 **Plan:** `docs/PLAN_mgcv_capability_ladder.md`
 **Created:** 2026-09-19, by the session that started slice 1 — as the plan's §3
 requires, and not before (the one-active-epic rule).
-**Status:** **L1-L5 COMPLETE 2026-09-27** (unchanged below — Slices 1-5 all
-landed, nothing about them is revised by the reopening). **REOPENED same day**
-— `PLAN_mgcv_capability_ladder.md` §2.3, maintainer direction: the actual
-near-term dev target is a formula built from `cr` + `re` (+ already-verified
-`ti`), plus both quasi-Poisson dispersion modes, **not** the L6-L11 breadth
-track this file previously named as "the expected next ACTIVE EPIC." Slices 6
-and 7 are registered in the SAME plan file (not a new epic — see the plan's
-own §2.3 for why) and are this epic's own NEXT work. See "REOPENING,
-2026-09-27" below for the full record.
+**Status:** **IN PROGRESS (REOPENED 2026-09-27) — NEXT: Slice 6.** L1-L5
+(the original five slices) are COMPLETE and unchanged below — nothing about
+them is revised by the reopening. `PLAN_mgcv_capability_ladder.md` §2.3,
+maintainer direction: the actual near-term dev target is a formula built
+from `cr` + `re` (+ already-verified `ti`), plus both quasi-Poisson
+dispersion modes, **not** the L6-L11 breadth track this file previously
+named as "the expected next ACTIVE EPIC." Slices 6 and 7 are registered in
+the SAME plan file (not a new epic — see the plan's own §2.3 for why) and
+are this epic's own NEXT work — **this is not a queue-empty state.** See
+"REOPENING, 2026-09-27" below for the full record.
 
 ---
 

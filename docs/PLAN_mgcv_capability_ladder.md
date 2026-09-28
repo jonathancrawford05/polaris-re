@@ -1,10 +1,11 @@
 # Plan: climb the mgcv capability ladder — L1 through L5, reopened for the narrow target formula
 
-> **STATUS: L1-L5 COMPLETE (2026-09-27); EPIC REOPENED same day (Slices 6-7).**
-> All five original slices landed — ADR-229 (L1), ADR-230 (L2), ADR-231 (L5),
-> ADR-232 (L3), ADR-233 (L4). `docs/MGCV_FEATURE_COVERAGE.md` §4 marks all
-> five rungs climbed. **Nothing about Slices 1-5 or their ADRs changes below —
-> this reopening only appends.**
+> **STATUS: IN PROGRESS (REOPENED 2026-09-27) — NEXT: Slice 6.** L1-L5 (the
+> original five slices) are COMPLETE — ADR-229 (L1), ADR-230 (L2), ADR-231
+> (L5), ADR-232 (L3), ADR-233 (L4). `docs/MGCV_FEATURE_COVERAGE.md` §4 marks
+> all five rungs climbed. **Nothing about Slices 1-5 or their ADRs changes
+> below — this reopening only appends.** Slices 6-7 are registered below and
+> this is this epic's own next work — **not a queue-empty state.**
 
 > **REOPENED 2026-09-27, maintainer direction.** The maintainer's own
 > near-term dev target is a formula built from `cr` + `re` (+ already-verified
