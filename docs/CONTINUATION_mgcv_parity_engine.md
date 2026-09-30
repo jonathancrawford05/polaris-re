@@ -1919,3 +1919,5 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > free-`sp` `eta` diff 6.1e-07 gaussian / 3.0e-05 poisson). No production code
 > changed. **Next: ladder Slice 3b (quasi-Poisson estimated dispersion), then
 > Slice 7 (fixed `scale`).**
+
+> **Update, 2026-09-30: ladder Slice 3b is DONE (ADR-235).** `quasipoisson(log)` fit at free `sp` agrees with `mgcv` (INDEPENDENT; tier 3, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, run 36704353339: `eta` diff 4.236e-06 at mgcv scale 2.009). No production code changed. **Next: ladder Slice 7 (fixed `scale`).**

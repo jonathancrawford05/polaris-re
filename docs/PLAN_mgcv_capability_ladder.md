@@ -1,6 +1,6 @@
 # Plan: climb the mgcv capability ladder — L1 through L5, reopened for a narrow near-term target formula
 
-> **STATUS: IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); NEXT: Slice 3b, then Slice 7.** L1-L5 (the
+> **STATUS: IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); NEXT: Slice 7.** L1-L5 (the
 > original five slices) are COMPLETE — ADR-229 (L1), ADR-230 (L2), ADR-231
 > (L5), ADR-232 (L3), ADR-233 (L4). `docs/MGCV_FEATURE_COVERAGE.md` §4 marks
 > all five rungs climbed. **Nothing about Slices 1-5 or their ADRs changes
@@ -331,7 +331,9 @@ recipe re-run at **free** `sp`.
 "fixed `sp` only" qualifier **in this slice's PR** — that is the deliverable, not
 a follow-up.
 
-### Slice 3b — quasi-Poisson fit-level free-`sp` re-run (registered, not sized)
+### Slice 3b — quasi-Poisson fit-level free-`sp` re-run — ✅ **DONE 2026-09-30 (ADR-235)**
+
+**Landed:** INDEPENDENT, tier 3 (run 36704353339): `eta` diff 4.236e-06, `agrees=True`. See ADR-235.
 
 **Registered 2026-09-26 (PR #240 review), per ADR-209 decision 1** — a gap
 opened is closed or registered, never merely filed. Slice 3 closed the
