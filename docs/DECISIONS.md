@@ -24243,6 +24243,7 @@ number was recorded, so no block sits at a bound.
 ### What this does not settle
 
 One dataset, one seed, one structure. The dispersion itself is not a compared
-quantity (the fit does not expose it; `mgcv`'s is reported only). The
+quantity (the fit does not expose it; `mgcv`'s is reported only) — **registered as
+ladder slice 3c** (2026-09-30, maintainer request), sequenced after slice 7. The
 externally-supplied `scale=` mode is Slice 7, unmeasured. Not mutation-tested
 beyond the tests above.

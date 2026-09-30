@@ -64,9 +64,15 @@ No golden touched (no production code changed). `tests/qa`: 85 passed, 9 skipped
 Perf creep verdict: `peak_mib` creep false (33 -> 33); wall-time ratio 1.267x over the 1.25 band,
 advisory only — probe ran on a loaded machine and no engine code changed.
 
+## Registered follow-up (2026-09-30, maintainer request on PR #245)
+- **Ladder slice 3c** — expose and verify the estimated dispersion, and the two-stage
+  Poisson -> fixed-scale quasi-Poisson workflow. Registered in `PLAN_mgcv_capability_ladder.md`
+  with a release condition (supersedes the earlier "parked, 3rd-order" note on the accessor).
+  Sequenced after slice 7. Severity threshold left to the maintainer.
+
 ## Parked Polish (order-classified; none promoted)
 - Slice 7 (fixed `scale`) is next; its MEASURE-FIRST hypothesis (`poisson` + `gamma=phi`) is
   untouched here. The scale-fixed-at-1 contrast above is a free by-product data point for it.
 - The fit does not expose its own dispersion estimate, so the scale is reported from mgcv
   only, not compared. Registering that as a compared quantity would need a Polaris-side
-  Pearson-scale accessor — small, **3rd-order, parked** (not promoted).
+  Pearson-scale accessor — now registered as slice 3c (see above).

@@ -366,6 +366,59 @@ scope post-hoc inside a landed PR is exactly the "widen on your own"
 this project's routines refuse; a registered follow-up slice is the correct
 container instead.
 
+### Slice 3c — expose and verify the estimated dispersion, and the two-stage Poisson -> fixed-scale workflow (registered, not started)
+
+**Registered 2026-09-30 (PR #245, maintainer request), per ADR-209 decision 1.**
+Slice 3b verified that a free-scale quasi-Poisson FIT agrees with `mgcv`, but
+the dispersion estimate itself is not an output: `reml_score_general` computes
+`phi_hat = penalized_deviance / residual_df` (`gam_reml.py`) to profile the
+scale out of the score and then discards it, `PolarisGAMFit` has no field for
+it, and `mgcv`'s `m$scale` is reported by the probe but never compared. The
+maintainer needs the estimate as a **product**, not an internal:
+
+> Fit a Poisson model to the dispersed counts, obtain the dispersion estimate
+> from it, then supply that estimate as the fixed `scale` when fitting the
+> quasi-Poisson model — where the severity of the dispersion justifies it.
+
+**Two separable pieces, one slice:**
+
+1. **Expose and verify the estimate.** Add a `dispersion` (name TBD) to the
+   fit result, computed Polaris-side, and compare it INDEPENDENT against
+   `mgcv`'s own estimate. **MEASURE FIRST, do not assume which estimator:**
+   the `phi_hat` the criterion profiles out is a deviance-based quantity,
+   while a Pearson-residual estimate (`sum((y-mu)^2/V(mu)) / (n - edf)`) is the
+   classical quasi-Poisson one and is what `mgcv` reports for `quasipoisson`
+   by default (`m$scale`; confirm on the probe, and confirm which `scale.est`
+   applies under `method="REML"`). They are not the same number. Read
+   `mgcv`'s own definition off the pinned image, compare like with like, and
+   record the difference between the two estimators if it is not negligible.
+   Compare on the slice 3b recipe at tier 3.
+2. **The two-stage workflow.** Stage 1: `fit_polaris_gam` under `poisson(log)`
+   (scale fixed at 1), extract the Pearson dispersion `phi_hat` from that fit.
+   Stage 2: refit with `phi_hat` supplied as a fixed scale — the
+   `dispersion_fixed=True` + `gamma=phi_hat` route slice 7 measures against
+   `mgcv`'s `scale=`. Verify INDEPENDENT at tier 3 by giving `mgcv` the SAME
+   number Polaris produced (`gam(family=quasipoisson, scale=phi_hat)`) and
+   comparing the fits; also report how far the two-stage fit lands from the
+   joint free-scale fit of slice 3b, since the workflow is a modelling choice
+   whose cost is exactly that gap.
+
+**Why the order matters.** Stage 2 is slice 7's mode, so **slice 7 runs first**;
+this slice consumes it. (Sequencing: 7 -> 3c.)
+
+**Release condition.** (a) The Polaris-side dispersion estimate is an exposed,
+tested output; (b) its comparison against `mgcv`'s estimate is INDEPENDENT at
+tier 3 with the estimator definitions stated; (c) the two-stage workflow is
+measured at tier 3 against `mgcv` at the same supplied scale, with the gap to
+the joint fit reported; (d) the coverage row for `quasipoisson(log)` states
+which estimator is exposed.
+
+**May not decide (maintainer, `ROUTINE_MGCV_PARITY.md`):** the **severity
+threshold** at which the two-stage quasi-Poisson route is warranted versus
+plain Poisson (phi near 1) or a different family (severe overdispersion, e.g.
+negative binomial). The slice reports the estimate and the gap; it does not
+pick a cutoff.
+
 ### Slice 4 — L3 factor-`by` — ✅ **DONE 2026-09-26 (ADR-232)**
 
 **Note what it is**, because the name misleads: `s(x, by = f)` on a factor is not
@@ -553,7 +606,7 @@ pairwise-score convention at the criterion level, tier 3.
 
 **Depends on:** nothing technically (this is the `dispersion_fixed=True`
 branch, Slice 3b is the `dispersion_fixed=False` one — different code paths).
-Running 3b first is still recommended purely so "the quasi-Poisson story" in
+Slice 3c (registered 2026-09-30) consumes this slice's mode for its two-stage workflow, so 7 runs BEFORE 3c. Running 3b first is still recommended purely so "the quasi-Poisson story" in
 `MGCV_FEATURE_COVERAGE.md` closes in one pass rather than two.
 
 ---
