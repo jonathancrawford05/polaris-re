@@ -190,6 +190,11 @@ on:
       - "scripts/gam_parametric_stage_a_probe.R"
       - "scripts/gam_parametric_probe.R"
       - "scripts/gam_parametric_free_sp_probe.R"
+      # CAPABILITY LADDER slice 6 (docs/PLAN_mgcv_capability_ladder.md) —
+      # cr + re + ti fit jointly. Every basis producer is already listed
+      # above; these lines add the composition's own Stage B module and probe.
+      - "src/polaris_re/analytics/gam_cr_re_ti_conformance.py"
+      - "scripts/gam_cr_re_ti_probe.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -689,6 +694,20 @@ jobs:
             Rscript scripts/gam_parametric_free_sp_probe.R \
               gam_parametric_free_sp_probe.json
 
+      # CAPABILITY LADDER slice 6 — `cr` + `re` + `ti` fit JOINTLY (each
+      # basis individually verified, never composed). One probe, three
+      # cases: gaussian(identity) at fixed sp, gaussian(identity) at free
+      # sp, poisson(log) at free sp. Same DIAGNOSTIC contract as every probe
+      # above; the comparison against the independent Python side happens
+      # in the `compare` job below.
+      - name: Fit the cr+re+ti composition — gaussian fixed/free sp and poisson free sp (ladder slice 6)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_cr_re_ti_probe.R \
+              gam_cr_re_ti_probe.json
+
       # Asserts every penalty-counting reading in docs/MGCV_NOTATION_PRIMER.md
       # sections 1, 3 and 4 against the pinned mgcv, so the primer's numbers are
       # tier 3 rather than recalled. BOTH SIDES ARE mgcv — Polaris is absent, so
@@ -813,6 +832,7 @@ jobs:
             gam_parametric_stage_a_probe.json
             gam_parametric_probe.json
             gam_parametric_free_sp_probe.json
+            gam_cr_re_ti_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -3005,6 +3025,93 @@ jobs:
             cat gam_parametric_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # CAPABILITY LADDER slice 6 — cr + re + ti composition. Compares the
+      # independent Python side against job 1's native mgcv fits, three
+      # cases, every quantity INDEPENDENT (ADR-193). ADR-221's committed
+      # eta/edf gate, imported and never redeclared (Anchor W5).
+      # DIAGNOSTIC ONLY, same contract as every comparison above.
+      - name: Compare the cr+re+ti composition against the Python side (ladder slice 6)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              payload = json.load(open("gam_cr_re_ti_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_cr_re_ti_probe.json to compare ({exc}) — the R probe "
+                    "above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_cr_re_ti_conformance import (
+              CR_RE_TI_FIXED_SP_CLAIM, CR_RE_TI_FREE_SP_CLAIM,
+              compare_cr_re_ti_fixed_sp_case, compare_cr_re_ti_free_sp_case,
+              fit_cr_re_ti_fixed_sp_case, fit_cr_re_ti_free_sp_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          cases = payload["cases"]
+          fx = cases["gaussian_fixed"]
+          cf = compare_cr_re_ti_fixed_sp_case(fit_cr_re_ti_fixed_sp_case(fx), fx)
+
+          lines = [
+              "",
+              "### Capability ladder slice 6 — `cr` + `re` + `ti` fit jointly vs mgcv",
+              "",
+              f"mgcv {payload['mgcv_version']} / {payload['r_version']}",
+              "",
+              "#### Fixed sp — gaussian(identity)",
+              "",
+              evidence_markdown(CR_RE_TI_FIXED_SP_CLAIM),
+              "",
+              "| n | max abs eta diff | Polaris edf_total | mgcv edf_total | edf diff | agrees |",
+              "|---:|---:|---:|---:|---:|---|",
+              f"| {fx['n']} | {cf.max_abs_eta_diff:.3e} | "
+              f"{cf.python_edf_total:.6f} | {cf.mgcv_edf_total:.6f} | "
+              f"{cf.edf_total_diff:.3e} | {cf.agrees} |",
+              "",
+              "#### Free sp",
+              "",
+              evidence_markdown(CR_RE_TI_FREE_SP_CLAIM),
+              "",
+              "| case | max abs eta diff | max abs log10(sp) diff | per-block log10(sp) diff (cr, re, ti#1, ti#2) | edf_total diff | max abs term edf diff | at bound | converged | agrees |",
+              "|---|---:|---:|---|---:|---:|---|---|---|",
+          ]
+          any_disagree = not cf.agrees
+          for name in ("gaussian_free", "poisson_free"):
+              r = cases[name]
+              c = compare_cr_re_ti_free_sp_case(fit_cr_re_ti_free_sp_case(r), r)
+              any_disagree = any_disagree or not c.agrees
+              per = ", ".join(f"{v:.4f}" for v in c.per_block_log10_sp_diff)
+              lines.append(
+                  f"| {name} | {c.max_abs_eta_diff:.3e} | {c.max_abs_log10_sp_diff:.4f} | {per} | "
+                  f"{c.edf_total_diff:+.4f} | {c.max_abs_term_edf_diff:.4f} | "
+                  f"{c.at_bound} | {c.converged} | {c.agrees} |"
+              )
+          lines += [
+              "",
+              "The gate is ADR-221's committed criterion — `max_abs_eta_diff < 2e-2` "
+              "AND `abs(edf_total_diff) < 1.0` — imported from "
+              "`gam_select_free_sp_conformance`, not redeclared. Every `sp` in the "
+              "free rows is a COMPARED quantity selected independently by each side. "
+              "Coefficients are NOT compared (Anchor 2).",
+              "",
+              f"**Offset tripwire** (reported, never gated): fixed {cf.offset_gap:.3e}.",
+          ]
+          if any_disagree:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_cr_re_ti_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_cr_re_ti_probe_report.md ]; then
+            cat gam_cr_re_ti_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # PLAN slice 7b (ADR-218): does mgcv's OWN free-sp select=TRUE point
       # score better, under our OWN criterion (ADR-217's fixed-sp fix),
       # than our best-of-9 multistart result reaches — same discriminator
@@ -3441,3 +3548,5 @@ jobs:
             gam_parametric_probe_report.md
             gam_parametric_free_sp_probe.json
             gam_parametric_free_sp_probe_report.md
+            gam_cr_re_ti_probe.json
+            gam_cr_re_ti_probe_report.md
