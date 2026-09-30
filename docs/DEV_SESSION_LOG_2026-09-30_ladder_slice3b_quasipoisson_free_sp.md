@@ -68,7 +68,7 @@ advisory only — probe ran on a loaded machine and no engine code changed.
 - **Ladder slice 3c** — expose and verify the estimated dispersion, and the two-stage
   Poisson -> fixed-scale quasi-Poisson workflow. Registered in `PLAN_mgcv_capability_ladder.md`
   with a release condition (supersedes the earlier "parked, 3rd-order" note on the accessor).
-  Sequenced after slice 7. Severity threshold left to the maintainer.
+  Sequenced after slice 7. No severity threshold is imposed: the estimate is reported and the two-stage route is an optional, non-standard user choice.
 
 ## Parked Polish (order-classified; none promoted)
 - Slice 7 (fixed `scale`) is next; its MEASURE-FIRST hypothesis (`poisson` + `gamma=phi`) is

@@ -410,14 +410,20 @@ this slice consumes it. (Sequencing: 7 -> 3c.)
 tested output; (b) its comparison against `mgcv`'s estimate is INDEPENDENT at
 tier 3 with the estimator definitions stated; (c) the two-stage workflow is
 measured at tier 3 against `mgcv` at the same supplied scale, with the gap to
-the joint fit reported; (d) the coverage row for `quasipoisson(log)` states
+the joint fit reported, and documented as optional/non-standard; (d) the coverage row for `quasipoisson(log)` states
 which estimator is exposed.
 
-**May not decide (maintainer, `ROUTINE_MGCV_PARITY.md`):** the **severity
-threshold** at which the two-stage quasi-Poisson route is warranted versus
-plain Poisson (phi near 1) or a different family (severe overdispersion, e.g.
-negative binomial). The slice reports the estimate and the gap; it does not
-pick a cutoff.
+**Policy, per the maintainer (2026-09-30): no threshold is imposed on users.**
+Whether the dispersion is severe enough to justify the two-stage route, or
+whether plain Poisson or another family is preferable, is **the user's call**
+and this slice does not encode it: no cutoff, no default, no warning that
+gates behaviour. The deliverable is that the estimate is **reported** — an
+exposed, documented output on the fit — so a user CAN run the two-stage
+workflow if they choose. The workflow is **optional and non-standard** (it is
+not what `mgcv` does, which estimates the scale jointly); the docs must say so
+plainly rather than present it as the recommended path. The slice's gap
+report (two-stage vs joint free-scale fit) is information for that user
+decision, not a verdict.
 
 ### Slice 4 — L3 factor-`by` — ✅ **DONE 2026-09-26 (ADR-232)**
 
