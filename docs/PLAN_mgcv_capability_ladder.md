@@ -389,7 +389,11 @@ maintainer needs the estimate as a **product**, not an internal:
    while a Pearson-residual estimate (`sum((y-mu)^2/V(mu)) / (n - edf)`) is the
    classical quasi-Poisson one and is what `mgcv` reports for `quasipoisson`
    by default (`m$scale`; confirm on the probe, and confirm which `scale.est`
-   applies under `method="REML"`). They are not the same number. Read
+   applies under `method="REML"`). They are not the same number. A tier-1 scoping reading
+   (ledger, 2026-09-30; hypothesis until re-measured at tier 3) suggests `mgcv`'s
+   REML-mode estimate is **Fletcher's (2012) estimator**, not plain Pearson, and
+   that Polaris can reproduce it from its own fit — slice 3c must confirm this
+   on the pinned image before building on it. Read
    `mgcv`'s own definition off the pinned image, compare like with like, and
    record the difference between the two estimators if it is not negligible.
    Compare on the slice 3b recipe at tier 3.
