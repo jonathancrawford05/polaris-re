@@ -24229,10 +24229,13 @@ fit bit-identical. `mgcv` is handed neither `sp` nor scale.
 ### Suspicion, not just a check
 
 Agreement this tight is suspect first. (1) The response is overdispersed
-(scale ~2), and the SAME design fitted under `poisson` (scale fixed at 1) lands
-`eta` 0.17 and `edf_total` +7.3 away from `mgcv` — so a criterion that ignored
-the dispersion would fail here (pinned by
-`test_the_measurement_discriminates_a_scale_fixed_at_one`). (2) A first draft of
+(scale ~2). `test_the_measurement_discriminates_a_scale_fixed_at_one` pins that
+the SAME design under `poisson` (scale fixed at 1) selects `log10(sp)` more than
+0.1 away from the quasipoisson selection — Polaris against Polaris, no `mgcv`
+involved. The further reading that the `poisson` fit lands `eta` 0.17 and
+`edf_total` +7.3 away from `mgcv`'s quasipoisson fit is an UNCOMMITTED ad-hoc
+tier-1 measurement, not pinned by any test: a criterion that ignored the
+dispersion would fail here, but those magnitudes are hypothesis-grade. (2) A first draft of
 the probe used a linear age signal, which drove two blocks to `mgcv`'s
 `sp -> inf` null-space corner; it was made genuinely non-linear before any
 number was recorded, so no block sits at a bound.

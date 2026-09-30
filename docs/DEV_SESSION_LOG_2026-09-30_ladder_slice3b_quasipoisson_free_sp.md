@@ -1,5 +1,6 @@
 # Dev session log — 2026-09-30 — ladder slice 3b: quasipoisson(log) at free `sp`
 
+**Branch:** `claude/intelligent-hamilton-twezu8` (PR #245, draft)
 **Slice:** `PLAN_mgcv_capability_ladder.md` slice 3b (next unchecked; slice 6 was the last landed).
 **PR title class:** `feat(mgcv-parity)` — lands an INDEPENDENT comparison.
 
@@ -16,10 +17,11 @@ ADR-221 imported) and `log10(sp)` (reported).
 - Tier 2 (docker daemon): not checked; not needed.
 
 ## Baseline
-`make test` on the untouched checkout (R installed): the only failure seen is
-`test_experience_loaders.py::test_loaded_ilec_feeds_tensor_mi_surface`, the known
-environmental one (`data/mortality_tables/*.csv` absent — see earlier session logs).
-The run was slow and shared the machine with the slice's own tests; see "Quality gate".
+`make test` on the untouched checkout (R installed): **5 failed, 3788 passed, 22 skipped**.
+All 5 are environmental — `data/mortality_tables/*.csv` absent (see earlier session logs):
+`test_experience_loaders.py::test_loaded_ilec_feeds_tensor_mi_surface` and four
+`test_synthetic_block.py::TestCalibratedPremiums` cases. (An earlier draft of this log named only
+the first; five is the complete set.)
 
 ## Gap Before
 The `quasipoisson(log)` fit-level free-`sp` comparison did not exist (slice 3 measured the
@@ -58,11 +60,13 @@ so the comparison would have failed had the criterion ignored dispersion.
 ## Quality gate
 `ruff format`/`check` clean. `tests/test_analytics/test_gam_quasipoisson_conformance.py`
 7 passed (incl. the slow R round trip). Full `make test` / `tests/qa` results: see PR body.
-No golden touched (no production code changed).
+No golden touched (no production code changed). `tests/qa`: 85 passed, 9 skipped.
+Perf creep verdict: `peak_mib` creep false (33 -> 33); wall-time ratio 1.267x over the 1.25 band,
+advisory only — probe ran on a loaded machine and no engine code changed.
 
-## Follow-ups
+## Parked Polish (order-classified; none promoted)
 - Slice 7 (fixed `scale`) is next; its MEASURE-FIRST hypothesis (`poisson` + `gamma=phi`) is
   untouched here. The scale-fixed-at-1 contrast above is a free by-product data point for it.
 - The fit does not expose its own dispersion estimate, so the scale is reported from mgcv
   only, not compared. Registering that as a compared quantity would need a Polaris-side
-  Pearson-scale accessor — small, 3rd-order.
+  Pearson-scale accessor — small, **3rd-order, parked** (not promoted).

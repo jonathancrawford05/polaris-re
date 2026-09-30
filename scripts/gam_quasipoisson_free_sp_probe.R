@@ -6,8 +6,9 @@
 #
 # WHAT THIS PROBES
 # ------------------
-# The IDENTICAL three-term design and covariates as
-# scripts/gam_quasipoisson_free_sp_probe.R (ladder slice 3) --
+# The IDENTICAL three-term design (formula, k, knots, n = 900) as
+# scripts/gam_gaussian_free_sp_probe.R (ladder L5 fit level), with a fresh
+# overdispersed-count draw (own seed, negative-binomial response) --
 #
 #   y ~ s(AttdAge, k = 13, bs = "cr")
 #     + s(AttdAge, by = StudyYear_C, k = 13, bs = "cr")

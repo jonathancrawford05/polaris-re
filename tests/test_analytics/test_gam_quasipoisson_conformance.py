@@ -104,7 +104,7 @@ def test_the_fit_is_unchanged_when_every_mgcv_key_is_planted() -> None:
     hostile = fit_quasipoisson_free_sp_case(typing.cast(RQuasiPoissonFreeSpRecipe, planted))
     np.testing.assert_array_equal(clean.eta, hostile.eta)
     np.testing.assert_array_equal(clean.log_lambda, hostile.log_lambda)
-    assert clean.edf_total == hostile.edf_total
+    np.testing.assert_array_equal(clean.edf_total, hostile.edf_total)
 
 
 def test_model_spec_is_quasipoisson_log_on_the_three_term_design() -> None:
