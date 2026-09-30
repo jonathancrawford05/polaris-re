@@ -1,6 +1,6 @@
 # Dev session log — 2026-09-28 — ladder slice 6: `cr` + `re` + `ti` joint composition
 
-Routine: `docs/ROUTINE_MGCV_PARITY.md`. Work selection: PLAN_mgcv_capability_ladder.md
+Branch: `claude/intelligent-hamilton-x89mos`. Routine: `docs/ROUTINE_MGCV_PARITY.md`. Work selection: PLAN_mgcv_capability_ladder.md
 Slice 6 (the CONTINUATION's stated next slice). Title class: **feat** (INDEPENDENT).
 
 ## Baseline
@@ -40,7 +40,7 @@ Tier 3: fixed-sp `eta` diff 2.515e-14, `edf_total` diff -1.421e-13. Free sp: gau
 The fit functions take recipe types with no mgcv-output keys (tested structurally and by stripping). `sp_fixed` is an input to both sides. The s.table row-order check is an alignment guard, not a compared quantity. Coefficients never compared.
 
 ## Quality gate
-ruff format/check clean (unrelated script reformatting reverted); mypy clean on the new module; 16 new tests pass; `tests/qa/` byte-identical goldens. `perf/history.jsonl` row appended (PR touches `src/`).
+ruff format/check clean (unrelated script reformatting reverted); mypy clean on the new module; 16 new tests pass; `tests/qa/` byte-identical goldens. `perf/history.jsonl` row appended (PR touches `src/`). Creep verdict (PR #244 review re-run): no structural creep, `peak_mib` creep false, wall-time ratio 1.141 against band 1.25.
 
 ## Follow-ups
 - Slice 6b registered in the PLAN (`select=TRUE` on the composition; needs maintainer confirmation).

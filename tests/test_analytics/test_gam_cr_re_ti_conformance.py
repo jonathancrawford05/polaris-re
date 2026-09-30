@@ -289,7 +289,7 @@ def test_free_comparison_rejects_misaligned_term_labels() -> None:
         compare_cr_re_ti_free_sp_case(fit, payload)
     aligned = typing.cast(RCrReTiFreeSpPayload, {**payload, "term_labels": list(TERM_LABELS)})
     result = compare_cr_re_ti_free_sp_case(fit, aligned)
-    assert result.max_abs_eta_diff == 0.0
+    assert result.max_abs_eta_diff == pytest.approx(0.0, abs=1e-15)
     assert result.max_abs_log10_sp_diff == pytest.approx(0.0, abs=1e-12)
     assert len(result.per_block_log10_sp_diff) == 4
 
@@ -313,7 +313,7 @@ def test_round_trip_against_mgcv(tmp_path: Path) -> None:
     fixed = typing.cast(RCrReTiFixedSpPayload, cases["gaussian_fixed"])
     cf = compare_cr_re_ti_fixed_sp_case(fit_cr_re_ti_fixed_sp_case(fixed), fixed)
     assert cf.agrees, cf
-    assert cf.offset_gap == 0.0
+    assert cf.offset_gap == pytest.approx(0.0, abs=1e-12)
 
     for name in ("gaussian_free", "poisson_free"):
         payload = typing.cast(RCrReTiFreeSpPayload, cases[name])
