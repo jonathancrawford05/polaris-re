@@ -1,6 +1,6 @@
 # Plan: climb the mgcv capability ladder — L1 through L5, reopened for a narrow near-term target formula
 
-> **STATUS: IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); NEXT: Slice 7.** L1-L5 (the
+> **STATUS: IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); Slice 7 MEASURED 2026-10-01 (ADR-236; far-phi disagreement); NEXT: Slice 7b, then 3c.** L1-L5 (the
 > original five slices) are COMPLETE — ADR-229 (L1), ADR-230 (L2), ADR-231
 > (L5), ADR-232 (L3), ADR-233 (L4). `docs/MGCV_FEATURE_COVERAGE.md` §4 marks
 > all five rungs climbed. **Nothing about Slices 1-5 or their ADRs changes
@@ -561,7 +561,7 @@ so: same probe with `select=TRUE` (doubled blocks, ADR-217/218 multistart
 caveats apply), ADR-221 gate, tier 3. Also carries the second-null-direction
 sparsity note from ADR-234 if the design is shrunk.
 
-### Slice 7 — quasi-Poisson dispersion: externally-supplied/fixed `scale` (the "estimate" mode is Slice 3b)
+### Slice 7 — quasi-Poisson dispersion: externally-supplied/fixed `scale` — ⚠️ **MEASURED 2026-10-01 (ADR-236): agrees at phi=2, DISAGREES at phi=6 — acceptance NOT met; see Slice 7b**
 
 **Why.** mgcv's quasi-Poisson supports two distinct dispersion modes: `scale`
 left unset (estimated from the Pearson residuals, mgcv's default) and
@@ -619,6 +619,23 @@ pairwise-score convention at the criterion level, tier 3.
 branch, Slice 3b is the `dispersion_fixed=False` one — different code paths).
 Slice 3c (registered 2026-09-30) consumes this slice's mode for its two-stage workflow, so 7 runs BEFORE 3c. Running 3b first is still recommended purely so "the quasi-Poisson story" in
 `MGCV_FEATURE_COVERAGE.md` closes in one pass rather than two.
+
+### Slice 7b — fixed-scale free-`sp` at FAR dispersion: reach `mgcv`'s basin (registered 2026-10-01, ADR-209 decision 1)
+
+**Why.** Slice 7's INDEPENDENT comparison disagreed at the far supplied `phi=6`
+(ADR-236; `eta` and `edf_total` both outside ADR-221), while agreeing at the near
+`phi=2`. Polaris's own analytic gradient is ~0 at BOTH its cold-start point and
+`mgcv`'s, and `mgcv`'s point scores lower (better) under Polaris's own criterion:
+two stationary points of one criterion, i.e. a landscape/optimiser finding in the
+by-term block, not a criterion defect. **Release condition:** a hypothesis-driven
+change to the search (not a tolerance change, not a tuned constant) after which the
+far-`phi` fit meets ADR-221 at tier 3 — or a derivation that the by-term block is
+weakly identified at that `phi` and ADR-221's `eta` gate is the wrong instrument
+there (a maintainer call). First hypothesis: `multistart=True` already moves the
+by-term block to `mgcv`'s value (6.44 vs 6.45) but lands the two `ti` blocks at a
+different stationary point (tier 1) — measure whether more starts / a start seeded
+from the `phi=2` solution reaches the lower basin by construction (cf. slice 8).
+Do NOT widen the gate.
 
 ---
 

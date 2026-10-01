@@ -24249,3 +24249,31 @@ quantity (the fit does not expose it; `mgcv`'s is reported only) — **registere
 ladder slice 3c** (2026-09-30, maintainer request), sequenced after slice 7. The
 externally-supplied `scale=` mode is Slice 7, unmeasured. Not mutation-tested
 beyond the tests above.
+
+
+## ADR-236: Capability ladder slice 7 — quasi-Poisson at a supplied FIXED `scale`: agrees at phi=2, DISAGREES at phi=6 (INDEPENDENT, tier 1 and tier 3 identical in verdict)
+
+**Status:** Accepted, 2026-10-01. **Claim sentence (written before the code):** `polaris_re`'s
+`fit_polaris_gam` (`poisson(log)` with `gamma=phi`) assembles the three-term `cr`/`cr`-by/`ti`
+design from a shared recipe (data, knots and the SUPPLIED `phi`), selects its own four
+`log10(lambda)` by minimizing the known-scale branch of `reml_score_general` with `gamma`
+standing for the fixed `phi`, and fits; `mgcv` computes it via `gam(family=quasipoisson(log),
+method="REML", scale=phi)`; compared at `phi` in {2, 6} on `eta` and `edf_total` (ADR-221, imported;
+`log10(sp)` and per-term edf reported).
+
+### Provenance (ADR-193)
+All four columns INDEPENDENT; `phi` is a supplied input to both sides (not compared).
+`fit_quasipoisson_fixed_scale_case` takes a recipe type with no `mgcv`-produced key
+(structural test + hostile-plant test). `score_at_both_points` is a DIAGNOSTIC that reads
+`mgcv`'s `sp` as a scorer input and is never parity evidence.
+
+### Result (tier 3, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, R 4.6.1 / mgcv 1.9.4, run 36806900876; tier 1 identical in verdict)
+- **phi=2 (near mgcv's free estimate, ~2.4): agrees** — `max_abs_eta_diff 2.296e-06`, `edf_total_diff +0.0001`.
+- **phi=6 (far): DISAGREES** — `max_abs_eta_diff 0.2841` (gate 2e-2), `edf_total_diff -2.1797` (gate 1.0), `log10(sp)` diff `4.21`.
+- Planning hypothesis, half refuted: **`mgcv`'s `poisson(scale=phi)` ignores `scale`** (reports 1; tripwire re-measured on the pinned oracle), so fixed-scale quasi-Poisson is reachable in `mgcv` only through `quasipoisson()`. Polaris's `poisson`+`gamma` path is the right producer.
+
+### Diagnosis (own-criterion diagnostic, tier 3 for the table, tier 1 for the variants)
+At phi=6 the analytic gradient is ~0 at BOTH points (`4.6e-03` Polaris, `1.1e-04` mgcv) and `mgcv`'s point scores lower under Polaris's own criterion (`204.2549` vs `205.0760`); at phi=2 the two coincide (`567.2369`). Two stationary points of one criterion: a landscape/optimiser finding in the by-term block, not a criterion defect (the criterion's `phi` scaling is what agrees at phi=2). Tier-1 only, labelled: a warm start at `mgcv`'s `sp` stays (eta diff `7.5e-06`); `multistart=True` finds the by-block value (6.44 vs 6.45) but different `ti` blocks. No tolerance changed; no constant tuned.
+
+### Consequences
+Slice 7's acceptance ("ADR-221 at the fit level, tier 3") is **NOT MET** at the far phi. No `ModelSpec` convenience was built (it would advertise a mode that fails far from the free estimate). Registered **slice 7b** with a release condition. Slice 3c consumes the fixed mode and should treat it as verified only near the free estimate until 7b closes.
