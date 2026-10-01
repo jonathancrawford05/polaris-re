@@ -24268,7 +24268,7 @@ All four columns INDEPENDENT; `phi` is a supplied input to both sides (not compa
 `mgcv`'s `sp` as a scorer input and is never parity evidence.
 
 ### Result (tier 3, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, R 4.6.1 / mgcv 1.9.4, run 36806900876; tier 1 identical in verdict)
-- **phi=2 (near mgcv's free estimate, ~2.4): agrees** — `max_abs_eta_diff 2.296e-06`, `edf_total_diff +0.0001`.
+- **phi=2 (near slice 3b's free-scale estimate, 2.009 on a different draw; not measured on this draw): agrees** — `max_abs_eta_diff 2.296e-06`, `edf_total_diff +0.0001`.
 - **phi=6 (far): DISAGREES** — `max_abs_eta_diff 0.2841` (gate 2e-2), `edf_total_diff -2.1797` (gate 1.0), `log10(sp)` diff `4.21`.
 - Planning hypothesis, half refuted: **`mgcv`'s `poisson(scale=phi)` ignores `scale`** (reports 1; tripwire re-measured on the pinned oracle), so fixed-scale quasi-Poisson is reachable in `mgcv` only through `quasipoisson()`. Polaris's `poisson`+`gamma` path is the right producer.
 

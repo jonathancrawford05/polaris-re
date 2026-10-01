@@ -62,8 +62,9 @@ __all__ = [
     "QUASIPOISSON_FIXED_SCALE_CLAIM_SENTENCE",
     "FixedScaleCaseComparison",
     "FixedScaleStationarity",
-    "RQuasiPoissonFixedScaleFit",
+    "PolarisFixedScaleFits",
     "RQuasiPoissonFixedScalePayload",
+    "RQuasiPoissonFixedScaleRFit",
     "RQuasiPoissonFixedScaleRecipe",
     "compare_quasipoisson_fixed_scale_case",
     "fit_quasipoisson_fixed_scale_case",
@@ -193,13 +194,13 @@ def _model_and_data(
     return model, data, np.asarray(r_case["y"], dtype=np.float64)
 
 
-type RQuasiPoissonFixedScaleFit = list[PolarisGAMFit]
+type PolarisFixedScaleFits = list[PolarisGAMFit]
 """One :class:`PolarisGAMFit` per supplied scale, in ``scales`` order."""
 
 
 def fit_quasipoisson_fixed_scale_case(
     r_case: RQuasiPoissonFixedScaleRecipe, *, multistart: bool = False
-) -> RQuasiPoissonFixedScaleFit:
+) -> PolarisFixedScaleFits:
     """The independent Python producer: for each supplied ``phi``, assemble,
     select own lambda under the known-scale criterion with ``gamma = phi``, fit.
     Never reads ``mgcv``'s ``eta``/``coef``/``sp``/``edf`` (the recipe type has
@@ -226,7 +227,7 @@ class FixedScaleCaseComparison(TypedDict):
 
 
 def compare_quasipoisson_fixed_scale_case(
-    python_fits: RQuasiPoissonFixedScaleFit, r_case: RQuasiPoissonFixedScalePayload
+    python_fits: PolarisFixedScaleFits, r_case: RQuasiPoissonFixedScalePayload
 ) -> list[FixedScaleCaseComparison]:
     """One comparison per supplied scale, on every quantity the claim declares.
     ``agrees`` is ADR-221's imported ``eta``/``edf_total`` criterion."""
@@ -237,7 +238,7 @@ def compare_quasipoisson_fixed_scale_case(
         )
     out: list[FixedScaleCaseComparison] = []
     for phi, py, rf in zip(r_case["scales"], python_fits, r_case["fits"], strict=True):
-        if float(rf["scale"]) != float(phi):
+        if not np.isclose(float(rf["scale"]), float(phi), rtol=1e-12, atol=0.0):
             raise PolarisValidationError(
                 f"compare_quasipoisson_fixed_scale_case: mgcv reports scale "
                 f"{rf['scale']} for supplied scale {phi}; mgcv did not hold the scale fixed."
@@ -298,7 +299,7 @@ class FixedScaleStationarity(TypedDict):
 
 
 def score_at_both_points(
-    python_fits: RQuasiPoissonFixedScaleFit, r_case: RQuasiPoissonFixedScalePayload
+    python_fits: PolarisFixedScaleFits, r_case: RQuasiPoissonFixedScalePayload
 ) -> list[FixedScaleStationarity]:
     """Score ``mgcv``'s selected ``sp`` and Polaris's under Polaris's own
     criterion, with the analytic gradient at each. Two near-zero gradients with
@@ -310,13 +311,18 @@ def score_at_both_points(
     family = resolve_family(model.family, model.link)
     out: list[FixedScaleStationarity] = []
     for phi, py, rf in zip(r_case["scales"], python_fits, r_case["fits"], strict=True):
-        pts = {}
+        pts: dict[str, tuple[float, float]] = {}
         for name, ll in (
             ("python", py.log_lambda),
             ("mgcv", np.log10(np.atleast_1d(np.asarray(rf["sp"], dtype=np.float64)))),
         ):
             _, score, grad = penalized_fit_score_and_gradient(
-                y, design["x"], family, design["penalty_blocks"], np.asarray(ll), gamma=float(phi)
+                y,
+                design["x"],
+                family,
+                design["penalty_blocks"],
+                np.asarray(ll, dtype=np.float64),
+                gamma=float(phi),
             )
             pts[name] = (float(score), float(np.max(np.abs(grad))))
         out.append(

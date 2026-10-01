@@ -11,7 +11,7 @@
 #
 #   gam(family = quasipoisson(link = "log"), method = "REML", scale = phi)
 #
-# at TWO supplied phi: 2.0 (near the free-scale estimate on this data, ~2.4)
+# at TWO supplied phi: 2.0 (chosen near slice 3b's free-scale estimate, 2.009 on a different draw; the free estimate on THIS draw is not measured here)
 # and 6.0 (far from it, so agreement cannot be vacuous). mgcv chooses its own
 # smoothing parameters with the scale held at phi.
 #
