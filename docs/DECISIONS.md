@@ -24186,3 +24186,66 @@ One dataset, one seed; single-start search sufficed (no multistart needed).
 whether the target uses it first — unconfirmed). The design carries the known
 penalised intercept/`re` collinearity (rank = p-1 at n=900), identical in
 mgcv. quasi-Poisson dispersion is Slices 3b/7, not measured here.
+
+
+## ADR-235: Capability ladder slice 3b — `quasipoisson(log)` at FREE `sp` reproduces `mgcv` at the fit level (INDEPENDENT, tier 1 and tier 3)
+
+**Status:** Accepted, 2026-09-30. **Claim sentence (written before the code):**
+`polaris_re`'s `fit_polaris_gam` assembles the three-term `cr` / `cr`-by / `ti`
+design from a shared recipe (overdispersed count `y`, target knots), selects its
+own four `log10(lambda)` under `quasipoisson(log)` via the free-scale REML
+branch (ADR-231) and fits; `mgcv` computes it via
+`gam(family=quasipoisson(link="log"), method="REML")` with its own `sp` and
+dispersion; compared on `eta` and `edf_total` against ADR-221's
+committed criterion (imported, Anchor W5); per-term `edf` and `log10(sp)` are
+reported, not gated. Per-term `edf` is paired positionally and guarded by an
+exported-label alignment check (`term_labels` vs `edf_per_term` keys).
+
+### Context
+
+Slice 3 (ADR-231) verified the free-scale criterion at the SCORE level for
+`quasipoisson`, and only Gaussian at the fit level. Slice 3b (registered by
+PR #240's review, ADR-209 decision 1) closes that named half-open state. No
+production code changed: MEASURE FIRST found the fit already works.
+
+### Provenance (ADR-193)
+
+All four columns INDEPENDENT. `fit_quasipoisson_free_sp_case` takes
+`RQuasiPoissonFreeSpRecipe`, which has no `eta`/`sp`/`edf_total`/`term_edf`/
+`coef`/`scale` key; a test plants hostile values under every one and shows the
+fit bit-identical. `mgcv` is handed neither `sp` nor scale.
+
+### Measurement (tier 3: R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, run [36704353339](https://github.com/jonathancrawford05/polaris-re/actions/runs/36704353339); tier 1 = R 4.3.3 / mgcv 1.9.1)
+
+| metric | tier 1 | tier 3 |
+|---|---:|---:|
+| max abs `eta` diff | 4.267e-06 | 4.236e-06 |
+| `edf_total` diff | -2.85e-05 | -0.0000 (4dp) |
+| max abs per-term `edf` diff | 5.2e-05 | 0.0001 (4dp) |
+| max abs `log10(sp)` diff (reported) | 2.1e-05 | 0.0000 (4dp) |
+| mgcv scale | 2.009 | 2.009 |
+
+`agrees=True`, `converged=True` both sides, `at_bound=False`, offset tripwire
+1.332e-15. Single-start search sufficed.
+
+### Suspicion, not just a check
+
+Agreement this tight is suspect first. (1) The response is overdispersed
+(scale ~2). `test_the_measurement_discriminates_a_scale_fixed_at_one` pins that
+the SAME design under `poisson` (scale fixed at 1) selects `log10(sp)` more than
+0.1 away from the quasipoisson selection — Polaris against Polaris, no `mgcv`
+involved. The further reading that the `poisson` fit lands `eta` 0.17 and
+`edf_total` +7.3 away from `mgcv`'s quasipoisson fit is an UNCOMMITTED ad-hoc
+tier-1 measurement, not pinned by any test: a criterion that ignored the
+dispersion would fail here, but those magnitudes are hypothesis-grade. (2) A first draft of
+the probe used a linear age signal, which drove two blocks to `mgcv`'s
+`sp -> inf` null-space corner; it was made genuinely non-linear before any
+number was recorded, so no block sits at a bound.
+
+### What this does not settle
+
+One dataset, one seed, one structure. The dispersion itself is not a compared
+quantity (the fit does not expose it; `mgcv`'s is reported only) — **registered as
+ladder slice 3c** (2026-09-30, maintainer request), sequenced after slice 7. The
+externally-supplied `scale=` mode is Slice 7, unmeasured. Not mutation-tested
+beyond the tests above.

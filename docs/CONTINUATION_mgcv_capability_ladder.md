@@ -3,7 +3,7 @@
 **Plan:** `docs/PLAN_mgcv_capability_ladder.md`
 **Created:** 2026-09-19, by the session that started slice 1 — as the plan's §3
 requires, and not before (the one-active-epic rule).
-**Status:** **IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); NEXT: Slice 3b / Slice 7 (quasi-Poisson dispersion).** L1-L5
+**Status:** **IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); NEXT: Slice 7 (quasi-Poisson fixed dispersion), then Slice 3c (dispersion estimate + two-stage workflow).** L1-L5
 (the original five slices) are COMPLETE and unchanged below — nothing about
 them is revised by the reopening. `PLAN_mgcv_capability_ladder.md` §2.3,
 maintainer direction: the actual near-term dev target is a formula built
@@ -26,6 +26,8 @@ are this epic's own NEXT work — **this is not a queue-empty state.** See
 | **4** | **L3** factor-`by` | **DONE** (2026-09-26, ADR-232) — the contract decision (a new `by_factor`/`by_level` field, not a widened `by`) resolved before any basis code; construction measured against `mgcv` before writing it (the shared identifiability constraint is the WHOLE-DATA no-`by` one, not a per-level-subset one — refuted first); Stage A exact per level and Stage B **fixed AND free `sp` both landed in this slice**, ONE family (`gaussian(identity)`) throughout since L5 already closed the free-scale blocker |
 | **5** | **L4** unpenalized parametric block | **DONE** (2026-09-27, ADR-233) — `TermSpec` gained `basis="parametric"` and a new `levels` field (per-variable level counts, distinct from the existing single-count `n_levels`); design is `mgcv`'s own `contr.treatment` coding (`gam_basis_parametric.py`), zero penalty blocks; found and fixed a real edge case in `assemble_model_design`'s `select=True` branch (`null_space_penalty` raises on an empty block tuple). Stage A exact (no fit needed) and Stage B **fixed AND free `sp` both landed in this slice**, ONE family (`gaussian(identity)`) throughout. **This closed the ORIGINAL five-slice plan — L1 through L5 are all climbed.** |
 | **6** | (composition, not a rung) `cr`+`re`+`ti` jointly | **DONE 2026-09-28 (ADR-234)** — INDEPENDENT, fixed AND free `sp`, tier 1 and tier 3 agree (`eta` 2.5e-14 fixed; ≤3e-5 free). Originally: REGISTERED 2026-09-27. Each basis individually verified; never fit together. See plan §2.3 and its own Slice 6 text |
+| **3b** | quasi-Poisson fit-level free `sp` | **DONE 2026-09-30 (ADR-235)** — INDEPENDENT, tier 3 (run 36704353339): `eta` diff 4.236e-06, `agrees=True`; tier 1 identical in kind. No production code changed |
+| **3c** | expose + verify estimated dispersion; two-stage Poisson -> fixed-scale workflow | **REGISTERED 2026-09-30 (PR #245, maintainer request), NOT STARTED.** Sequenced AFTER slice 7 (consumes its fixed-scale mode). Estimator (deviance vs Pearson) is MEASURE-FIRST. No severity threshold imposed — the estimate is REPORTED and the two-stage workflow is optional/non-standard, the user's choice (maintainer, 2026-09-30). See plan slice 3c |
 | **7** | (family axis, not a rung) quasi-Poisson fixed dispersion | **REGISTERED 2026-09-27, NOT STARTED.** MEASURE-FIRST hypothesis recorded: may already work via `fit_polaris_gam(family="poisson", gamma=phi_fixed)` — unverified. See plan §2.3 and its own Slice 7 text. Slice 3b (the "estimate" mode) is a separate, still-open registration, unaffected by this |
 
 ---

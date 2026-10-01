@@ -171,6 +171,9 @@ on:
       - "src/polaris_re/analytics/gam_free_scale_reml_conformance.py"
       - "scripts/gam_free_scale_reml_score_probe.R"
       - "scripts/gam_gaussian_free_sp_probe.R"
+      # CAPABILITY LADDER slice 3b — quasipoisson(log) FIT-level free sp.
+      - "src/polaris_re/analytics/gam_quasipoisson_conformance.py"
+      - "scripts/gam_quasipoisson_free_sp_probe.R"
       # CAPABILITY LADDER rung L3 (docs/PLAN_mgcv_capability_ladder.md slice
       # 4) — factor-by, s(x, by=fac, bs="cr"). gam_basis_cr.py and
       # gam_stage_a.py (Stage A's producer and claim) plus gam_term_spec.py
@@ -622,6 +625,19 @@ jobs:
             Rscript scripts/gam_gaussian_free_sp_probe.R \
               gam_gaussian_free_sp_probe.json
 
+      # CAPABILITY LADDER slice 3b — the quasipoisson(log) FIT-level free-sp
+      # re-run (slice 3 measured quasipoisson at the score level only). Same
+      # three-term design; overdispersed-count response so the estimated
+      # dispersion is well above 1. Same DIAGNOSTIC contract as every probe
+      # above; the comparison happens in the `compare` job below.
+      - name: Fit the three-term design under quasipoisson(log) at free sp (ladder slice 3b)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_quasipoisson_free_sp_probe.R \
+              gam_quasipoisson_free_sp_probe.json
+
       # CAPABILITY LADDER rung L3 (docs/PLAN_mgcv_capability_ladder.md slice
       # 4) — factor-by, Stage B, FIXED sp. Pairs the already-verified `cr`
       # term (on PolYear) with the NEW factor-by construction (on AttdAge,
@@ -827,6 +843,7 @@ jobs:
             gam_re_free_sp_probe.json
             gam_free_scale_reml_score_probe.json
             gam_gaussian_free_sp_probe.json
+            gam_quasipoisson_free_sp_probe.json
             gam_by_factor_probe.json
             gam_by_factor_free_sp_probe.json
             gam_parametric_stage_a_probe.json
@@ -2580,6 +2597,67 @@ jobs:
           PY
           if [ -f gam_gaussian_free_sp_probe_report.md ]; then
             cat gam_gaussian_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # CAPABILITY LADDER slice 3b — quasipoisson(log) FIT-level free sp.
+      # Compares the independent Python free-sp fit against job 1's native
+      # mgcv free-sp REML fit (own sp AND own dispersion) on the same
+      # three-term design. ADR-221's criterion, imported, never redeclared.
+      - name: Compare the quasipoisson(log) free-sp fit against the Python side (ladder slice 3b)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_quasipoisson_free_sp_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_quasipoisson_free_sp_probe.json to compare ({exc}) — "
+                    "the R probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_quasipoisson_conformance import (
+              QUASIPOISSON_FREE_SP_CLAIM, compare_quasipoisson_free_sp_case,
+              fit_quasipoisson_free_sp_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          fit = fit_quasipoisson_free_sp_case(r_payload)
+          c = compare_quasipoisson_free_sp_case(fit, r_payload)
+
+          lines = [
+              "",
+              "### Capability ladder slice 3b — quasipoisson(log) at FREE sp vs mgcv "
+              "(fit level)",
+              "",
+              evidence_markdown(QUASIPOISSON_FREE_SP_CLAIM),
+              "",
+              "| n | p | max abs eta diff | max abs log10(sp) diff | edf_total diff | "
+              "max abs per-term edf diff | mgcv scale | at bound | converged | agrees |",
+              "|---:|---:|---:|---:|---:|---:|---:|---|---|---|",
+              f"| {r_payload['n']} | {len(r_payload['coef'])} | "
+              f"{c['max_abs_eta_diff']:.3e} | {c['max_abs_log10_sp_diff']:.4f} | "
+              f"{c['edf_total_diff']:+.4f} | {c['max_abs_term_edf_diff']:.4f} | "
+              f"{c['r_scale']:.3f} | {c['at_bound']} | {c['converged']} | {c['agrees']} |",
+              "",
+              "Gate is ADR-221's committed criterion, imported and never "
+              "redeclared (Anchor W5). `sp` and the scale are reported, not gated. "
+              "Coefficients are NOT compared (Anchor 2).",
+              "",
+              f"**Offset tripwire** (reported, never gated): {c['offset_gap']:.3e}.",
+          ]
+          if not c["agrees"]:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_quasipoisson_free_sp_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_quasipoisson_free_sp_probe_report.md ]; then
+            cat gam_quasipoisson_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Compare the factor-by basis vs smoothCon(s(x, by=fac, bs="cr")) (ladder L3 Stage A)
