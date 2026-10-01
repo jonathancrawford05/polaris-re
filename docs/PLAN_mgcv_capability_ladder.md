@@ -637,6 +637,13 @@ different stationary point (tier 1) — measure whether more starts / a start se
 from the `phi=2` solution reaches the lower basin by construction (cf. slice 8).
 Do NOT widen the gate.
 
+**Cross-link (so this is not left to memory):** parity-epic slice 8 (the
+Wood-shaped outer solver, `PLAN_mgcv_parity_engine.md`) carries an explicit task
+to re-run this slice's phi=6 reading at tier 3 when its solver lands. Any other
+change to `gam_reml_optimize.py` / `gam_reml_gradient.py` / `gam_fit.py`
+re-triggers the CI comparison via its path filter, but that step annotates and
+does not gate — so a session touching the optimiser should read the phi=6 row.
+
 ---
 
 ## 4. What gates a rung, and what does not
