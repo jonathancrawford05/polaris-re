@@ -122,6 +122,20 @@ def test_the_fit_is_unchanged_when_every_mgcv_key_is_planted() -> None:
         np.testing.assert_array_equal(a.log_lambda, b.log_lambda)
 
 
+def test_seeded_candidate_never_scores_worse_than_cold_and_off_switch_is_cold_only() -> None:
+    """Slice 7b: the default keeps the LOWER own-criterion score of two starts, so
+    it can never be worse than slice 7's cold start; ``unit_gamma_seed=False``
+    reproduces that cold-start-only behaviour exactly."""
+    recipe = _recipe()
+    cold = fit_quasipoisson_fixed_scale_case(recipe, unit_gamma_seed=False)
+    best = fit_quasipoisson_fixed_scale_case(recipe)
+    for c, b in zip(cold, best, strict=True):
+        assert b.reml_score <= c.reml_score + 1e-12
+    again = fit_quasipoisson_fixed_scale_case(recipe, unit_gamma_seed=False)
+    for a, b in zip(cold, again, strict=True):
+        np.testing.assert_array_equal(a.log_lambda, b.log_lambda)
+
+
 def test_model_spec_is_poisson_log_on_the_three_term_design() -> None:
     spec = fixed_scale_model_spec(tuple(_AGE_KNOTS), tuple(_YEAR_KNOTS))
     assert (spec.family, spec.link) == ("poisson", "log")
