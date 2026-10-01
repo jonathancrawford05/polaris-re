@@ -174,6 +174,9 @@ on:
       # CAPABILITY LADDER slice 3b — quasipoisson(log) FIT-level free sp.
       - "src/polaris_re/analytics/gam_quasipoisson_conformance.py"
       - "scripts/gam_quasipoisson_free_sp_probe.R"
+      # CAPABILITY LADDER slice 7 — quasipoisson(log) at a supplied FIXED scale.
+      - "src/polaris_re/analytics/gam_quasipoisson_fixed_scale_conformance.py"
+      - "scripts/gam_quasipoisson_fixed_scale_probe.R"
       # CAPABILITY LADDER rung L3 (docs/PLAN_mgcv_capability_ladder.md slice
       # 4) — factor-by, s(x, by=fac, bs="cr"). gam_basis_cr.py and
       # gam_stage_a.py (Stage A's producer and claim) plus gam_term_spec.py
@@ -638,6 +641,18 @@ jobs:
             Rscript scripts/gam_quasipoisson_free_sp_probe.R \
               gam_quasipoisson_free_sp_probe.json
 
+      # CAPABILITY LADDER slice 7 — quasipoisson(log) at a SUPPLIED, FIXED scale
+      # (phi = 2 near the free estimate, phi = 6 far from it), plus the
+      # poisson(scale=) tripwire. Same DIAGNOSTIC contract as every probe above;
+      # the comparison happens in the `compare` job below.
+      - name: Fit the three-term design under quasipoisson(log) at fixed scale (ladder slice 7)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_quasipoisson_fixed_scale_probe.R \
+              gam_quasipoisson_fixed_scale_probe.json
+
       # CAPABILITY LADDER rung L3 (docs/PLAN_mgcv_capability_ladder.md slice
       # 4) — factor-by, Stage B, FIXED sp. Pairs the already-verified `cr`
       # term (on PolYear) with the NEW factor-by construction (on AttdAge,
@@ -844,6 +859,7 @@ jobs:
             gam_free_scale_reml_score_probe.json
             gam_gaussian_free_sp_probe.json
             gam_quasipoisson_free_sp_probe.json
+            gam_quasipoisson_fixed_scale_probe.json
             gam_by_factor_probe.json
             gam_by_factor_free_sp_probe.json
             gam_parametric_stage_a_probe.json
@@ -2658,6 +2674,92 @@ jobs:
           PY
           if [ -f gam_quasipoisson_free_sp_probe_report.md ]; then
             cat gam_quasipoisson_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # CAPABILITY LADDER slice 7 — quasipoisson(log) at a supplied FIXED scale.
+      # Python: poisson(log) + gamma=phi (no new criterion code). mgcv:
+      # quasipoisson(scale=phi). ADR-221's criterion, imported, per phi.
+      - name: Compare the quasipoisson(log) fixed-scale fits against the Python side (ladder slice 7)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_quasipoisson_fixed_scale_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_quasipoisson_fixed_scale_probe.json to compare ({exc}) — "
+                    "the R probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_quasipoisson_fixed_scale_conformance import (
+              QUASIPOISSON_FIXED_SCALE_CLAIM, compare_quasipoisson_fixed_scale_case,
+              fit_quasipoisson_fixed_scale_case, score_at_both_points,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          fits = fit_quasipoisson_fixed_scale_case(r_payload)
+          cs = compare_quasipoisson_fixed_scale_case(fits, r_payload)
+          diag = score_at_both_points(fits, r_payload)
+
+          lines = [
+              "",
+              "### Capability ladder slice 7 — quasipoisson(log) at a FIXED scale vs mgcv",
+              "",
+              evidence_markdown(QUASIPOISSON_FIXED_SCALE_CLAIM),
+              "",
+              "| phi | max abs eta diff | max abs log10(sp) diff | edf_total diff | "
+              "max abs per-term edf diff | at bound | converged | agrees |",
+              "|---:|---:|---:|---:|---:|---|---|---|",
+          ]
+          for c in cs:
+              lines.append(
+                  f"| {c['scale']:g} | {c['max_abs_eta_diff']:.3e} | "
+                  f"{c['max_abs_log10_sp_diff']:.4f} | {c['edf_total_diff']:+.4f} | "
+                  f"{c['max_abs_term_edf_diff']:.4f} | {c['at_bound']} | "
+                  f"{c['converged']} | {c['agrees']} |"
+              )
+          lines += [
+              "",
+              "**DIAGNOSTIC, not parity evidence** — Polaris's OWN criterion scored at "
+              "each side's selected sp (mgcv's sp is a scorer INPUT here). Two "
+              "near-zero gradients with different scores = two stationary points of "
+              "one criterion, not two criteria.",
+              "",
+              "| phi | score @ Polaris sp | score @ mgcv sp | max abs grad @ Polaris | "
+              "max abs grad @ mgcv |",
+              "|---:|---:|---:|---:|---:|",
+          ]
+          for d in diag:
+              lines.append(
+                  f"| {d['scale']:g} | {d['python_score']:.4f} | {d['mgcv_score']:.4f} | "
+                  f"{d['python_max_abs_grad']:.2e} | {d['mgcv_max_abs_grad']:.2e} |"
+              )
+          lines += [
+              "",
+              f"**poisson(scale=2) tripwire**: mgcv reports scale "
+              f"{r_payload['poisson_scale_arg_reported']:g}; ignores `scale` = "
+              f"{r_payload['poisson_ignores_scale']}.",
+              "",
+              "Gate is ADR-221's committed criterion, imported and never redeclared "
+              "(Anchor W5). `sp` is reported, not gated. Coefficients are NOT compared "
+              "(Anchor 2). phi is a supplied input to both sides, not a compared quantity.",
+              f"**Offset tripwire** (reported, never gated): "
+              f"{max(c['offset_gap'] for c in cs):.3e}.",
+          ]
+          if not all(c["agrees"] for c in cs):
+              lines.insert(2, "**Disagreement at one or more phi — see the table. "
+                              "This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_quasipoisson_fixed_scale_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_quasipoisson_fixed_scale_probe_report.md ]; then
+            cat gam_quasipoisson_fixed_scale_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Compare the factor-by basis vs smoothCon(s(x, by=fac, bs="cr")) (ladder L3 Stage A)
