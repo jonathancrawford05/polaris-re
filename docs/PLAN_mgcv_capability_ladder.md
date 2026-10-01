@@ -637,6 +637,20 @@ different stationary point (tier 1) — measure whether more starts / a start se
 from the `phi=2` solution reaches the lower basin by construction (cf. slice 8).
 Do NOT widen the gate.
 
+**Gating decision (maintainer, 2026-10-01, "option C"): the PR that closes this
+slice MUST ALSO make the phi=6 comparison a required, blocking check.** Until
+then the CI step stays a non-gating annotation (a known-failing blocking check
+would red every PR touching the conformance paths, the move the routine already
+refuses). Concretely, the closing PR:
+- removes `continue-on-error` from the fixed-scale compare step, or adds an
+  assertion step, so a `phi=6` regression fails the job;
+- gates on `eta` and `edf_total` only (ADR-221, imported) — **never on
+  `log10(sp)`**, which varied between runs on the same data (4.08 / 3.27 / 4.21
+  locally and on CI) while `eta` was stable at ~0.284;
+- records the gate in this slice's ADR. A 7b close that leaves the step
+  non-gating has not met its release condition. The same applies if parity-epic
+  slice 8's solver closes the gap first: that PR carries this obligation too.
+
 **Cross-link (so this is not left to memory):** parity-epic slice 8 (the
 Wood-shaped outer solver, `PLAN_mgcv_parity_engine.md`) carries an explicit task
 to re-run this slice's phi=6 reading at tier 3 when its solver lands. Any other

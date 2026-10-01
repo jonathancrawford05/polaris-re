@@ -2267,6 +2267,9 @@ finite-difference step at all).
     point) in this slice's ADR. A solver that is "reliable" but still lands at
     `205.0760` has not met this slice's own purpose (ADR-224: reliable
     convergence and convergence to `mgcv`'s basin are different properties).
+  - **If this slice closes the phi=6 gap, its PR must also make that CI step
+    required** (maintainer decision 2026-10-01, ladder slice 7b "option C"):
+    blocking, gated on `eta`/`edf_total` only, never `log10(sp)`.
   - The CI step is a non-gating annotation (`continue-on-error`), and the path
     filter on `gam_reml_optimize*.py` / `gam_reml_gradient.py` re-runs it
     automatically, but nothing fails if it still disagrees — hence this
