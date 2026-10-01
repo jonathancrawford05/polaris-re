@@ -34,7 +34,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 _AGE_KNOTS = [1.0, 2.0, 4.0, 7.0, 14.0, 18.0, 24.0, 35.0, 50.0, 70.0, 85.0, 90.0, 95.0]
 _YEAR_KNOTS = [1.0, 2.0, 3.0, 5.0, 10.0, 21.0]
 
-_MGCV_PRODUCED_KEYS = ("eta", "sp", "edf_total", "term_edf", "offset_gap", "coef", "scale")
+_MGCV_PRODUCED_KEYS = (
+    "eta",
+    "sp",
+    "edf_total",
+    "term_edf",
+    "term_labels",
+    "offset_gap",
+    "coef",
+    "scale",
+    "converged",
+)
 _MGCV_DIAGNOSTIC_KEYS = ("mgcv_version", "r_version", "schema_version")
 
 
@@ -81,6 +91,7 @@ def test_fit_signature_structurally_cannot_read_mgcvs_fit() -> None:
     assert recipe_keys.isdisjoint(_MGCV_PRODUCED_KEYS)
     assert set(_MGCV_PRODUCED_KEYS) <= payload_keys
     assert recipe_keys.isdisjoint(_MGCV_DIAGNOSTIC_KEYS)
+    assert payload_keys.isdisjoint(_MGCV_DIAGNOSTIC_KEYS)
 
 
 def test_the_fit_is_unchanged_when_every_mgcv_key_is_planted() -> None:
@@ -95,6 +106,7 @@ def test_the_fit_is_unchanged_when_every_mgcv_key_is_planted() -> None:
         sp=[1e-3] * 4,
         edf_total=1.0,
         term_edf=[9.0] * 3,
+        term_labels=["x"] * 3,
         offset_gap=0.0,
         coef=[0.0],
         scale=1.0,
@@ -138,6 +150,7 @@ def test_compare_rejects_a_length_mismatch() -> None:
         sp=[1.0] * 4,
         edf_total=1.0,
         term_edf=[1.0] * 3,
+        term_labels=["x"] * 3,
         offset_gap=0.0,
         coef=[0.0],
         scale=1.0,
@@ -163,3 +176,30 @@ def test_round_trip_against_mgcv(tmp_path: Path) -> None:
     assert result["agrees"], result
     assert result["r_scale"] > 1.2  # genuinely overdispersed, else the test is vacuous
     assert result["offset_gap"] < 1e-9
+
+
+def test_compare_rejects_misaligned_term_labels() -> None:
+    """Per-term edf is paired positionally, so mgcv's s.table row names must
+    equal Polaris's term labels — otherwise the by-term could be compared
+    against the ti-term and still publish agrees=True."""
+    recipe = _recipe(n=200)
+    fit = fit_quasipoisson_free_sp_case(recipe)
+    n = recipe["n"]
+    good = dict(recipe)
+    good.update(
+        eta=fit.eta.tolist(),
+        sp=(10.0**fit.log_lambda).tolist(),
+        edf_total=fit.edf_total,
+        term_edf=list(fit.edf_per_term.values()),
+        term_labels=list(fit.edf_per_term),
+        offset_gap=0.0,
+        coef=[0.0] * n,
+        scale=1.0,
+        converged=True,
+    )
+    result = compare_quasipoisson_free_sp_case(fit, typing.cast(RQuasiPoissonFreeSpPayload, good))
+    assert result["max_abs_term_edf_diff"] < 1e-12
+    swapped = dict(good)
+    swapped["term_labels"] = list(reversed(list(fit.edf_per_term)))
+    with pytest.raises(PolarisValidationError, match="out of alignment"):
+        compare_quasipoisson_free_sp_case(fit, typing.cast(RQuasiPoissonFreeSpPayload, swapped))

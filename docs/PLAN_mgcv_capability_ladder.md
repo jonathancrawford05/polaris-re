@@ -387,9 +387,10 @@ maintainer needs the estimate as a **product**, not an internal:
    `mgcv`'s own estimate. **MEASURE FIRST, do not assume which estimator:**
    the `phi_hat` the criterion profiles out is a deviance-based quantity,
    while a Pearson-residual estimate (`sum((y-mu)^2/V(mu)) / (n - edf)`) is the
-   classical quasi-Poisson one and is what `mgcv` reports for `quasipoisson`
-   by default (`m$scale`; confirm on the probe, and confirm which `scale.est`
-   applies under `method="REML"`). They are not the same number. A tier-1 scoping reading
+   classical quasi-Poisson one and was *assumed* to be what `mgcv` reports for
+   `quasipoisson` (`m$scale`) — **the tier-1 scoping reading below refutes that
+   assumption**. Confirm which `scale.est` applies under `method="REML"` on the
+   pinned image. They are not the same number. A tier-1 scoping reading
    (ledger, 2026-09-30; hypothesis until re-measured at tier 3) suggests `mgcv`'s
    REML-mode estimate is **Fletcher's (2012) estimator**, not plain Pearson, and
    that Polaris can reproduce it from its own fit — slice 3c must confirm this

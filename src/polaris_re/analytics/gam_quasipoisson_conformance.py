@@ -78,6 +78,7 @@ class RQuasiPoissonFreeSpPayload(RQuasiPoissonFreeSpRecipe):
     sp: list[float]
     edf_total: float
     term_edf: list[float]
+    term_labels: list[str]
     offset_gap: float
     coef: list[float]
     scale: float
@@ -99,8 +100,8 @@ QUASIPOISSON_FREE_SP_CLAIM_SENTENCE = (
     "Compared on eta at the training design, edf_total and per-term edf, gated "
     "on ADR-221's committed criterion (max_abs_eta_diff < 2e-2 and "
     "abs(edf_total_diff) < 1.0), IMPORTED and not redeclared; log10(sp) per "
-    "block is reported, not gated. Coefficients are never compared (PLAN "
-    "Anchor 2)."
+    "block and per-term edf are reported, not gated. Coefficients are never "
+    "compared (PLAN Anchor 2)."
 )
 
 
@@ -188,18 +189,30 @@ def compare_quasipoisson_free_sp_case(
             f"compare_quasipoisson_free_sp_case: R eta has shape {r_eta.shape}, "
             f"Python eta has shape {python_fit.eta.shape}."
         )
-    r_log_sp = np.log10(np.asarray(r_case["sp"], dtype=np.float64))
+    r_log_sp = np.log10(np.atleast_1d(np.asarray(r_case["sp"], dtype=np.float64)))
     if r_log_sp.shape != python_fit.log_lambda.shape:
         raise PolarisValidationError(
-            f"compare_quasipoisson_free_sp_case: R sp has {r_log_sp.shape[0]} "
-            f"entries, Python log_lambda has {python_fit.log_lambda.shape[0]}."
+            f"compare_quasipoisson_free_sp_case: R sp has {r_log_sp.size} "
+            f"entries, Python log_lambda has {python_fit.log_lambda.size}."
         )
-    r_term_edf = np.asarray(r_case["term_edf"], dtype=np.float64)
+    r_term_edf = np.atleast_1d(np.asarray(r_case["term_edf"], dtype=np.float64))
     python_term_edf = np.asarray(list(python_fit.edf_per_term.values()), dtype=np.float64)
     if r_term_edf.shape != python_term_edf.shape:
         raise PolarisValidationError(
-            f"compare_quasipoisson_free_sp_case: R term_edf has {r_term_edf.shape[0]} "
-            f"entries, Python edf_per_term has {python_term_edf.shape[0]}."
+            f"compare_quasipoisson_free_sp_case: R term_edf has {r_term_edf.size} "
+            f"entries, Python edf_per_term has {python_term_edf.size}."
+        )
+    # Positional pairing is only valid if both sides list the terms in the same
+    # order: check mgcv's own s.table row names against Polaris's term labels
+    # (the guard ladder slice 6 added, `_check_labels`), so a reordered spec or
+    # s.table cannot silently compare the by-term against the ti-term.
+    r_labels = tuple(np.atleast_1d(np.asarray(r_case["term_labels"], dtype=str)).tolist())
+    python_labels = tuple(python_fit.edf_per_term)
+    if r_labels != python_labels:
+        raise PolarisValidationError(
+            f"compare_quasipoisson_free_sp_case: mgcv's s.table rows are {r_labels}, "
+            f"Polaris's edf_per_term keys are {python_labels}; per-term edf would be "
+            "compared out of alignment."
         )
 
     max_abs_eta_diff = float(np.max(np.abs(r_eta - python_fit.eta)))

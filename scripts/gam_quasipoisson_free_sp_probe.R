@@ -89,6 +89,7 @@ main <- function(argv) {
     sp = as.numeric(m$sp),
     edf_total = as.numeric(sum(m$edf)),
     term_edf = as.numeric(summary(m)$s.table[, "edf"]),
+    term_labels = I(rownames(summary(m)$s.table)),
     offset_gap = offset_gap,
     coef = as.numeric(coef(m)),
     scale = as.numeric(m$scale),

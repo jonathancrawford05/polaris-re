@@ -24196,8 +24196,10 @@ design from a shared recipe (overdispersed count `y`, target knots), selects its
 own four `log10(lambda)` under `quasipoisson(log)` via the free-scale REML
 branch (ADR-231) and fits; `mgcv` computes it via
 `gam(family=quasipoisson(link="log"), method="REML")` with its own `sp` and
-dispersion; compared on `eta`, `edf_total`, per-term `edf` against ADR-221's
-committed criterion (imported, Anchor W5), `log10(sp)` reported not gated.
+dispersion; compared on `eta` and `edf_total` against ADR-221's
+committed criterion (imported, Anchor W5); per-term `edf` and `log10(sp)` are
+reported, not gated. Per-term `edf` is paired positionally and guarded by an
+exported-label alignment check (`term_labels` vs `edf_per_term` keys).
 
 ### Context
 

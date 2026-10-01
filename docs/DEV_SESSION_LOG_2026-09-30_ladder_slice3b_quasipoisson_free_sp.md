@@ -8,8 +8,9 @@
 `polaris_re`'s `fit_polaris_gam` assembles the three-term cr/cr-by/ti design from a shared
 recipe and selects its own four `log10(lambda)` under `quasipoisson(log)` via the free-scale
 REML branch; `mgcv` computes it via `gam(family=quasipoisson(link="log"), method="REML")`
-with its own sp and dispersion; compared on `eta`, `edf_total`, per-term `edf` (gated,
-ADR-221 imported) and `log10(sp)` (reported).
+with its own sp and dispersion; compared on `eta` and `edf_total` (gated, ADR-221
+imported); per-term `edf` and `log10(sp)` are reported, not gated, and per-term pairing is
+guarded by mgcv's exported `s.table` row names (round-2 review of PR #245).
 
 ## Oracle Version
 - Tier 1: R 4.3.3 / mgcv 1.9.1 (apt; matches the expected versions, nothing moved).
@@ -70,9 +71,18 @@ advisory only — probe ran on a loaded machine and no engine code changed.
   with a release condition (supersedes the earlier "parked, 3rd-order" note on the accessor).
   Sequenced after slice 7. No severity threshold is imposed: the estimate is reported and the two-stage route is an optional, non-standard user choice.
 
+## Next (registered, not parked)
+- Slice 7 (fixed `scale`) is a REGISTERED epic slice and is next; its MEASURE-FIRST hypothesis
+  (`poisson` + `gamma=phi`) is untouched here. The scale-fixed-at-1 contrast above is a free
+  by-product data point for it. Then slice 3c.
+
 ## Parked Polish (order-classified; none promoted)
-- Slice 7 (fixed `scale`) is next; its MEASURE-FIRST hypothesis (`poisson` + `gamma=phi`) is
-  untouched here. The scale-fixed-at-1 contrast above is a free by-product data point for it.
 - The fit does not expose its own dispersion estimate, so the scale is reported from mgcv
   only, not compared. Registering that as a compared quantity would need a Polaris-side
   Pearson-scale accessor — now registered as slice 3c (see above).
+
+## Round-2 review (PR #245)
+Fixed: PLAN refuted-premise wording; per-term edf is reported-not-gated (docs corrected, claim sentence
+now says so); ledger scoping row labels provenance per reading; term alignment guarded via exported
+`term_labels` (new test); `converged` + diagnostics-disjoint added to the structural test; `.size`
+in mismatch guards. The probe gained `term_labels`, so the tier-3 run is re-dispatched on the new head.
