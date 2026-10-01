@@ -24355,7 +24355,7 @@ phi=2: `eta` 2.607e-06, `edf_total` +0.0001 (agrees). **phi=6: `eta` 6.678e-05, 
 `continue-on-error` removed from the fixed-scale compare step; a new step "Gate the quasipoisson(log) fixed-scale
 comparison (ladder slice 7b)" fails the job unless every supplied phi meets ADR-221's `eta`/`edf_total` criterion
 (imported). A missing probe JSON now fails (previously exit 0). **Never gated on `log10(sp)`.** The slow tier-1
-round-trip test now also asserts phi=6.
+round-trip test now also asserts phi=6. The gate step was verified at tier 3 by a second dispatch: run 36905028007 (head `41326cc`), step passed.
 
 ### Consequences
 Slice 7b's release condition met. Production `fit_polaris_gam` is unchanged: the two-start strategy lives in the

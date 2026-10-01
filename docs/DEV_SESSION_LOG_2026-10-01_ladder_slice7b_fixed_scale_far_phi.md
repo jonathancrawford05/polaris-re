@@ -40,7 +40,7 @@ Start selection reads Polaris's own `reml_score` only; recipe-typed signature + 
 Conformance-only change; production `fit_polaris_gam` unchanged (slice 7c registered). The extra draws (phi=8) have mgcv sp at ~1e10 corners — weak evidence about generality. Tier-1 extra draws are hypotheses, not committed numbers.
 
 ## Gate
-`continue-on-error` removed; new step gates `eta`/`edf_total` at every phi, missing JSON fails. (Option C.)
+`continue-on-error` removed; new step gates `eta`/`edf_total` at every phi, missing JSON fails. (Option C.) Verified at tier 3: run 36905028007, head `41326cc`, gate step passed.
 
 ## Quality gate / perf
 ruff clean; targeted tests 9 passed including slow R round trip asserting phi=6. No `perf/history.jsonl` row: only a `*_conformance.py` module outside the probe closure changed (ADR-177 amendment 2).
