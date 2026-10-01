@@ -3,7 +3,7 @@
 **Plan:** `docs/PLAN_mgcv_capability_ladder.md`
 **Created:** 2026-09-19, by the session that started slice 1 — as the plan's §3
 requires, and not before (the one-active-epic rule).
-**Status:** **IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); NEXT: Slice 7 (quasi-Poisson fixed dispersion), then Slice 3c (dispersion estimate + two-stage workflow).** L1-L5
+**Status:** **IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); Slice 7 MEASURED 2026-10-01 (ADR-236; acceptance NOT met — agrees at phi=2, disagrees at phi=6); NEXT: Slice 7b (far-phi basin), then Slice 3c (dispersion estimate + two-stage workflow).** L1-L5
 (the original five slices) are COMPLETE and unchanged below — nothing about
 them is revised by the reopening. `PLAN_mgcv_capability_ladder.md` §2.3,
 maintainer direction: the actual near-term dev target is a formula built
@@ -28,7 +28,7 @@ are this epic's own NEXT work — **this is not a queue-empty state.** See
 | **6** | (composition, not a rung) `cr`+`re`+`ti` jointly | **DONE 2026-09-28 (ADR-234)** — INDEPENDENT, fixed AND free `sp`, tier 1 and tier 3 agree (`eta` 2.5e-14 fixed; ≤3e-5 free). Originally: REGISTERED 2026-09-27. Each basis individually verified; never fit together. See plan §2.3 and its own Slice 6 text |
 | **3b** | quasi-Poisson fit-level free `sp` | **DONE 2026-09-30 (ADR-235)** — INDEPENDENT, tier 3 (run 36704353339): `eta` diff 4.236e-06, `agrees=True`; tier 1 identical in kind. No production code changed |
 | **3c** | expose + verify estimated dispersion; two-stage Poisson -> fixed-scale workflow | **REGISTERED 2026-09-30 (PR #245, maintainer request), NOT STARTED.** Sequenced AFTER slice 7 (consumes its fixed-scale mode). Estimator (deviance vs Pearson) is MEASURE-FIRST. No severity threshold imposed — the estimate is REPORTED and the two-stage workflow is optional/non-standard, the user's choice (maintainer, 2026-09-30). See plan slice 3c |
-| **7** | (family axis, not a rung) quasi-Poisson fixed dispersion | **REGISTERED 2026-09-27, NOT STARTED.** MEASURE-FIRST hypothesis recorded: may already work via `fit_polaris_gam(family="poisson", gamma=phi_fixed)` — unverified. See plan §2.3 and its own Slice 7 text. Slice 3b (the "estimate" mode) is a separate, still-open registration, unaffected by this |
+| **7** | (family axis, not a rung) quasi-Poisson fixed dispersion | **MEASURED 2026-10-01 (ADR-236), acceptance NOT met:** `poisson`+`gamma=phi` agrees with `mgcv` `quasipoisson(scale=phi)` at phi=2, DISAGREES at phi=6 (tier 3, INDEPENDENT; a second stationary point, `mgcv`'s scores lower). `mgcv`'s `poisson(scale=)` ignores `scale`. Registered slice 7b. See plan §2.3 and its own Slice 7 text. Slice 3b (the "estimate" mode) is a separate, still-open registration, unaffected by this |
 
 ---
 
@@ -616,3 +616,9 @@ reason — a purely combinatorial construction (no knots, no quantiles) has
 nothing for floating-point round-trip noise to touch in the first place. Any
 future slice landing a near-exact or exact reading should still carry the
 strip/perturb pair.
+
+---
+
+## Update, 2026-10-01 — Slice 7 MEASURED (ADR-236), acceptance NOT met
+
+`quasipoisson(log)` at a supplied fixed `scale`: Polaris `poisson`+`gamma=phi` vs `mgcv` `quasipoisson(scale=phi)`, INDEPENDENT, tier 3 (R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, run 36806900876). phi=2 agrees (`eta` diff 2.296e-06); phi=6 DISAGREES (`eta` diff 0.2841, `edf_total` diff -2.1797). No production code changed. **Registered Slice 7b** in `PLAN_mgcv_capability_ladder.md`; parity-epic slice 8 carries an explicit task to re-run the phi=6 reading. **NEXT: Slice 7b, then Slice 3c** (3c should treat the fixed mode as verified only near the free estimate until 7b closes).

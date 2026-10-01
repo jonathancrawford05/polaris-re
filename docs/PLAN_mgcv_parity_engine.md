@@ -2253,6 +2253,27 @@ finite-difference step at all).
     count cannot be obtained by accident; choosing `floor` to make the sign
     count read 5 would defeat that guard on purpose. (An earlier draft of this
     criterion asked for precisely that — caught in PR #234 review.)
+- **SLICE 8 MUST RE-RUN THE LADDER SLICE 7 FAR-`phi` READING (added 2026-10-01,
+  ADR-236 / `PLAN_mgcv_capability_ladder.md` slice 7b).** Ladder slice 7 found
+  `mgcv` reaching a lower-scoring stationary point than `fit_polaris_gam` on
+  `quasipoisson` fixed `scale=6` (`eta` diff `0.284`, `edf_total` diff `-2.18`,
+  tier 3; `mgcv`'s point `204.2549` vs Polaris's `205.0760` under Polaris's own
+  criterion). It is an optimiser/landscape finding, so this slice is where it
+  can close.
+  - `[machine]` After the new solver lands, run
+    `scripts/gam_quasipoisson_fixed_scale_probe.R` through the
+    `mgcv-conformance.yml` step "Compare the quasipoisson(log) fixed-scale fits"
+    at tier 3 and record the phi=6 row (`agrees`, and the score at each side's
+    point) in this slice's ADR. A solver that is "reliable" but still lands at
+    `205.0760` has not met this slice's own purpose (ADR-224: reliable
+    convergence and convergence to `mgcv`'s basin are different properties).
+  - **If this slice closes the phi=6 gap, its PR must also make that CI step
+    required** (maintainer decision 2026-10-01, ladder slice 7b "option C"):
+    blocking, gated on `eta`/`edf_total` only, never `log10(sp)`.
+  - The CI step is a non-gating annotation (`continue-on-error`), and the path
+    filter on `gam_reml_optimize*.py` / `gam_reml_gradient.py` re-runs it
+    automatically, but nothing fails if it still disagrees — hence this
+    explicit task rather than reliance on the step.
 - **Status: REGISTERED, not started.** Raised by the maintainer, 2026-09-05:
   *"we need a reliable solver (mgcv achieves this so a real and implementable
   mechanism exists, we might want to understand better how we might emulate

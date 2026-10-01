@@ -4096,3 +4096,8 @@ on the FD path) lives now.
   job — this is purely a stale filter in one diagnostic's own display logic.
   *Source: this session (3rd-order, PARKED — a one-line filter fix
   cosmetic-only, no measurement or acceptance criterion depends on it).*
+
+### Harvest — 2026-10-01, mgcv-parity ladder slice 7 (ADR-236)
+- **1st-order (promoted):** slice 7b — reach `mgcv`'s basin for fixed-scale quasi-Poisson at far `phi` (registered in `PLAN_mgcv_capability_ladder.md`).
+- **2nd-order (NICE-TO-HAVE):** a `ModelSpec`-level "quasi-Poisson, fixed scale" convenience, only after 7b.
+- **3rd-order (parked):** a `mgcv`-side probe of its own score at both stationary points at phi=6 (confirms the criterion-vs-landscape reading from `mgcv`'s side).
