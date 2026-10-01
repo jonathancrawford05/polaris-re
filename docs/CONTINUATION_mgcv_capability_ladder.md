@@ -28,6 +28,7 @@ are this epic's own NEXT work — **this is not a queue-empty state.** See
 | **6** | (composition, not a rung) `cr`+`re`+`ti` jointly | **DONE 2026-09-28 (ADR-234)** — INDEPENDENT, fixed AND free `sp`, tier 1 and tier 3 agree (`eta` 2.5e-14 fixed; ≤3e-5 free). Originally: REGISTERED 2026-09-27. Each basis individually verified; never fit together. See plan §2.3 and its own Slice 6 text |
 | **3b** | quasi-Poisson fit-level free `sp` | **DONE 2026-09-30 (ADR-235)** — INDEPENDENT, tier 3 (run 36704353339): `eta` diff 4.236e-06, `agrees=True`; tier 1 identical in kind. No production code changed |
 | **3c** | expose + verify estimated dispersion; two-stage Poisson -> fixed-scale workflow | **REGISTERED 2026-09-30 (PR #245, maintainer request), NOT STARTED.** Sequenced AFTER slice 7 (consumes its fixed-scale mode). Estimator (deviance vs Pearson) is MEASURE-FIRST. No severity threshold imposed — the estimate is REPORTED and the two-stage workflow is optional/non-standard, the user's choice (maintainer, 2026-09-30). See plan slice 3c |
+| **7b** | fixed-scale far-phi basin | **DONE 2026-10-01 (ADR-237)** — INDEPENDENT, tier 3 (run 36903733782, oracle `sha256:0d54c192…`): phi=6 `eta` diff 6.678e-05, `edf_total` -0.0010, agrees; gate blocking. Registered 7c (promote to `fit_polaris_gam`). |
 | **7** | (family axis, not a rung) quasi-Poisson fixed dispersion | **MEASURED 2026-10-01 (ADR-236), acceptance NOT met:** `poisson`+`gamma=phi` agrees with `mgcv` `quasipoisson(scale=phi)` at phi=2, DISAGREES at phi=6 (tier 3, INDEPENDENT; a second stationary point, `mgcv`'s scores lower). `mgcv`'s `poisson(scale=)` ignores `scale`. Registered slice 7b. See plan §2.3 and its own Slice 7 text. Slice 3b (the "estimate" mode) is a separate, still-open registration, unaffected by this |
 
 ---
@@ -622,3 +623,7 @@ strip/perturb pair.
 ## Update, 2026-10-01 — Slice 7 MEASURED (ADR-236), acceptance NOT met
 
 `quasipoisson(log)` at a supplied fixed `scale`: Polaris `poisson`+`gamma=phi` vs `mgcv` `quasipoisson(scale=phi)`, INDEPENDENT, tier 3 (R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, run 36806900876). phi=2 agrees (`eta` diff 2.296e-06); phi=6 DISAGREES (`eta` diff 0.2841, `edf_total` diff -2.1797). No production code changed. **Registered Slice 7b** in `PLAN_mgcv_capability_ladder.md`; parity-epic slice 8 carries an explicit task to re-run the phi=6 reading. **NEXT: Slice 7b, then Slice 3c** (3c should treat the fixed mode as verified only near the free estimate until 7b closes).
+
+## Update, 2026-10-01 — Slice 7b DONE (ADR-237)
+
+Fixed-scale quasi-Poisson now agrees with `mgcv` at the far phi=6 (INDEPENDENT; tier 3, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, run 36903733782): `eta` diff 6.678e-05, `edf_total` -0.0010 (was 0.2841 / -2.1797). Change: keep the lower own-criterion score of a cold start and a `gamma=1`-seeded start (conformance module only). The phi=6 comparison is now a blocking CI step. **Next: slice 3c.** Open: slice 7c (promotion to production, a non-corner far-phi cell).
