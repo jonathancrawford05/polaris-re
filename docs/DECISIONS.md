@@ -11733,7 +11733,7 @@ perfbench` CLI subcommand (ADR-175, script-first per the B2 precedent).
 ## ADR-177: Per-merge `perf/history.jsonl` creep log — long-baseline drift detection (IMPORTANT #10)
 
 **Date:** 2026-08-02
-**Status:** Accepted — **amendment 1 (2026-08-11): the docs-only exemption, in writing**
+**Status:** Accepted — **amendment 1 (2026-08-11): the docs-only exemption, in writing; amendment 2 (2026-10-01): conformance-only `src/` modules exempt**
 
 > ### Amendment 1 — a PR that touches no engine path appends no row
 >
@@ -11762,6 +11762,41 @@ perfbench` CLI subcommand (ADR-175, script-first per the B2 precedent).
 > `tests/` is also exempt under this wording. That is intended — neither is on a projection
 > path — but it is the edge a future reader is most likely to question, so it is named here
 > rather than discovered.
+>
+> ### Amendment 2 — a conformance-only `src/` module is also exempt (2026-10-01, maintainer-authorized)
+>
+> **Trigger.** PR #246 (mgcv-parity ladder slice 7) added one module under
+> `src/polaris_re/analytics/` and nothing else under `src/`. Amendment 1's wording ("modifies
+> nothing under `src/polaris_re/`") did not exempt it, and its automated review (P1-1)
+> correctly refused to let the PR apply the exemption by argument. Slice 3b had appended a
+> row for the same shape. The maintainer authorized widening the rule rather than
+> continuing to pad the series.
+>
+> **The widened exemption, stated mechanically.** A PR appends no `perf/history.jsonl` row
+> when **every** file it adds or modifies under `src/polaris_re/` is a module named
+> `*_conformance.py` that is **not imported, directly or transitively, by the perf probe's
+> import closure** (`scripts/perf_history.py` → `polaris_re.analytics.perf_harness`). Check,
+> not judgement:
+>
+> ```
+> git diff --name-only origin/main...HEAD -- src/polaris_re/        # all *_conformance.py?
+> grep -rn "<module_stem>" src/ scripts/perf_history.py | grep -v "^src/.*<module_stem>.py"
+> # → no hit outside tests/, scripts/ (other than perf_history.py) and other *_conformance.py
+> ```
+>
+> **Why this preserves amendment 1's reasoning.** The row detects cumulative drift in the
+> engine. A conformance module is a comparison harness that the probe never executes or
+> imports, so it cannot move `peak_mib` or the wall-time series; a row for it is the same
+> no-op point amendment 1 refuses to add.
+>
+> **What is NOT exempted.** Any other `src/polaris_re/` file (including a non-`_conformance`
+> analytics module such as `gam_model.py`, `gam_reml*.py`, `gam_fit.py`) still appends a row;
+> so does a `*_conformance.py` that a probe-closure module imports. If the check is
+> ambiguous, append the row — a spare row costs less than a missed step.
+>
+> **Retroactive effect:** none. Rows already appended (e.g. slice 3b's `a759116`) stay; the
+> log is append-only. Only PR #246's own row, appended and then withdrawn in the same
+> unmerged PR, is removed.
 
 **Context:** The head-vs-main perf gate (ADR-176, `scripts/perfbench.py`) compares
 this branch's head against `origin/main` **in one CI job**, so it catches a single

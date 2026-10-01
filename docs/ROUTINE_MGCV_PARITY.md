@@ -357,7 +357,10 @@ target model form, or to characterise precisely why it cannot move.
    - append ONE `perf/history.jsonl` row on the INITIAL open of a PR only (ADR-177,
      step 14b of daily-dev — same rules, including the skip on review-feedback updates)
      — **and NO row at all when the PR modifies nothing under `src/polaris_re/`**
-     (ADR-177 **amendment 1**, 2026-08-11). A docs-only PR appends nothing. This
+     (ADR-177 **amendment 1**, 2026-08-11), **or when every `src/polaris_re/` file it touches is a
+     `*_conformance.py` module outside the perf probe's import closure** (ADR-177
+     **amendment 2**, 2026-10-01 — the mechanical check is in the ADR; if it is
+     ambiguous, append the row). A docs-only PR appends nothing. This
      is not discretion and does not need re-deriving: the row's job is to detect
      cumulative drift *in the engine*, and a row for a PR that could not have
      moved the engine "is worse than absent — the analyser medians over a

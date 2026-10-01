@@ -37,7 +37,7 @@ phi=2: `eta` 2.296e-06, `edf_total` +0.0001, `log10(sp)` 0.0000 — agrees. phi=
 The fit function's signature takes the recipe type (no `mgcv`-produced key); a test plants hostile values under every such key.
 
 ## Quality gate
-`ruff format`/`check` clean; new tests 8 passed (incl. slow R round trip at tier 1: near-phi asserted, far-phi recorded not asserted); golden gate and `tests/qa/` run before commit (see PR). One `perf/history.jsonl` row appended (PR #246 review P1-1): the PR adds a module under `src/polaris_re/analytics/`, which voids ADR-177 amendment 1's "modifies nothing under `src/polaris_re/`" exemption as worded (slice 3b precedent, `a759116`). The argument that a conformance-only module cannot move the engine may be right, but widening the exemption is an ADR-177 amendment for the maintainer, not something to apply silently.
+`ruff format`/`check` clean; new tests 8 passed (incl. slow R round trip at tier 1: near-phi asserted, far-phi recorded not asserted); golden gate and `tests/qa/` run before commit (see PR). No `perf/history.jsonl` row. A first draft claimed the amendment-1 exemption while this PR added a module under `src/polaris_re/analytics/` (review P1-1: not exempt as worded); a row was appended, then — after the maintainer authorized widening the rule — withdrawn in the same unmerged PR under **ADR-177 amendment 2** (conformance-only modules outside the probe's import closure are exempt). Mechanical check run: the changed `src/` file is `gam_quasipoisson_fixed_scale_conformance.py`, referenced only by tests and CI.
 
 ## Follow-ups
 Slice 7b registered (PLAN). Slice 3c unaffected except that the fixed mode is verified only near the free estimate.
