@@ -11780,9 +11780,15 @@ perfbench` CLI subcommand (ADR-175, script-first per the B2 precedent).
 >
 > ```
 > git diff --name-only origin/main...HEAD -- src/polaris_re/        # all *_conformance.py?
-> grep -rn "<module_stem>" src/ scripts/perf_history.py | grep -v "^src/.*<module_stem>.py"
-> # → no hit outside tests/, scripts/ (other than perf_history.py) and other *_conformance.py
+> uv run python -c "import sys, polaris_re.analytics.perf_harness; print([m for m in sys.modules if m.endswith('_conformance')])"
+> # → []   (the probe's actual import closure loads no *_conformance module)
 > ```
+>
+> (An earlier draft used a `grep` for the module's stem. It finds only direct textual
+> references, and the rule says "directly or transitively", so the `sys.modules` check
+> replaced it — PR #246 round-2 review, P2. The check imports `perf_harness`; if
+> `scripts/perf_history.py` ever imports more than `perf_harness` and
+> `perf_history`, extend the import list in the command to match.)
 >
 > **Why this preserves amendment 1's reasoning.** The row detects cumulative drift in the
 > engine. A conformance module is a comparison harness that the probe never executes or
