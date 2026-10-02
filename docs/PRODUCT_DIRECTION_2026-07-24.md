@@ -4098,6 +4098,11 @@ on the FD path) lives now.
   cosmetic-only, no measurement or acceptance criterion depends on it).*
 
 ### Harvest — 2026-10-01, mgcv-parity ladder slice 7 (ADR-236)
-- **1st-order (promoted):** slice 7b — reach `mgcv`'s basin for fixed-scale quasi-Poisson at far `phi` (registered in `PLAN_mgcv_capability_ladder.md`).
+- ~~**1st-order (promoted):** slice 7b — reach `mgcv`'s basin for fixed-scale quasi-Poisson at far `phi` (registered in `PLAN_mgcv_capability_ladder.md`).~~ — **SHIPPED** (PR #247, ADR-237): two-start search, phi=6 agrees at tier 3 (run 36903733782), gate now blocking.
 - **2nd-order (NICE-TO-HAVE):** a `ModelSpec`-level "quasi-Poisson, fixed scale" convenience, only after 7b.
 - **3rd-order (parked):** a `mgcv`-side probe of its own score at both stationary points at phi=6 (confirms the criterion-vs-landscape reading from `mgcv`'s side).
+
+### Harvest — 2026-10-01, mgcv-parity ladder slice 7b (ADR-237)
+Provenance: INDEPENDENT comparison (Polaris two-start fit vs `mgcv` `quasipoisson(scale=phi)`), tier 3.
+- **2nd-order (NICE-TO-HAVE):** ladder slice 7c — promote the two-start (cold + `gamma=1` seed, lower own score) rule into `fit_polaris_gam` as an opt-in, and read a far-phi cell where `mgcv`'s `sp` is not at a null-space corner (registered in `PLAN_mgcv_capability_ladder.md`). Also closes the "rule was chosen against 6 tier-1 cells" caveat.
+- **3rd-order (parked):** gate step reuses the compare step's fits via a results JSON instead of refitting, and prints a clean message on a missing probe JSON (cosmetic; PR #247 review [P2]).
