@@ -369,6 +369,31 @@ def _per_term_edf(
     return {tb["label"]: float(diag[tb["start"] : tb["end"]].sum()) for tb in design["term_blocks"]}
 
 
+def _dispersion_or_nan(
+    y: np.ndarray,
+    mu: np.ndarray,
+    family: Family,
+    edf_total: float,
+    weights: np.ndarray | None,
+) -> DispersionEstimates:
+    """The fit's dispersion diagnostic, which must never block the fit: a
+    near-saturated fit (no residual df) or a saturated binomial ``mu`` (``V = 0``)
+    reports NaN estimates instead of raising. The standalone
+    :func:`dispersion_estimates` keeps raising on no residual df."""
+    nan = float("nan")
+    try:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return dispersion_estimates(y, mu, family, edf_total, weights=weights)
+    except PolarisValidationError:
+        return DispersionEstimates(
+            pearson=nan,
+            fletcher=nan,
+            deviance=nan,
+            s_bar=nan,
+            residual_df=float(y.size) - edf_total,
+        )
+
+
 @dataclass(frozen=True)
 class PolarisGAMFit:
     """A ``ModelSpec`` fitted to data, with its own selected smoothing
@@ -415,7 +440,9 @@ class PolarisGAMFit:
     (Poisson, binomial) these are overdispersion diagnostics, not the model's
     own scale — read ``dispersion.pearson`` off a Poisson fit to supply as
     ``gamma=`` to a second fit (the optional, non-standard two-stage route; see
-    :mod:`polaris_re.analytics.gam_dispersion`)."""
+    :mod:`polaris_re.analytics.gam_dispersion`). NaN estimates mean the
+    diagnostic was undefined for this fit (no residual degrees of freedom, or a
+    saturated ``mu`` with ``V = 0``) — it never blocks the fit itself."""
 
 
 def fit_polaris_gam(
@@ -691,5 +718,5 @@ def fit_polaris_gam(
         n_rejected=selection.n_rejected,
         at_bound=bool(upper_bound_blocks),
         at_bound_blocks=tuple(label for label, _ in upper_bound_blocks),
-        dispersion=dispersion_estimates(y, mu, family, selection.edf_total, weights=weights),
+        dispersion=_dispersion_or_nan(y, mu, family, selection.edf_total, weights),
     )

@@ -2836,8 +2836,6 @@ jobs:
           s2 = fit_stage2_at_supplied_scale(
               r_payload, r_payload["phi_stage1_pearson"], fits.stage1)
           c = compare_dispersion_two_stage_case(fits, r_payload, s2)
-          joint_ok = (c["joint_max_abs_eta_diff"] < 2e-2
-                      and abs(c["joint_edf_total_diff"]) < 1.0)
 
           lines = [
               "",
@@ -2854,7 +2852,7 @@ jobs:
               "|---|---:|---:|---|",
               f"| multistart (best-of-9, own criterion) | "
               f"{c['joint_max_abs_eta_diff']:.3e} | {c['joint_edf_total_diff']:+.4f} | "
-              f"{joint_ok} |",
+              f"{c['joint_agrees']} |",
               f"| ONE start from mgcv's initial.spg recipe (slice 3d) | "
               f"{c['joint_initial_start_max_abs_eta_diff']:.3e} | "
               f"{c['joint_initial_start_edf_total_diff']:+.4f} | "
@@ -2872,6 +2870,10 @@ jobs:
               f"| Fletcher | {c['polaris_fletcher']:.9f} | {c['fletcher_rel_diff']:.3e} |",
               f"| Pearson | {c['polaris_pearson']:.9f} | {c['pearson_rel_diff']:.3e} |",
               f"| deviance | {c['polaris_deviance']:.9f} | {c['deviance_rel_diff']:.3e} |",
+              "",
+              "Polaris vs the probe's own formula on mgcv's fit: Pearson "
+              f"{c['pearson_vs_r_formula_rel_diff']:.3e}, deviance "
+              f"{c['deviance_vs_r_formula_rel_diff']:.3e} (relative).",
               "",
               f"Stage-1 Pearson dispersion: Polaris {c['phi_stage1_polaris']:.9f}, "
               f"mgcv-side {c['phi_stage1_r']:.9f}, rel diff {c['phi_stage1_rel_diff']:.3e}.",

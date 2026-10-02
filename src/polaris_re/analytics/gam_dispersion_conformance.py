@@ -362,6 +362,9 @@ class DispersionTwoStageComparison(TypedDict):
     identifies_fletcher: bool
     r_pearson_on_mgcv_fit: float
     r_deviance_on_mgcv_fit: float
+    pearson_vs_r_formula_rel_diff: float
+    deviance_vs_r_formula_rel_diff: float
+    joint_agrees: bool
     # --- stage 1 ---
     phi_stage1_polaris: float
     phi_stage1_r: float
@@ -450,6 +453,9 @@ def compare_dispersion_two_stage_case(
     ini_agrees = (
         ini.converged and ini_eta_diff < _ETA_TOLERANCE and abs(ini_edf_diff) < _EDF_TOLERANCE
     )
+    joint_agrees = (
+        pj.converged and joint_eta_diff < _ETA_TOLERANCE and abs(joint_edf_diff) < _EDF_TOLERANCE
+    )
     agrees = (
         pj.converged
         and p1.converged
@@ -484,6 +490,9 @@ def compare_dispersion_two_stage_case(
         pearson_rel_diff=pe,
         deviance_rel_diff=de,
         identifies_fletcher=identifies,
+        pearson_vs_r_formula_rel_diff=_rel(d.pearson, float(joint_r["estimators"]["pearson"])),
+        deviance_vs_r_formula_rel_diff=_rel(d.deviance, float(joint_r["estimators"]["deviance"])),
+        joint_agrees=joint_agrees,
         r_pearson_on_mgcv_fit=float(joint_r["estimators"]["pearson"]),
         r_deviance_on_mgcv_fit=float(joint_r["estimators"]["deviance"]),
         phi_stage1_polaris=python_fits.phi_stage1,

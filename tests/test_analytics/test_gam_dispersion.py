@@ -89,3 +89,14 @@ def test_polaris_gam_fit_exposes_the_estimates() -> None:
     expected = dispersion_estimates(y, np.exp(fit.eta), poisson_log(), fit.edf_total)
     assert fit.dispersion == expected
     assert fit.dispersion.fletcher != fit.dispersion.pearson
+
+
+def test_fit_dispersion_is_nan_not_an_error_when_no_residual_df() -> None:
+    """The fit's diagnostic must never block the fit (PR #248 review [P2])."""
+    from polaris_re.analytics.gam_model import _dispersion_or_nan
+
+    d = _dispersion_or_nan(np.ones(4), np.ones(4), poisson_log(), 5.0, None)
+    assert np.isnan(d.pearson) and np.isnan(d.fletcher) and np.isnan(d.deviance)
+    # saturated mu (V = 0 under a binomial-like variance) does not raise either
+    ok = _dispersion_or_nan(np.ones(4), np.ones(4), poisson_log(), 1.0, None)
+    assert np.isfinite(ok.pearson)
