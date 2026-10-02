@@ -82,6 +82,7 @@ from polaris_re.analytics.gam_family import (
     poisson_log,
     quasipoisson_log,
 )
+from polaris_re.analytics.gam_initial_sp import initial_log10_lambda
 from polaris_re.analytics.gam_reml_optimize import (
     select_lambdas_continuous,
     select_lambdas_continuous_multistart,
@@ -433,6 +434,7 @@ def fit_polaris_gam(
     analytic_gradient: bool = False,
     max_gtol_restarts: int = 0,
     step_halving: bool = False,
+    initial_sp_start: bool = False,
 ) -> PolarisGAMFit:
     """Fit ``model`` to ``data``/``y``, selecting every smoothing parameter by
     continuous REML (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`,
@@ -526,6 +528,17 @@ def fit_polaris_gam(
             the restart plateau's own KKT residual ``0.049335 -> 0.001125``
             (~44x) and removes the non-convergent neighbourhood entirely.
 
+        initial_sp_start: when ``True``, the single search starts from
+            ``mgcv``'s own data-based ``initial.spg`` smoothing parameters
+            (:func:`~polaris_re.analytics.gam_initial_sp.initial_log10_lambda`)
+            instead of the bounds-centre (ladder slice 3d). Default ``False`` —
+            every existing caller's behaviour is unchanged. One start, one
+            search's cost (no ``n_starts`` multiple). Measured, not assumed: on
+            two overdispersed quasi-Poisson draws where the bounds-centre start
+            settles in a worse stationary point of the same criterion, this
+            start reaches ``mgcv``'s point (see ADR-239). Mutually exclusive
+            with ``x0`` and ``multistart``.
+
     Raises:
         PolarisValidationError: propagated from :func:`assemble_model_design`
             or :func:`resolve_family`; or raised here if both ``multistart``
@@ -554,6 +567,11 @@ def fit_polaris_gam(
             "so x0 would be silently dropped rather than used. Pass one or "
             "the other."
         )
+    if initial_sp_start and (x0 is not None or multistart):
+        raise PolarisValidationError(
+            "fit_polaris_gam: initial_sp_start=True is mutually exclusive with x0 and "
+            "multistart=True (it IS the single start)."
+        )
     design = assemble_model_design(model, data)
     family = resolve_family(model.family, model.link)
     weights = (
@@ -567,6 +585,12 @@ def fit_polaris_gam(
         else np.asarray(data[model.offset_column], dtype=np.float64)
     )
     y = np.asarray(y, dtype=np.float64)
+    if initial_sp_start:
+        x0 = np.clip(
+            initial_log10_lambda(y, design["x"], family, design["penalty_blocks"], weights=weights),
+            bounds[0],
+            bounds[1],
+        )
 
     n_function_evals: int
     if multistart:

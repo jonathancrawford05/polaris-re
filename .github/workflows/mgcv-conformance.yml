@@ -180,6 +180,7 @@ on:
       # CAPABILITY LADDER slice 3c — the exposed dispersion estimate and the
       # two-stage Poisson -> fixed-scale workflow.
       - "src/polaris_re/analytics/gam_dispersion.py"
+      - "src/polaris_re/analytics/gam_initial_sp.py"
       - "src/polaris_re/analytics/gam_dispersion_conformance.py"
       - "scripts/gam_dispersion_two_stage_probe.R"
       # CAPABILITY LADDER rung L3 (docs/PLAN_mgcv_capability_ladder.md slice
@@ -2854,6 +2855,10 @@ jobs:
               f"| multistart (best-of-9, own criterion) | "
               f"{c['joint_max_abs_eta_diff']:.3e} | {c['joint_edf_total_diff']:+.4f} | "
               f"{joint_ok} |",
+              f"| ONE start from mgcv's initial.spg recipe (slice 3d) | "
+              f"{c['joint_initial_start_max_abs_eta_diff']:.3e} | "
+              f"{c['joint_initial_start_edf_total_diff']:+.4f} | "
+              f"{c['joint_initial_start_agrees']} |",
               f"| single start (default) | "
               f"{c['joint_single_start_max_abs_eta_diff']:.3e} | "
               f"{c['joint_single_start_edf_total_diff']:+.4f} | "
@@ -2896,7 +2901,7 @@ jobs:
               f"**Offset tripwire** (reported, never gated): {c['offset_gap']:.3e}. "
               f"Overall `agrees` (multistart joint + chain): **{c['agrees']}**.",
           ]
-          if not c["agrees"] or not c["joint_single_start_agrees"]:
+          if not c["agrees"] or not c["joint_initial_start_agrees"]:
               lines.insert(2, "**Disagreement — see the tables. This is a genuine finding.**")
           report = "\n".join(lines) + "\n"
           with open("gam_dispersion_two_stage_probe_report.md", "w") as fh:
@@ -2905,6 +2910,44 @@ jobs:
           PY
           if [ -f gam_dispersion_two_stage_probe_report.md ]; then
             cat gam_dispersion_two_stage_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # CAPABILITY LADDER slice 3d — the mgcv-style data-based start (initial.spg)
+      # on slice 3b's OWN draw (its probe JSON), alongside the default centre
+      # start. Reported, not gated. ADR-221's criterion, imported.
+      - name: Compare the initial.spg-style start on slice 3b's draw (ladder slice 3d)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r = json.load(open("gam_quasipoisson_free_sp_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_quasipoisson_free_sp_probe.json ({exc})")
+              sys.exit(0)
+          from polaris_re.analytics.gam_quasipoisson_conformance import (
+              compare_quasipoisson_free_sp_case, fit_quasipoisson_free_sp_case,
+          )
+          rows = []
+          for label, kw in (("centre start (default)", {}),
+                            ("initial.spg-style start", {"initial_sp_start": True})):
+              c = compare_quasipoisson_free_sp_case(
+                  fit_quasipoisson_free_sp_case(r, **kw), r)
+              rows.append(f"| {label} | {c['max_abs_eta_diff']:.3e} | "
+                          f"{c['edf_total_diff']:+.4f} | {c['max_abs_log10_sp_diff']:.4f} | "
+                          f"{c['agrees']} |")
+          report = "\n".join([
+              "", "### Capability ladder slice 3d — initial.spg-style start, slice 3b's draw",
+              "", "| search | max abs eta diff | edf_total diff | max abs log10(sp) diff | "
+              "agrees (ADR-221) |", "|---|---:|---:|---:|---|", *rows, ""])
+          print(report)
+          open("gam_initial_sp_3b_report.md", "w").write(report)
+          PY
+          if [ -f gam_initial_sp_3b_report.md ]; then
+            cat gam_initial_sp_3b_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Compare the factor-by basis vs smoothCon(s(x, by=fac, bs="cr")) (ladder L3 Stage A)

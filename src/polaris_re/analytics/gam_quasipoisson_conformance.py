@@ -147,7 +147,7 @@ def quasipoisson_model_spec(
 
 
 def fit_quasipoisson_free_sp_case(
-    r_case: RQuasiPoissonFreeSpRecipe, *, multistart: bool = False
+    r_case: RQuasiPoissonFreeSpRecipe, *, multistart: bool = False, initial_sp_start: bool = False
 ) -> PolarisGAMFit:
     """The independent Python producer: assemble, select own lambda under the
     free-scale REML criterion, fit. Never reads ``mgcv``'s
@@ -162,7 +162,7 @@ def fit_quasipoisson_free_sp_case(
         "StudyYear_C": np.asarray(r_case["StudyYear_C"], dtype=np.float64),
     }
     y = np.asarray(r_case["y"], dtype=np.float64)
-    return fit_polaris_gam(model, data, y, multistart=multistart)
+    return fit_polaris_gam(model, data, y, multistart=multistart, initial_sp_start=initial_sp_start)
 
 
 class QuasiPoissonFreeSpCaseComparison(TypedDict):

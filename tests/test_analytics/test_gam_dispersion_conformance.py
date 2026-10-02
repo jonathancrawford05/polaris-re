@@ -98,7 +98,7 @@ def test_the_chain_is_unchanged_when_every_mgcv_key_is_planted() -> None:
         **{k: "x" for k in _MGCV_DIAGNOSTIC_KEYS},
     )
     hostile = fit_dispersion_two_stage_case(typing.cast(RDispersionRecipe, planted))
-    for name in ("joint", "joint_single_start", "stage1", "stage2"):
+    for name in ("joint", "joint_initial_start", "joint_single_start", "stage1", "stage2"):
         a, b = getattr(clean, name), getattr(hostile, name)
         np.testing.assert_array_equal(a.eta, b.eta)
         np.testing.assert_array_equal(a.log_lambda, b.log_lambda)

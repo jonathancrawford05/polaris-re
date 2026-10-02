@@ -171,7 +171,17 @@ DISPERSION_TWO_STAGE_CLAIM = VerificationClaim(
             provenance=ComparisonProvenance.INDEPENDENT,
         ),
         ComparedQuantity(
-            quantity="joint free-scale edf_total (Polaris multistart and single start vs mgcv)",
+            quantity="joint free-scale eta, mgcv-style initial-sp start (Polaris vs mgcv)",
+            left_producer=(
+                "fit_polaris_gam(quasipoisson, initial_sp_start=True): one search from "
+                "gam_initial_sp.initial_log10_lambda (initial.spg recipe on the data and "
+                "Polaris's own design/penalties)"
+            ),
+            right_producer="mgcv gam(quasipoisson, method='REML'), m$linear.predictors",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="joint free-scale edf_total (Polaris, every start variant, vs mgcv)",
             left_producer="PolarisGAMFit.edf_total of each joint fit",
             right_producer="mgcv's own sum(m$edf) of its joint fit",
             provenance=ComparisonProvenance.INDEPENDENT,
@@ -263,6 +273,10 @@ class PolarisTwoStageFits:
     searched with ``multistart=True`` — see :data:`DISPERSION_TWO_STAGE_CLAIM_SENTENCE`
     and the module ledger entry: on this recipe the default single-start search
     settles in a worse stationary point of the SAME criterion."""
+    joint_initial_start: PolarisGAMFit
+    """The same fit, ONE search started from ``mgcv``'s data-based ``initial.spg``
+    smoothing parameters (``initial_sp_start=True``, slice 3d) — computed from the
+    data, design and penalties only, never from any ``mgcv`` output."""
     joint_single_start: PolarisGAMFit
     """The same fit with the default single-start search (slice 3b's own
     configuration), kept because its disagreement with ``mgcv`` is a finding."""
@@ -298,11 +312,13 @@ def fit_dispersion_two_stage_case(r_case: RDispersionRecipe) -> PolarisTwoStageF
     model = _poisson_spec(r_case)
     joint_single_start = fit_quasipoisson_free_sp_case(r_case)
     joint = fit_quasipoisson_free_sp_case(r_case, multistart=True)
+    joint_initial_start = fit_quasipoisson_free_sp_case(r_case, initial_sp_start=True)
     stage1 = fit_polaris_gam(model, data, y, gamma=1.0)
     phi = float(stage1.dispersion.pearson)
     stage2 = _fit_best_of_cold_and_unit_gamma_seed(model, data, y, phi, stage1, False)
     return PolarisTwoStageFits(
         joint=joint,
+        joint_initial_start=joint_initial_start,
         joint_single_start=joint_single_start,
         stage1=stage1,
         phi_stage1=phi,
@@ -332,6 +348,9 @@ class DispersionTwoStageComparison(TypedDict):
     joint_single_start_max_abs_eta_diff: float
     joint_single_start_edf_total_diff: float
     joint_single_start_agrees: bool
+    joint_initial_start_max_abs_eta_diff: float
+    joint_initial_start_edf_total_diff: float
+    joint_initial_start_agrees: bool
     # --- estimator identification, joint (multistart) fit ---
     r_scale: float
     polaris_fletcher: float
@@ -425,6 +444,12 @@ def compare_dispersion_two_stage_case(
     ss_eta_diff = float(np.max(np.abs(eta_joint_r - ss.eta)))
     ss_edf_diff = float(ss.edf_total - joint_r["edf_total"])
     ss_agrees = ss.converged and ss_eta_diff < _ETA_TOLERANCE and abs(ss_edf_diff) < _EDF_TOLERANCE
+    ini = python_fits.joint_initial_start
+    ini_eta_diff = float(np.max(np.abs(eta_joint_r - ini.eta)))
+    ini_edf_diff = float(ini.edf_total - joint_r["edf_total"])
+    ini_agrees = (
+        ini.converged and ini_eta_diff < _ETA_TOLERANCE and abs(ini_edf_diff) < _EDF_TOLERANCE
+    )
     agrees = (
         pj.converged
         and p1.converged
@@ -448,6 +473,9 @@ def compare_dispersion_two_stage_case(
         joint_single_start_max_abs_eta_diff=ss_eta_diff,
         joint_single_start_edf_total_diff=ss_edf_diff,
         joint_single_start_agrees=ss_agrees,
+        joint_initial_start_max_abs_eta_diff=ini_eta_diff,
+        joint_initial_start_edf_total_diff=ini_edf_diff,
+        joint_initial_start_agrees=ini_agrees,
         r_scale=r_scale,
         polaris_fletcher=float(d.fletcher),
         polaris_pearson=float(d.pearson),
