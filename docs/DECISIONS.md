@@ -24361,3 +24361,54 @@ round-trip test now also asserts phi=6. The gate step was verified at tier 3 by 
 Slice 7b's release condition met. Production `fit_polaris_gam` is unchanged: the two-start strategy lives in the
 conformance module only; promoting it is registered as ladder slice 7c. Slice 3c may now treat the fixed mode as verified at
 phi=2 and phi=6 on this fixture. Parity-epic slice 8 still owes a phi=6 re-read when its solver lands.
+
+
+## ADR-238: Capability ladder slice 3c — the exposed dispersion estimate is Fletcher's, and the two-stage workflow reproduces `mgcv`'s chain (INDEPENDENT, tier 1 and tier 3); the default free-scale single start disagrees
+
+**Status:** Accepted, 2026-10-02. **Claim sentence (written before the code):** `polaris_re`'s PolarisGAM computes
+Pearson, Fletcher and deviance dispersion from its OWN fit's `mu` and edf (jointly under `quasipoisson(log)` at free
+`sp`, and at stage 1 under `poisson(log)`), and its stage 2 refits `poisson(log)` with `gamma =` the stage-1 Pearson
+dispersion; `mgcv` computes `m$scale` from `gam(quasipoisson, method="REML")`, a Pearson dispersion from its own
+`gam(poisson)` fit, and `gam(quasipoisson, scale = that)`; compared on dispersion, stage-1 dispersion, and stage-2
+`eta`/`edf_total` (ADR-221, imported).
+
+### Provenance (ADR-193)
+Every declared quantity INDEPENDENT (`DISPERSION_TWO_STAGE_CLAIM`). Producers take the recipe type (data + knots);
+`fit_stage2_at_supplied_scale` takes a bare `float` (mgcv's stage-1 dispersion, a SUPPLIED INPUT like slice 7's phi, not
+a compared quantity). The R-side Pearson/deviance formulas are evaluated on mgcv's own fit; `m$scale` itself is mgcv's
+own number. The two-stage-vs-joint gap is within-side and REPORTED, not compared. Formula identification (Fletcher
+formula on mgcv's own fit reproduces `m$scale` to 1e-12) is NOT parity evidence and is labelled so.
+
+### Findings (tier 3, run 36950897107, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, R 4.6.1 / mgcv 1.9.4; tier 1 identical in kind)
+1. **`m$scale` is Fletcher (2012):** `pearson/(n-edf)/(1+s_bar)`, `s_bar = max(-0.9, mean(V'(mu)(y-mu)/V(mu)))` (read from
+   `gam.fit3`, then confirmed by measurement). Polaris Fletcher rel diff `9.136e-08`; Pearson `9.526e-03`; deviance `3.792e-03`.
+2. **Two-stage chain agrees:** stage-1 phi rel diff `1.866e-08`; stage-2 `eta` `2.292e-06` (own phi), `2.500e-06` (mgcv's phi supplied).
+   The workflow costs `5.27e-03` in `eta` and `+0.166` edf against the joint fit — identically on both sides.
+3. **A disagreement, reported as a result:** on this draw the DEFAULT single-start joint free-scale fit has `eta` `0.2864`, `edf_total`
+   `-5.614` vs mgcv. mgcv's `sp` scores LOWER under Polaris's own criterion (tier 1: 1638.946 vs 1642.326) — two stationary
+   points of one criterion, not a formula gap. `multistart=True` (existing, ADR-213) reaches it: `eta` `1.737e-06`. Registered as slice 3d.
+
+### Decisions
+- `PolarisGAMFit.dispersion` (a `DispersionEstimates`) is exposed on every fit; **no threshold, default or warning** (maintainer, 2026-09-30). The two-stage route is optional and non-standard; it lives in the conformance module, not the production API.
+- `Family.variance_prime` added as a public accessor (purely additive; `MEASUREMENT_unconditional_coverage.md` re-stamped `--assert`, note recorded).
+- The dispersion gate reuses ADR-221's `2e-2` as a relative level (imported, not tuned); the figures sit 5-6 orders inside it. The CI comparison step is non-blocking for this first measurement; adding a gate is a reviewable follow-up.
+
+### Consequences
+Slice 3c's release conditions (a)-(d) met; slice 3d opened. Slice 8 (parity epic) unchanged.
+
+
+## ADR-239: Capability ladder slice 3d — mgcv's data-based `initial.spg` start, as one seeded search, reaches `mgcv`'s basin (INDEPENDENT, tier 1 and tier 3)
+
+**Status:** Accepted, 2026-10-02. **Claim sentence (written before the code):** `polaris_re`'s `fit_polaris_gam(quasipoisson, initial_sp_start=True)` runs ONE `select_lambdas_continuous` search from `gam_initial_sp.initial_log10_lambda` (mgcv's `initial.spg` recipe evaluated on Polaris's own data, design and penalty blocks); `mgcv` computes it via `gam(quasipoisson, method="REML")`; compared on `eta`/`edf_total` (ADR-221, imported).
+
+### Why (ADR-238 finding 3, and the diagnosis that closed it)
+ADR-238: the default bounds-centre single start lands in a worse stationary point of the same criterion. Hypothesis (user-supplied after reading mgcv's source): mgcv does not multistart; it runs one Newton search from a data-based start. Local re-read of `mgcv:::initial.sp` / `initial.spg` (mgcv 1.9.1) confirmed the recipe. Not tested here: mgcv's other differences (log-scale as a search parameter, exact-Hessian safeguarded Newton). Those remain unexamined and may matter on other data.
+
+### Provenance (ADR-193)
+INDEPENDENT. The start is computed from the data, design and penalties only (no mgcv output); `gam_initial_sp` is also checked directly against `mgcv:::initial.sp` on shared (sqrt(W)X, S) inputs (slow test; R's implementation vs ours, shared inputs).
+
+### Findings
+Slice-3c draw: centre start `eta` `0.2864` (disagrees) -> seeded `1.907e-06` (tier 3, run 37005713761, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`; tier 1 `9.0e-06`). Slice-3b draw: `4.236e-06` (centre) / `4.543e-06` (seeded) — no regression; that draw never showed the failure. Cost: one search (~2 s tier 1) versus best-of-9 (~35 s).
+
+### Decision
+Shipped as OPT-IN (`initial_sp_start=False` default; mutually exclusive with `x0`/`multistart`). The default is NOT changed: that would move every other free-scale reading and has not been measured across them (slice 3e). Two draws is a small sample of "where does the centre start fail"; the seeded start is evidence-backed, not proven robust.

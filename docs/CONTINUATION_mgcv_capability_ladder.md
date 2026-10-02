@@ -3,7 +3,7 @@
 **Plan:** `docs/PLAN_mgcv_capability_ladder.md`
 **Created:** 2026-09-19, by the session that started slice 1 — as the plan's §3
 requires, and not before (the one-active-epic rule).
-**Status:** **IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); Slice 7 MEASURED 2026-10-01 (ADR-236; acceptance NOT met — agrees at phi=2, disagrees at phi=6); NEXT: Slice 7b (far-phi basin), then Slice 3c (dispersion estimate + two-stage workflow).** L1-L5
+**Status (updated 2026-10-02: slice 3c DONE ADR-238; slice 3d MET AS OPT-IN ADR-239; NEXT: slice 3e (default-start decision) and 7c):** **IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); Slice 7 MEASURED 2026-10-01 (ADR-236; acceptance NOT met — agrees at phi=2, disagrees at phi=6); NEXT: Slice 7b (far-phi basin), then Slice 3c (dispersion estimate + two-stage workflow).** L1-L5
 (the original five slices) are COMPLETE and unchanged below — nothing about
 them is revised by the reopening. `PLAN_mgcv_capability_ladder.md` §2.3,
 maintainer direction: the actual near-term dev target is a formula built
@@ -27,7 +27,8 @@ are this epic's own NEXT work — **this is not a queue-empty state.** See
 | **5** | **L4** unpenalized parametric block | **DONE** (2026-09-27, ADR-233) — `TermSpec` gained `basis="parametric"` and a new `levels` field (per-variable level counts, distinct from the existing single-count `n_levels`); design is `mgcv`'s own `contr.treatment` coding (`gam_basis_parametric.py`), zero penalty blocks; found and fixed a real edge case in `assemble_model_design`'s `select=True` branch (`null_space_penalty` raises on an empty block tuple). Stage A exact (no fit needed) and Stage B **fixed AND free `sp` both landed in this slice**, ONE family (`gaussian(identity)`) throughout. **This closed the ORIGINAL five-slice plan — L1 through L5 are all climbed.** |
 | **6** | (composition, not a rung) `cr`+`re`+`ti` jointly | **DONE 2026-09-28 (ADR-234)** — INDEPENDENT, fixed AND free `sp`, tier 1 and tier 3 agree (`eta` 2.5e-14 fixed; ≤3e-5 free). Originally: REGISTERED 2026-09-27. Each basis individually verified; never fit together. See plan §2.3 and its own Slice 6 text |
 | **3b** | quasi-Poisson fit-level free `sp` | **DONE 2026-09-30 (ADR-235)** — INDEPENDENT, tier 3 (run 36704353339): `eta` diff 4.236e-06, `agrees=True`; tier 1 identical in kind. No production code changed |
-| **3c** | expose + verify estimated dispersion; two-stage Poisson -> fixed-scale workflow | **REGISTERED 2026-09-30 (PR #245, maintainer request), NOT STARTED.** Sequenced AFTER slice 7 (consumes its fixed-scale mode). Estimator (deviance vs Pearson) is MEASURE-FIRST. No severity threshold imposed — the estimate is REPORTED and the two-stage workflow is optional/non-standard, the user's choice (maintainer, 2026-09-30). See plan slice 3c |
+| **3c** | expose + verify estimated dispersion; two-stage Poisson -> fixed-scale workflow | **DONE 2026-10-02 (ADR-238)** — INDEPENDENT, tier 3 (run 36950897107, oracle `sha256:0d54c192…`): mgcv's `m$scale` is Fletcher (Polaris rel diff 9.136e-08; Pearson 9.5e-03); two-stage chain stage-2 `eta` 2.292e-06. Opened slice 3d |
+| **3d** | free-scale single-start basin | **MET AS OPT-IN 2026-10-02 (ADR-239)** — mgcv's `initial.spg` start as ONE seeded search (`initial_sp_start=True`): slice-3c draw `eta` 0.2864 -> 1.907e-06 (tier 3, run 37005713761); default NOT flipped, registered as **3e** (seeded default must meet ADR-221 on every existing free-scale cell, or maintainer keeps it opt-in) |
 | **7b** | fixed-scale far-phi basin | **DONE 2026-10-01 (ADR-237)** — INDEPENDENT, tier 3 (run 36903733782, oracle `sha256:0d54c192…`): phi=6 `eta` diff 6.678e-05, `edf_total` -0.0010, agrees; gate blocking. Registered 7c (promote to `fit_polaris_gam`). |
 | **7** | (family axis, not a rung) quasi-Poisson fixed dispersion | **MEASURED 2026-10-01 (ADR-236), acceptance NOT met:** `poisson`+`gamma=phi` agrees with `mgcv` `quasipoisson(scale=phi)` at phi=2, DISAGREES at phi=6 (tier 3, INDEPENDENT; a second stationary point, `mgcv`'s scores lower). `mgcv`'s `poisson(scale=)` ignores `scale`. Registered slice 7b. See plan §2.3 and its own Slice 7 text. Slice 3b (the "estimate" mode) is a separate, still-open registration, unaffected by this |
 
@@ -627,3 +628,10 @@ strip/perturb pair.
 ## Update, 2026-10-01 — Slice 7b DONE (ADR-237)
 
 Fixed-scale quasi-Poisson now agrees with `mgcv` at the far phi=6 (INDEPENDENT; tier 3, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, run 36903733782): `eta` diff 6.678e-05, `edf_total` -0.0010 (was 0.2841 / -2.1797). Change: keep the lower own-criterion score of a cold start and a `gamma=1`-seeded start (conformance module only). The phi=6 comparison is now a blocking CI step. **Next: slice 3c.** Open: slice 7c (promotion to production, a non-corner far-phi cell).
+
+---
+
+## Update 2026-10-02 — slices 3c and 3d (PR #248; ADR-238, ADR-239)
+
+**Slice 3c DONE.** `PolarisGAMFit.dispersion` exposes Pearson / Fletcher / deviance; mgcv's `m$scale` IS Fletcher (2012). Two-stage Poisson -> fixed-scale chain agrees with mgcv's own (INDEPENDENT; tier 3 run 36950897107, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`).
+**Slice 3d MET AS OPT-IN.** The default single-start free-scale fit missed mgcv's basin on a fresh draw (`eta` 0.2864); mgcv's `initial.spg`-style start, one search, agrees (`eta` 1.907e-06, tier 3, run 37005713761). Default unchanged. **NEXT: slice 3e** (decide/measure the default start for free-scale families), then 7c.

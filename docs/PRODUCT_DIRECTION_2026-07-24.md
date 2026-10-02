@@ -4106,3 +4106,8 @@ on the FD path) lives now.
 Provenance: INDEPENDENT comparison (Polaris two-start fit vs `mgcv` `quasipoisson(scale=phi)`), tier 3.
 - **2nd-order (NICE-TO-HAVE):** ladder slice 7c — promote the two-start (cold + `gamma=1` seed, lower own score) rule into `fit_polaris_gam` as an opt-in, and read a far-phi cell where `mgcv`'s `sp` is not at a null-space corner (registered in `PLAN_mgcv_capability_ladder.md`). Also closes the "rule was chosen against 6 tier-1 cells" caveat.
 - **3rd-order (parked):** gate step reuses the compare step's fits via a results JSON instead of refitting, and prints a clean message on a missing probe JSON (cosmetic; PR #247 review [P2]).
+
+### Harvested 2026-10-02 — ladder slice 3c (ADR-238)
+- **1st-order (promoted): ladder slice 3d** — default single-start free-scale fit misses mgcv's basin on a fresh draw (`eta` 0.2864); `multistart=True` fixes it. Registered in `PLAN_mgcv_capability_ladder.md`.
+- 2nd-order NICE-TO-HAVE: make the slice-3c CI comparison a blocking gate once a second tier-3 reading exists.
+- 3rd-order (parked): promote the two-stage workflow helper out of the conformance module if users ask for it (maintainer: optional, non-standard).

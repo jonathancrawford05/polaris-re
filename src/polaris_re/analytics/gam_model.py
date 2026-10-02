@@ -73,6 +73,7 @@ from typing import TypedDict
 
 import numpy as np
 
+from polaris_re.analytics.gam_dispersion import DispersionEstimates, dispersion_estimates
 from polaris_re.analytics.gam_family import (
     Family,
     binomial_cloglog,
@@ -81,6 +82,7 @@ from polaris_re.analytics.gam_family import (
     poisson_log,
     quasipoisson_log,
 )
+from polaris_re.analytics.gam_initial_sp import initial_log10_lambda
 from polaris_re.analytics.gam_reml_optimize import (
     select_lambdas_continuous,
     select_lambdas_continuous_multistart,
@@ -367,6 +369,31 @@ def _per_term_edf(
     return {tb["label"]: float(diag[tb["start"] : tb["end"]].sum()) for tb in design["term_blocks"]}
 
 
+def _dispersion_or_nan(
+    y: np.ndarray,
+    mu: np.ndarray,
+    family: Family,
+    edf_total: float,
+    weights: np.ndarray | None,
+) -> DispersionEstimates:
+    """The fit's dispersion diagnostic, which must never block the fit: a
+    near-saturated fit (no residual df) or a saturated binomial ``mu`` (``V = 0``)
+    reports NaN estimates instead of raising. The standalone
+    :func:`dispersion_estimates` keeps raising on no residual df."""
+    nan = float("nan")
+    try:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return dispersion_estimates(y, mu, family, edf_total, weights=weights)
+    except PolarisValidationError:
+        return DispersionEstimates(
+            pearson=nan,
+            fletcher=nan,
+            deviance=nan,
+            s_bar=nan,
+            residual_df=float(y.size) - edf_total,
+        )
+
+
 @dataclass(frozen=True)
 class PolarisGAMFit:
     """A ``ModelSpec`` fitted to data, with its own selected smoothing
@@ -405,6 +432,17 @@ class PolarisGAMFit:
     — a term ``mgcv``'s own ``select = TRUE`` would routinely shrink to its
     null space (PLAN slice 7), not necessarily a defect. Empty unless
     :attr:`at_bound` is ``True``."""
+    dispersion: DispersionEstimates
+    """Pearson / Fletcher / deviance dispersion estimates at the fitted ``mu``
+    (slice 3c). **Reported, never acted on**: no threshold or default is
+    attached. ``dispersion.fletcher`` is what ``mgcv`` reports as ``m$scale``
+    for a free-scale quasi-family under REML. For a ``dispersion_fixed`` family
+    (Poisson, binomial) these are overdispersion diagnostics, not the model's
+    own scale — read ``dispersion.pearson`` off a Poisson fit to supply as
+    ``gamma=`` to a second fit (the optional, non-standard two-stage route; see
+    :mod:`polaris_re.analytics.gam_dispersion`). NaN estimates mean the
+    diagnostic was undefined for this fit (no residual degrees of freedom, or a
+    saturated ``mu`` with ``V = 0``) — it never blocks the fit itself."""
 
 
 def fit_polaris_gam(
@@ -423,6 +461,7 @@ def fit_polaris_gam(
     analytic_gradient: bool = False,
     max_gtol_restarts: int = 0,
     step_halving: bool = False,
+    initial_sp_start: bool = False,
 ) -> PolarisGAMFit:
     """Fit ``model`` to ``data``/``y``, selecting every smoothing parameter by
     continuous REML (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`,
@@ -516,6 +555,17 @@ def fit_polaris_gam(
             the restart plateau's own KKT residual ``0.049335 -> 0.001125``
             (~44x) and removes the non-convergent neighbourhood entirely.
 
+        initial_sp_start: when ``True``, the single search starts from
+            ``mgcv``'s own data-based ``initial.spg`` smoothing parameters
+            (:func:`~polaris_re.analytics.gam_initial_sp.initial_log10_lambda`)
+            instead of the bounds-centre (ladder slice 3d). Default ``False`` —
+            every existing caller's behaviour is unchanged. One start, one
+            search's cost (no ``n_starts`` multiple). Measured, not assumed: on
+            two overdispersed quasi-Poisson draws where the bounds-centre start
+            settles in a worse stationary point of the same criterion, this
+            start reaches ``mgcv``'s point (see ADR-239). Mutually exclusive
+            with ``x0`` and ``multistart``.
+
     Raises:
         PolarisValidationError: propagated from :func:`assemble_model_design`
             or :func:`resolve_family`; or raised here if both ``multistart``
@@ -544,6 +594,11 @@ def fit_polaris_gam(
             "so x0 would be silently dropped rather than used. Pass one or "
             "the other."
         )
+    if initial_sp_start and (x0 is not None or multistart):
+        raise PolarisValidationError(
+            "fit_polaris_gam: initial_sp_start=True is mutually exclusive with x0 and "
+            "multistart=True (it IS the single start)."
+        )
     design = assemble_model_design(model, data)
     family = resolve_family(model.family, model.link)
     weights = (
@@ -557,6 +612,12 @@ def fit_polaris_gam(
         else np.asarray(data[model.offset_column], dtype=np.float64)
     )
     y = np.asarray(y, dtype=np.float64)
+    if initial_sp_start:
+        x0 = np.clip(
+            initial_log10_lambda(y, design["x"], family, design["penalty_blocks"], weights=weights),
+            bounds[0],
+            bounds[1],
+        )
 
     n_function_evals: int
     if multistart:
@@ -657,4 +718,5 @@ def fit_polaris_gam(
         n_rejected=selection.n_rejected,
         at_bound=bool(upper_bound_blocks),
         at_bound_blocks=tuple(label for label, _ in upper_bound_blocks),
+        dispersion=_dispersion_or_nan(y, mu, family, selection.edf_total, weights),
     )
