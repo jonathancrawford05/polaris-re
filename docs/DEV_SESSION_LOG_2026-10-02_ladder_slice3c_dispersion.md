@@ -39,3 +39,6 @@ Formula identification of Fletcher on mgcv's own fit: NOT parity evidence.
 
 ## Follow-ups
 Slice 3d registered (PLAN). Optional: a blocking CI gate for this probe once a second tier-3 reading exists. perf row appended (production files touched).
+
+## Addendum — slice 3d (same PR, user-directed)
+Hypothesis supplied by the user from reading mgcv: mgcv uses one data-based start (`initial.spg`), not multistart. I re-read `initial.sp`/`initial.spg` locally, implemented `gam_initial_sp`, one change (`initial_sp_start` opt-in). Tier 1: slice-3c draw `eta` 9.0e-06; slice-3b draw `1.5e-05`. Tier 3 (run 37005713761, `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`): `1.907e-06` / `4.543e-06`. **Provenance:** INDEPENDENT (start computed from data/design/penalties only). **Caveat:** the 3b draw already agreed with the centre start, so it is a no-regression check. **Not done:** default flip (slice 3e). Not tested: mgcv's log-scale-in-search and Newton safeguards.

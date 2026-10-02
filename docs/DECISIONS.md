@@ -24395,3 +24395,20 @@ formula on mgcv's own fit reproduces `m$scale` to 1e-12) is NOT parity evidence 
 
 ### Consequences
 Slice 3c's release conditions (a)-(d) met; slice 3d opened. Slice 8 (parity epic) unchanged.
+
+
+## ADR-239: Capability ladder slice 3d — mgcv's data-based `initial.spg` start, as one seeded search, reaches `mgcv`'s basin (INDEPENDENT, tier 1 and tier 3)
+
+**Status:** Accepted, 2026-10-02. **Claim sentence (written before the code):** `polaris_re`'s `fit_polaris_gam(quasipoisson, initial_sp_start=True)` runs ONE `select_lambdas_continuous` search from `gam_initial_sp.initial_log10_lambda` (mgcv's `initial.spg` recipe evaluated on Polaris's own data, design and penalty blocks); `mgcv` computes it via `gam(quasipoisson, method="REML")`; compared on `eta`/`edf_total` (ADR-221, imported).
+
+### Why (ADR-238 finding 3, and the diagnosis that closed it)
+ADR-238: the default bounds-centre single start lands in a worse stationary point of the same criterion. Hypothesis (user-supplied after reading mgcv's source): mgcv does not multistart; it runs one Newton search from a data-based start. Local re-read of `mgcv:::initial.sp` / `initial.spg` (mgcv 1.9.1) confirmed the recipe. Not tested here: mgcv's other differences (log-scale as a search parameter, exact-Hessian safeguarded Newton). Those remain unexamined and may matter on other data.
+
+### Provenance (ADR-193)
+INDEPENDENT. The start is computed from the data, design and penalties only (no mgcv output); `gam_initial_sp` is also checked directly against `mgcv:::initial.sp` on shared (sqrt(W)X, S) inputs (slow test; R's implementation vs ours, shared inputs).
+
+### Findings
+Slice-3c draw: centre start `eta` `0.2864` (disagrees) -> seeded `1.907e-06` (tier 3, run 37005713761, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`; tier 1 `9.0e-06`). Slice-3b draw: `4.236e-06` (centre) / `4.543e-06` (seeded) — no regression; that draw never showed the failure. Cost: one search (~2 s tier 1) versus best-of-9 (~35 s).
+
+### Decision
+Shipped as OPT-IN (`initial_sp_start=False` default; mutually exclusive with `x0`/`multistart`). The default is NOT changed: that would move every other free-scale reading and has not been measured across them (slice 3e). Two draws is a small sample of "where does the centre start fail"; the seeded start is evidence-backed, not proven robust.
