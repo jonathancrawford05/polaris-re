@@ -366,7 +366,13 @@ scope post-hoc inside a landed PR is exactly the "widen on your own"
 this project's routines refuse; a registered follow-up slice is the correct
 container instead.
 
-### Slice 3c — expose and verify the estimated dispersion, and the two-stage Poisson -> fixed-scale workflow (registered, not started)
+### Slice 3c — expose and verify the estimated dispersion, and the two-stage Poisson -> fixed-scale workflow — ✅ **DONE 2026-10-02 (ADR-238); one gap opened and registered as slice 3d**
+
+> **DoD, reproduced with evidence.** (a) Polaris-side dispersion estimate is an exposed, tested output — MET: `PolarisGAMFit.dispersion` (`gam_dispersion.dispersion_estimates`: Pearson, Fletcher, deviance); `tests/test_analytics/test_gam_dispersion.py` (closed-form). (b) comparison against mgcv INDEPENDENT at tier 3, estimators stated — MET: Fletcher vs `m$scale` rel diff `9.136e-08`, Pearson `9.526e-03`, deviance `3.792e-03` (run 36950897107, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`); ADR-238. (c) two-stage workflow measured at tier 3 against mgcv at the same supplied scale, gap to joint reported, documented optional/non-standard — MET: supplied-phi `eta` `2.500e-06`; own-phi `2.292e-06`; two-stage-vs-joint `5.275e-03` (Polaris) / `5.274e-03` (mgcv); `gam_dispersion_conformance` docstring. (d) coverage row states which estimator — MET: `docs/MGCV_FEATURE_COVERAGE.md` quasipoisson row (Fletcher exposed). NOT MET, and registered: the default single-start joint fit disagrees with mgcv on this draw — slice 3d.
+>
+> **Registered follow-up, slice 3d (ADR-209 decision 1):** the default single-start free-scale `fit_polaris_gam(quasipoisson)` lands in a worse stationary point of the same criterion on the slice-3c draw (`eta` 0.2864, `edf_total` -5.614, tier 3); `multistart=True` closes it (`1.737e-06`). **Release condition:** a hypothesis-driven change to the DEFAULT free-scale search (e.g. adopt a multistart/seeded default for `dispersion_fixed=False` families, chosen on own-criterion score only; no tuned constant, no tolerance change) after which the default fit meets ADR-221 at tier 3 on both the slice-3b and slice-3c draws; or a maintainer decision that `multistart=True` is the documented requirement for free-scale families.
+
+
 
 **Registered 2026-09-30 (PR #245, maintainer request), per ADR-209 decision 1.**
 Slice 3b verified that a free-scale quasi-Poisson FIT agrees with `mgcv`, but
