@@ -439,7 +439,7 @@ _FREE_SP_BOUNDS = (-2.0, 12.0)
 
 
 def fit_parametric_free_sp_case(
-    r_case: RParametricFreeSpRecipe, *, multistart: bool = False
+    r_case: RParametricFreeSpRecipe, *, multistart: bool = False, initial_sp_start: bool = False
 ) -> PolarisGAMFit:
     """The independent Python producer: assemble the design, select the
     smooth's own lambda, and fit — never reading ``mgcv``'s
@@ -459,7 +459,14 @@ def fit_parametric_free_sp_case(
     model = parametric_free_sp_model_spec(n_face_levels, n_smoke_levels, age_knots)
     data = _data_from_recipe(r_case["face_group"], r_case["smoke_group"], r_case["AttdAge"])
     y = np.asarray(r_case["y"], dtype=np.float64)
-    return fit_polaris_gam(model, data, y, bounds=_FREE_SP_BOUNDS, multistart=multistart)
+    return fit_polaris_gam(
+        model,
+        data,
+        y,
+        bounds=_FREE_SP_BOUNDS,
+        multistart=multistart,
+        initial_sp_start=initial_sp_start,
+    )
 
 
 @dataclass(frozen=True)
