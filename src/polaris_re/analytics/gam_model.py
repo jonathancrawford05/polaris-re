@@ -73,6 +73,7 @@ from typing import TypedDict
 
 import numpy as np
 
+from polaris_re.analytics.gam_dispersion import DispersionEstimates, dispersion_estimates
 from polaris_re.analytics.gam_family import (
     Family,
     binomial_cloglog,
@@ -405,6 +406,15 @@ class PolarisGAMFit:
     — a term ``mgcv``'s own ``select = TRUE`` would routinely shrink to its
     null space (PLAN slice 7), not necessarily a defect. Empty unless
     :attr:`at_bound` is ``True``."""
+    dispersion: DispersionEstimates
+    """Pearson / Fletcher / deviance dispersion estimates at the fitted ``mu``
+    (slice 3c). **Reported, never acted on**: no threshold or default is
+    attached. ``dispersion.fletcher`` is what ``mgcv`` reports as ``m$scale``
+    for a free-scale quasi-family under REML. For a ``dispersion_fixed`` family
+    (Poisson, binomial) these are overdispersion diagnostics, not the model's
+    own scale — read ``dispersion.pearson`` off a Poisson fit to supply as
+    ``gamma=`` to a second fit (the optional, non-standard two-stage route; see
+    :mod:`polaris_re.analytics.gam_dispersion`)."""
 
 
 def fit_polaris_gam(
@@ -657,4 +667,5 @@ def fit_polaris_gam(
         n_rejected=selection.n_rejected,
         at_bound=bool(upper_bound_blocks),
         at_bound_blocks=tuple(label for label, _ in upper_bound_blocks),
+        dispersion=dispersion_estimates(y, mu, family, selection.edf_total, weights=weights),
     )

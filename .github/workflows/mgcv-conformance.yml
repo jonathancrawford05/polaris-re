@@ -177,6 +177,11 @@ on:
       # CAPABILITY LADDER slice 7 — quasipoisson(log) at a supplied FIXED scale.
       - "src/polaris_re/analytics/gam_quasipoisson_fixed_scale_conformance.py"
       - "scripts/gam_quasipoisson_fixed_scale_probe.R"
+      # CAPABILITY LADDER slice 3c — the exposed dispersion estimate and the
+      # two-stage Poisson -> fixed-scale workflow.
+      - "src/polaris_re/analytics/gam_dispersion.py"
+      - "src/polaris_re/analytics/gam_dispersion_conformance.py"
+      - "scripts/gam_dispersion_two_stage_probe.R"
       # CAPABILITY LADDER rung L3 (docs/PLAN_mgcv_capability_ladder.md slice
       # 4) — factor-by, s(x, by=fac, bs="cr"). gam_basis_cr.py and
       # gam_stage_a.py (Stage A's producer and claim) plus gam_term_spec.py
@@ -653,6 +658,19 @@ jobs:
             Rscript scripts/gam_quasipoisson_fixed_scale_probe.R \
               gam_quasipoisson_fixed_scale_probe.json
 
+      # CAPABILITY LADDER slice 3c — the exposed dispersion estimate and the
+      # optional two-stage Poisson -> fixed-scale workflow. mgcv's own chain
+      # (joint quasipoisson, poisson stage 1, quasipoisson at scale = its own
+      # stage-1 Pearson dispersion). Same DIAGNOSTIC contract as every probe
+      # above; the comparison happens in the `compare` job below.
+      - name: Fit the dispersion chain under mgcv (ladder slice 3c)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_dispersion_two_stage_probe.R \
+              gam_dispersion_two_stage_probe.json
+
       # CAPABILITY LADDER rung L3 (docs/PLAN_mgcv_capability_ladder.md slice
       # 4) — factor-by, Stage B, FIXED sp. Pairs the already-verified `cr`
       # term (on PolYear) with the NEW factor-by construction (on AttdAge,
@@ -860,6 +878,7 @@ jobs:
             gam_gaussian_free_sp_probe.json
             gam_quasipoisson_free_sp_probe.json
             gam_quasipoisson_fixed_scale_probe.json
+            gam_dispersion_two_stage_probe.json
             gam_by_factor_probe.json
             gam_by_factor_free_sp_probe.json
             gam_parametric_stage_a_probe.json
@@ -2787,6 +2806,106 @@ jobs:
               print(f"GATE FAILED at phi={[c['scale'] for c in bad]} (ADR-221 criterion).")
               sys.exit(1)
           PY
+
+      # CAPABILITY LADDER slice 3c — the exposed dispersion and the two-stage
+      # workflow. First measurement: REPORTED, not gated (a gate is added once
+      # the tier-3 reading exists). ADR-221's criterion imported, never redeclared.
+      - name: Compare the dispersion estimate and two-stage workflow against the Python side (ladder slice 3c)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_dispersion_two_stage_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_dispersion_two_stage_probe.json to compare ({exc}) — "
+                    "the R probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_dispersion_conformance import (
+              DISPERSION_TWO_STAGE_CLAIM, compare_dispersion_two_stage_case,
+              fit_dispersion_two_stage_case, fit_stage2_at_supplied_scale,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          fits = fit_dispersion_two_stage_case(r_payload)
+          s2 = fit_stage2_at_supplied_scale(
+              r_payload, r_payload["phi_stage1_pearson"], fits.stage1)
+          c = compare_dispersion_two_stage_case(fits, r_payload, s2)
+          joint_ok = (c["joint_max_abs_eta_diff"] < 2e-2
+                      and abs(c["joint_edf_total_diff"]) < 1.0)
+
+          lines = [
+              "",
+              "### Capability ladder slice 3c — exposed dispersion and the two-stage "
+              "Poisson -> fixed-scale workflow vs mgcv",
+              "",
+              f"mgcv {r_payload['mgcv_version']} / {r_payload['r_version']}",
+              "",
+              evidence_markdown(DISPERSION_TWO_STAGE_CLAIM),
+              "",
+              "**Joint free-scale fit** (eta/edf per ADR-221's imported criterion)",
+              "",
+              "| search | max abs eta diff | edf_total diff | agrees |",
+              "|---|---:|---:|---|",
+              f"| multistart (best-of-9, own criterion) | "
+              f"{c['joint_max_abs_eta_diff']:.3e} | {c['joint_edf_total_diff']:+.4f} | "
+              f"{joint_ok} |",
+              f"| single start (default) | "
+              f"{c['joint_single_start_max_abs_eta_diff']:.3e} | "
+              f"{c['joint_single_start_edf_total_diff']:+.4f} | "
+              f"{c['joint_single_start_agrees']} |",
+              "",
+              f"**Dispersion** (mgcv `m$scale` = {c['r_scale']:.9f}; "
+              f"Fletcher identified: {c['identifies_fletcher']})",
+              "",
+              "| Polaris estimator | value | rel diff to m$scale |",
+              "|---|---:|---:|",
+              f"| Fletcher | {c['polaris_fletcher']:.9f} | {c['fletcher_rel_diff']:.3e} |",
+              f"| Pearson | {c['polaris_pearson']:.9f} | {c['pearson_rel_diff']:.3e} |",
+              f"| deviance | {c['polaris_deviance']:.9f} | {c['deviance_rel_diff']:.3e} |",
+              "",
+              f"Stage-1 Pearson dispersion: Polaris {c['phi_stage1_polaris']:.9f}, "
+              f"mgcv-side {c['phi_stage1_r']:.9f}, rel diff {c['phi_stage1_rel_diff']:.3e}.",
+              "",
+              "**Stage 2** (poisson + gamma = phi vs mgcv quasipoisson(scale = phi))",
+              "",
+              "| dispersion held | max abs eta diff | edf_total diff |",
+              "|---|---:|---:|",
+              f"| each side's OWN stage-1 | {c['stage2_max_abs_eta_diff']:.3e} | "
+              f"{c['stage2_edf_total_diff']:+.4f} |",
+              f"| mgcv's stage-1, supplied to Polaris | "
+              f"{c['stage2_supplied_max_abs_eta_diff']:.3e} | "
+              f"{c['stage2_supplied_edf_total_diff']:+.4f} |",
+              "",
+              "**Cost of the two-stage route vs the joint fit** — REPORTED, not compared "
+              "(within-side; information for the user's decision)",
+              "",
+              "| side | max abs eta gap | edf_total gap |",
+              "|---|---:|---:|",
+              f"| Polaris | {c['polaris_two_stage_vs_joint_max_abs_eta']:.3e} | "
+              f"{c['polaris_two_stage_vs_joint_edf_total']:+.4f} |",
+              f"| mgcv | {c['r_two_stage_vs_joint_max_abs_eta']:.3e} | "
+              f"{c['r_two_stage_vs_joint_edf_total']:+.4f} |",
+              "",
+              f"mgcv stage-1 Pearson minus joint scale: {c['r_phi_stage1_vs_joint_scale']:+.6f}.",
+              "",
+              f"**Offset tripwire** (reported, never gated): {c['offset_gap']:.3e}. "
+              f"Overall `agrees` (multistart joint + chain): **{c['agrees']}**.",
+          ]
+          if not c["agrees"] or not c["joint_single_start_agrees"]:
+              lines.insert(2, "**Disagreement — see the tables. This is a genuine finding.**")
+          report = "\n".join(lines) + "\n"
+          with open("gam_dispersion_two_stage_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_dispersion_two_stage_probe_report.md ]; then
+            cat gam_dispersion_two_stage_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Compare the factor-by basis vs smoothCon(s(x, by=fac, bs="cr")) (ladder L3 Stage A)
         if: always()

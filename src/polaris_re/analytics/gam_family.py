@@ -155,6 +155,12 @@ class Family:
     def variance(self, mu: np.ndarray) -> np.ndarray:
         return self._variance(mu)
 
+    def variance_prime(self, mu: np.ndarray) -> np.ndarray:
+        """``V'(mu)`` — ``mgcv``'s ``family$dvar``; read by Fletcher's dispersion
+        estimator (:mod:`polaris_re.analytics.gam_dispersion`) as well as the
+        observed-information weight."""
+        return self._variance_prime(mu)
+
     def observed_information_weight(
         self, y: np.ndarray, eta: np.ndarray, weights: np.ndarray
     ) -> np.ndarray:
