@@ -122,6 +122,20 @@ def test_the_fit_is_unchanged_when_every_mgcv_key_is_planted() -> None:
         np.testing.assert_array_equal(a.log_lambda, b.log_lambda)
 
 
+def test_seeded_candidate_never_scores_worse_than_cold_and_off_switch_is_cold_only() -> None:
+    """Slice 7b: the default keeps the LOWER own-criterion score of two starts, so
+    it can never be worse than slice 7's cold start; ``unit_gamma_seed=False``
+    reproduces that cold-start-only behaviour exactly."""
+    recipe = _recipe()
+    cold = fit_quasipoisson_fixed_scale_case(recipe, unit_gamma_seed=False)
+    best = fit_quasipoisson_fixed_scale_case(recipe)
+    for c, b in zip(cold, best, strict=True):
+        assert b.reml_score <= c.reml_score + 1e-12
+    again = fit_quasipoisson_fixed_scale_case(recipe, unit_gamma_seed=False)
+    for a, b in zip(cold, again, strict=True):
+        np.testing.assert_array_equal(a.log_lambda, b.log_lambda)
+
+
 def test_model_spec_is_poisson_log_on_the_three_term_design() -> None:
     spec = fixed_scale_model_spec(tuple(_AGE_KNOTS), tuple(_YEAR_KNOTS))
     assert (spec.family, spec.link) == ("poisson", "log")
@@ -191,8 +205,9 @@ def test_stationarity_diagnostic_reports_python_point_as_stationary() -> None:
 @pytest.mark.slow
 @pytest.mark.skipif(not rscript_mgcv_available(), reason="Rscript with mgcv not available")
 def test_round_trip_against_mgcv(tmp_path: Path) -> None:
-    """Tier 1 (hypothesis only). The near-phi fit must agree; the far-phi fit is
-    a RECORDED disagreement (ledger / ADR-236), so it is reported, not asserted."""
+    """Tier 1 (hypothesis only; tier 3 is the committed reading, ADR-237). Both
+    the near and the far supplied phi must meet ADR-221 — the far one closed in
+    slice 7b (before it, ADR-236 recorded a disagreement here)."""
     out = tmp_path / "gam_quasipoisson_fixed_scale_probe.json"
     subprocess.run(
         ["Rscript", str(REPO_ROOT / "scripts" / "gam_quasipoisson_fixed_scale_probe.R"), str(out)],
@@ -208,3 +223,5 @@ def test_round_trip_against_mgcv(tmp_path: Path) -> None:
     assert results[0]["scale"] == 2.0
     assert results[0]["agrees"], results[0]
     assert results[0]["offset_gap"] < 1e-9
+    assert results[1]["scale"] == 6.0
+    assert results[1]["agrees"], results[1]

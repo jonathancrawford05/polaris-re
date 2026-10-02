@@ -24318,3 +24318,46 @@ At phi=6 the analytic gradient is ~0 at BOTH points (`4.6e-03` Polaris, `1.1e-04
 
 ### Consequences
 Slice 7's acceptance ("ADR-221 at the fit level, tier 3") is **NOT MET** at the far phi. No `ModelSpec` convenience was built (it would advertise a mode that fails far from the free estimate). Registered **slice 7b** with a release condition. Slice 3c consumes the fixed mode and should treat it as verified only near the free estimate until 7b closes.
+
+
+## ADR-237: Capability ladder slice 7b — fixed-scale free-`sp` search reaches `mgcv`'s basin at far dispersion (INDEPENDENT, tier 1 and tier 3)
+
+**Status:** Accepted, 2026-10-01. **Claim sentence (written before the code):** `polaris_re`'s
+`fit_polaris_gam` (`poisson(log)`, `gamma=phi`) assembles the three-term design and selects its own four
+`log10(lambda)` under the known-scale criterion from TWO starts (bounds-centre and the `gamma=1` solution),
+keeping the lower own-criterion score; `mgcv` computes it via `gam(quasipoisson(log), method="REML", scale=phi)`;
+compared at phi in {2, 6} on `eta` and `edf_total` (ADR-221, imported; `log10(sp)`/per-term edf reported).
+
+### Provenance (ADR-193)
+Identical to ADR-236: all compared columns INDEPENDENT; `phi` a supplied input to both sides. The start
+selection uses Polaris's own `reml_score` only — nothing `mgcv` produced reaches it (recipe-typed signature,
+hostile-plant test unchanged and passing). `score_at_both_points` remains a DIAGNOSTIC.
+
+### Hypothesis and the one change
+ADR-236: two stationary points of one criterion at phi=6, `mgcv`'s lower. Hypothesis: `gamma` only rescales the
+known-scale criterion, so the `gamma=1` minimiser lies in the basin the fixed-phi minimiser continues from, and a
+search seeded there reaches the lower point. Change: add that seeded candidate and keep the lower-scoring of
+(cold, seeded). Not a tolerance change, not a tuned constant.
+
+### Result (tier 3, `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, R 4.6.1 / mgcv 1.9.4, run 36903733782)
+phi=2: `eta` 2.607e-06, `edf_total` +0.0001 (agrees). **phi=6: `eta` 6.678e-05, `edf_total` -0.0010,
+`log10(sp)` diff 0.0004 — agrees** (was 0.2841 / -2.1797 / 4.2093). Own-criterion score at Polaris's point now
+`204.2549`, equal to `mgcv`'s (was `205.0760`). Tier 1 agrees (`eta` 2.4e-05).
+
+### What the measurement does NOT show
+- A bare seeded jump is not sufficient in general: on a different draw (tier 1, seed 11, phi=8) it alone was worse than
+  cold (`eta` 0.0257 > gate); the best-of-two-by-criterion rule is what chose correctly on all six tier-1 cells tried. Six
+  cells on three draws is evidence, not a proof of when the criterion ordering tracks `mgcv`'s basin.
+- At phi=8 `mgcv`'s own `sp` reaches ~1e10 on those draws (a null-space corner), so those cells test a different regime.
+- Mechanism not derived beyond "continuation tracks the basin"; no claim that the surface is unimodal.
+
+### Gating decision (maintainer "option C", PLAN slice 7b)
+`continue-on-error` removed from the fixed-scale compare step; a new step "Gate the quasipoisson(log) fixed-scale
+comparison (ladder slice 7b)" fails the job unless every supplied phi meets ADR-221's `eta`/`edf_total` criterion
+(imported). A missing probe JSON now fails (previously exit 0). **Never gated on `log10(sp)`.** The slow tier-1
+round-trip test now also asserts phi=6. The gate step was verified at tier 3 by a second dispatch: run 36905028007 (head `41326cc`), step passed.
+
+### Consequences
+Slice 7b's release condition met. Production `fit_polaris_gam` is unchanged: the two-start strategy lives in the
+conformance module only; promoting it is registered as ladder slice 7c. Slice 3c may now treat the fixed mode as verified at
+phi=2 and phi=6 on this fixture. Parity-epic slice 8 still owes a phi=6 re-read when its solver lands.

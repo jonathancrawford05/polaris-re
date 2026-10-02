@@ -122,8 +122,9 @@ QUASIPOISSON_FIXED_SCALE_CLAIM_SENTENCE = (
     "the target formula's own knot vectors, and the SUPPLIED dispersion phi), "
     "and selects its own log10(lambda) for all four penalty blocks by "
     "minimizing gam_reml.reml_score_general's known-scale branch with gamma "
-    "substituting for the fixed phi, then fits with "
-    "gam_fit.penalized_irls_general — never reading mgcv's own eta, coef, sp "
+    "substituting for the fixed phi (from two starts — the bounds-centre and "
+    "the gamma=1 solution — keeping the lower own-criterion score, slice 7b), "
+    "then fits with gam_fit.penalized_irls_general — never reading mgcv's own eta, coef, sp "
     "or edf; mgcv computes it via gam(family=quasipoisson(link='log'), "
     "method='REML', scale=phi) with free sp "
     "(scripts/gam_quasipoisson_fixed_scale_probe.R). Compared at each of two "
@@ -198,16 +199,62 @@ type PolarisFixedScaleFits = list[PolarisGAMFit]
 """One :class:`PolarisGAMFit` per supplied scale, in ``scales`` order."""
 
 
+def _fit_best_of_cold_and_unit_gamma_seed(
+    model: ModelSpec,
+    data: dict[str, np.ndarray],
+    y: np.ndarray,
+    phi: float,
+    unit_fit: PolarisGAMFit,
+    multistart: bool,
+) -> PolarisGAMFit:
+    """Two starts, one criterion: the bounds-centre (cold) search and a search
+    seeded at the ``gamma = 1`` solution's ``log10(lambda)``; keep whichever
+    reaches the LOWER ``reml_score``.
+
+    **Why (slice 7b, ADR-237).** At a far ``phi`` the cold start settles in a
+    different stationary point of the by-term block than ``mgcv`` does (ADR-236:
+    both gradients ~0, ``mgcv``'s point scoring lower under OUR criterion).
+    ``gamma`` only rescales the known-scale criterion, so the ``gamma = 1``
+    minimiser sits in the basin the fixed-``phi`` minimiser continues from.
+    Selection between the two candidates uses ONLY Polaris's own criterion —
+    nothing ``mgcv`` produced reaches this function (ADR-193 mechanical test:
+    the signature carries the recipe-derived inputs only), and no constant here
+    is tuned to ``mgcv``: ``gamma = 1`` is the family's natural scale, not a
+    fitted value. ``multistart=True`` replaces the cold candidate with the
+    best-of-9 search; the seeded candidate is added to it, never substituted.
+    """
+    cold = fit_polaris_gam(model, data, y, gamma=phi, multistart=multistart)
+    if np.isclose(phi, 1.0, rtol=1e-12, atol=0.0):
+        return cold
+    seeded = fit_polaris_gam(model, data, y, gamma=phi, x0=unit_fit.log_lambda)
+    return seeded if seeded.reml_score < cold.reml_score else cold
+
+
 def fit_quasipoisson_fixed_scale_case(
-    r_case: RQuasiPoissonFixedScaleRecipe, *, multistart: bool = False
+    r_case: RQuasiPoissonFixedScaleRecipe,
+    *,
+    multistart: bool = False,
+    unit_gamma_seed: bool = True,
 ) -> PolarisFixedScaleFits:
     """The independent Python producer: for each supplied ``phi``, assemble,
     select own lambda under the known-scale criterion with ``gamma = phi``, fit.
     Never reads ``mgcv``'s ``eta``/``coef``/``sp``/``edf`` (the recipe type has
-    none)."""
+    none).
+
+    ``unit_gamma_seed=True`` (default, slice 7b) also searches from the
+    ``gamma = 1`` solution and keeps the lower-scoring of the two fits — see
+    :func:`_fit_best_of_cold_and_unit_gamma_seed`. ``False`` reproduces slice
+    7's cold-start-only behaviour (ADR-236's recorded far-``phi`` disagreement).
+    """
     model, data, y = _model_and_data(r_case)
+    if not unit_gamma_seed:
+        return [
+            fit_polaris_gam(model, data, y, gamma=float(phi), multistart=multistart)
+            for phi in r_case["scales"]
+        ]
+    unit_fit = fit_polaris_gam(model, data, y, gamma=1.0)
     return [
-        fit_polaris_gam(model, data, y, gamma=float(phi), multistart=multistart)
+        _fit_best_of_cold_and_unit_gamma_seed(model, data, y, float(phi), unit_fit, multistart)
         for phi in r_case["scales"]
     ]
 

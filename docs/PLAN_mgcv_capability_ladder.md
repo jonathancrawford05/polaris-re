@@ -1,6 +1,6 @@
 # Plan: climb the mgcv capability ladder — L1 through L5, reopened for a narrow near-term target formula
 
-> **STATUS: IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); Slice 7 MEASURED 2026-10-01 (ADR-236; far-phi disagreement); NEXT: Slice 7b, then 3c.** L1-L5 (the
+> **STATUS: IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); Slice 7 MEASURED 2026-10-01 (ADR-236; far-phi disagreement); Slice 7b DONE 2026-10-01 (ADR-237; far-phi closed at tier 3, gate blocking); NEXT: Slice 3c (7c registered, not blocking).** L1-L5 (the
 > original five slices) are COMPLETE — ADR-229 (L1), ADR-230 (L2), ADR-231
 > (L5), ADR-232 (L3), ADR-233 (L4). `docs/MGCV_FEATURE_COVERAGE.md` §4 marks
 > all five rungs climbed. **Nothing about Slices 1-5 or their ADRs changes
@@ -620,7 +620,12 @@ branch, Slice 3b is the `dispersion_fixed=False` one — different code paths).
 Slice 3c (registered 2026-09-30) consumes this slice's mode for its two-stage workflow, so 7 runs BEFORE 3c. Running 3b first is still recommended purely so "the quasi-Poisson story" in
 `MGCV_FEATURE_COVERAGE.md` closes in one pass rather than two.
 
-### Slice 7b — fixed-scale free-`sp` at FAR dispersion: reach `mgcv`'s basin (registered 2026-10-01, ADR-209 decision 1)
+### Slice 7b — fixed-scale free-`sp` at FAR dispersion: reach `mgcv`'s basin (registered 2026-10-01, ADR-209 decision 1) — ✅ **DONE 2026-10-01 (ADR-237)**
+
+> **DoD, reproduced with evidence.** (1) hypothesis-driven search change, no tolerance change, no tuned constant — MET: two-start (cold + `gamma=1` seed), keep lower own criterion score; ADR-237. (2) far-`phi` fit meets ADR-221 at tier 3, INDEPENDENT — MET: phi=6 `eta` 6.678e-05, `edf_total` -0.0010, run 36903733782, oracle `sha256:0d54c192…`. (3) option C: phi=6 comparison a required blocking check, gating `eta`/`edf_total` only — MET: `Gate the quasipoisson(log) fixed-scale comparison` step, `continue-on-error` removed; gate verified at tier 3 by a second dispatch, run 36905028007 (head `41326cc`), step passed. (4) gate recorded in the slice's ADR — MET: ADR-237.
+>
+> **Registered follow-up, slice 7c (not blocking):** promote the two-start strategy from the conformance module into `fit_polaris_gam` as an opt-in, and measure it on a far-phi cell where `mgcv`'s `sp` is NOT at a null-space corner (the seed-11/22 phi=8 cells were). **Release condition:** a tier-3 reading of such a cell, or a documented decision that the conformance-only form suffices.
+
 
 **Why.** Slice 7's INDEPENDENT comparison disagreed at the far supplied `phi=6`
 (ADR-236; `eta` and `edf_total` both outside ADR-221), while agreeing at the near

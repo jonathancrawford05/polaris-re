@@ -2681,7 +2681,6 @@ jobs:
       # quasipoisson(scale=phi). ADR-221's criterion, imported, per phi.
       - name: Compare the quasipoisson(log) fixed-scale fits against the Python side (ladder slice 7)
         if: always()
-        continue-on-error: true
         run: |
           uv run python3 - <<'PY'
           import json
@@ -2691,8 +2690,9 @@ jobs:
               r_payload = json.load(open("gam_quasipoisson_fixed_scale_probe.json"))
           except (OSError, json.JSONDecodeError) as exc:
               print(f"No gam_quasipoisson_fixed_scale_probe.json to compare ({exc}) — "
-                    "the R probe above did not produce one.")
-              sys.exit(0)
+                    "the R probe above did not produce one. This step is a REQUIRED "
+                    "gate (ladder slice 7b, option C): a missing reference fails it.")
+              sys.exit(1)
 
           from polaris_re.analytics.gam_quasipoisson_fixed_scale_conformance import (
               QUASIPOISSON_FIXED_SCALE_CLAIM, compare_quasipoisson_fixed_scale_case,
@@ -2761,6 +2761,32 @@ jobs:
           if [ -f gam_quasipoisson_fixed_scale_probe_report.md ]; then
             cat gam_quasipoisson_fixed_scale_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # REQUIRED GATE (maintainer "option C", PLAN ladder slice 7b): every
+      # supplied phi, the far one included, must meet ADR-221 (eta, edf_total
+      # only -- never log10(sp), which varies run to run on this data).
+      - name: Gate the quasipoisson(log) fixed-scale comparison (ladder slice 7b)
+        if: always()
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          from polaris_re.analytics.gam_quasipoisson_fixed_scale_conformance import (
+              compare_quasipoisson_fixed_scale_case, fit_quasipoisson_fixed_scale_case,
+          )
+
+          r_payload = json.load(open("gam_quasipoisson_fixed_scale_probe.json"))
+          cs = compare_quasipoisson_fixed_scale_case(
+              fit_quasipoisson_fixed_scale_case(r_payload), r_payload)
+          bad = [c for c in cs if not c["agrees"]]
+          for c in cs:
+              print(f"phi={c['scale']:g} eta_diff={c['max_abs_eta_diff']:.3e} "
+                    f"edf_total_diff={c['edf_total_diff']:+.4f} agrees={c['agrees']}")
+          if bad:
+              print(f"GATE FAILED at phi={[c['scale'] for c in bad]} (ADR-221 criterion).")
+              sys.exit(1)
+          PY
 
       - name: Compare the factor-by basis vs smoothCon(s(x, by=fac, bs="cr")) (ladder L3 Stage A)
         if: always()
