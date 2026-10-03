@@ -425,7 +425,7 @@ the R probe's own free-sp reference reads a reference-term `log10(sp)` near
 
 
 def fit_by_factor_free_sp_case(
-    r_case: RByFactorFreeSpRecipe, *, multistart: bool = False
+    r_case: RByFactorFreeSpRecipe, *, multistart: bool = False, initial_sp_start: bool = False
 ) -> PolarisGAMFit:
     """The independent Python producer: assemble the design, select its own
     lambda, and fit — never reading ``mgcv``'s ``eta``/``coef``/``sp``/``edf``
@@ -448,7 +448,14 @@ def fit_by_factor_free_sp_case(
         "GroupFac": np.asarray(r_case["group"], dtype=np.int64),
     }
     y = np.asarray(r_case["y"], dtype=np.float64)
-    return fit_polaris_gam(model, data, y, bounds=_FREE_SP_BOUNDS, multistart=multistart)
+    return fit_polaris_gam(
+        model,
+        data,
+        y,
+        bounds=_FREE_SP_BOUNDS,
+        multistart=multistart,
+        initial_sp_start=initial_sp_start,
+    )
 
 
 @dataclass(frozen=True)

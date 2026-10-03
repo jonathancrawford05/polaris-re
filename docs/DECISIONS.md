@@ -24412,3 +24412,29 @@ Slice-3c draw: centre start `eta` `0.2864` (disagrees) -> seeded `1.907e-06` (ti
 
 ### Decision
 Shipped as OPT-IN (`initial_sp_start=False` default; mutually exclusive with `x0`/`multistart`). The default is NOT changed: that would move every other free-scale reading and has not been measured across them (slice 3e). Two draws is a small sample of "where does the centre start fail"; the seeded start is evidence-backed, not proven robust.
+
+
+## ADR-240: Capability ladder slice 3e — the `initial.spg` start does NOT meet ADR-221 on every free-scale cell; the default is NOT flipped (INDEPENDENT, tier 1 and tier 3 identical)
+
+**Status:** Accepted, 2026-10-02. **Claim sentence (written before the code):** `fit_polaris_gam` computes the free-scale REML selection from a recipe-only design with either the bounds-centre start or mgcv's `initial.spg` recipe evaluated on Polaris's own data/penalties; `mgcv` computes it via `gam(method="REML")`; compared on `eta`/`edf_total` (ADR-221, imported through each cell's own `compare_*_free_sp_case`).
+
+### Why
+ADR-239 shipped the seeded start opt-in and registered slice 3e: flip the default only if it meets ADR-221 at tier 3 on every existing free-scale cell. This is that measurement (`scripts/gam_initial_sp_default_study.py`, `gam_initial_sp_default_conformance.py`; non-gating CI step). Six cells: gaussian L1, L3 factor-by, L4 parametric, L6 cr+re+ti, quasipoisson 3b draw, quasipoisson 3c draw. Fixed-scale cells are out of scope.
+
+### Provenance (ADR-193)
+INDEPENDENT on every column. Each fit helper takes only the shared recipe; the search start is the only thing varied; the right side is mgcv's own free-sp fit. No tolerance is declared here. Own-criterion scores are within-side (Polaris vs Polaris) and are diagnostics, not comparisons.
+
+### Findings (tier 3, run 37071666519, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`; tier 1, R 4.3.3 / mgcv 1.9.1, identical at every printed digit)
+1. **Release condition NOT met.** The seeded start DISAGREES on gaussian L1: `eta` `2.107e-01`, `edf_total` `-8.9905`, own REML score `180.8375`, and one block (`s(AttdAge):StudyYear_C`) at the upper bound. The default centre start agrees there (`1.643e-05`, `+0.0011`, score `165.2966`).
+2. **Neither start dominates.** The default fails the 3c draw (`eta` `0.2864`, ADR-238); the seeded start fixes it (`1.350e-06`) but breaks L1. The other four cells agree under both (seeded: L3 `2.703e-05`, L4 `3.281e-07`, L6 `5.674e-07`, 3b `4.208e-06`).
+3. **The seeded L1 point is a stuck point, not a basin the search can leave.** Seed `log10(lambda)` `[2.14, 3.14, 0.65, 0.19]`; it ends at `[10.9, 12.0, 2.93, 10.2]` (score 180.84, 790 evals) versus the default's `[9.05, 11.0, 2.29, 1.69]` (score 165.30) and mgcv's `[10.1, 11.3, 2.29, 1.69]` (score 165.2961). Restarting from the seeded endpoint does not move (90 evals, `converged=False`). The free-scale path has no analytic gradient (`reml_score_gradient` raises for `dispersion_fixed=False`), so convergence there rests on finite differences at `lambda ~ 1e10-1e12`. TIER 1 ONLY for the stuck-point and restart readings; not tested at tier 3.
+4. **"Run both, keep the lower own-criterion score" agrees on all six cells** (the rule of ADR-237, never reading mgcv; selected centre on L1/L3/L4/L6, seeded on 3b/3c). Reported in the study table, NOT shipped.
+
+### Decision
+Default start unchanged; seeded start stays opt-in. Slice 3e's release condition is not met and the alternative branch (a maintainer decision to keep it opt-in) is the state of the code, not a maintainer ruling. Not tested: why the seeded search stalls (hypothesis: finite-difference gradient noise at extreme `lambda`); whether best-of-both holds beyond these six single draws. Registered as **slice 3f**.
+
+### Consequences
+No production default changes. Four conformance fit helpers gain an additive `initial_sp_start=False` keyword. `tests/qa/` goldens untouched.
+
+### ADR-240 amendment 1 (2026-10-03): maintainer decision — keep both starts opt-in
+The maintainer ruled: **keep both starts opt-in.** The default start is unchanged, `initial_sp_start=True` stays opt-in, and the lower-own-score rule stays a study-only reading (not shipped). This is the alternative branch of slice 3e's release condition ("a maintainer decision to keep it opt-in") and release condition (c) of slice 3f. Consequence: slice 3e is closed; slice 3f is closed by decision. NOT discharged: the mechanism of the seeded gaussian-L1 stall (untested hypothesis: finite-difference gradient noise at extreme `lambda`) — a note, not a registered slice, because no work is pending on it.

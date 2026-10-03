@@ -207,6 +207,8 @@ on:
       # above; these lines add the composition's own Stage B module and probe.
       - "src/polaris_re/analytics/gam_cr_re_ti_conformance.py"
       - "scripts/gam_cr_re_ti_probe.R"
+      - "scripts/gam_initial_sp_default_study.py"
+      - "src/polaris_re/analytics/gam_initial_sp_default_conformance.py"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -2950,6 +2952,18 @@ jobs:
           PY
           if [ -f gam_initial_sp_3b_report.md ]; then
             cat gam_initial_sp_3b_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # CAPABILITY LADDER slice 3e (ADR-240) — default vs initial.spg-seeded start
+      # on EVERY existing free-scale cell. Reported, not gated; the headline is
+      # derived from the declared VerificationClaim (ADR-193).
+      - name: Default vs initial.spg-seeded start on every free-scale cell (ladder slice 3e)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python scripts/gam_initial_sp_default_study.py . gam_initial_sp_default_report.md
+          if [ -f gam_initial_sp_default_report.md ]; then
+            cat gam_initial_sp_default_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Compare the factor-by basis vs smoothCon(s(x, by=fac, bs="cr")) (ladder L3 Stage A)

@@ -403,14 +403,19 @@ CR_RE_TI_FREE_SP_CLAIM = VerificationClaim(
 
 
 def fit_cr_re_ti_free_sp_case(
-    r_case: RCrReTiFreeSpRecipe, *, multistart: bool = False
+    r_case: RCrReTiFreeSpRecipe, *, multistart: bool = False, initial_sp_start: bool = False
 ) -> PolarisGAMFit:
     """The independent Python producer for the free-``sp`` regime — never
     reads ``mgcv``'s ``eta``/``coef``/``mgcv_sp``/``edf`` (the recipe type has
     none of these keys)."""
     y = np.asarray(r_case["y"], dtype=np.float64)
     return fit_polaris_gam(
-        _spec(r_case), _data(r_case), y, bounds=_FREE_SP_BOUNDS, multistart=multistart
+        _spec(r_case),
+        _data(r_case),
+        y,
+        bounds=_FREE_SP_BOUNDS,
+        multistart=multistart,
+        initial_sp_start=initial_sp_start,
     )
 
 
