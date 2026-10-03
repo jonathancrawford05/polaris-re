@@ -2274,7 +2274,7 @@ finite-difference step at all).
     filter on `gam_reml_optimize*.py` / `gam_reml_gradient.py` re-runs it
     automatically, but nothing fails if it still disagrees — hence this
     explicit task rather than reliance on the step.
-- **Status: REGISTERED, not started.** Raised by the maintainer, 2026-09-05:
+- **Status: PROMOTED 2026-10-03 to its own active epic, `docs/PLAN_wood_outer_solver.md` (ADR-241), which carries this scope and DoD in full.** Originally REGISTERED, not started. Raised by the maintainer, 2026-09-05:
   *"we need a reliable solver (mgcv achieves this so a real and implementable
   mechanism exists, we might want to understand better how we might emulate
   this with python)."*

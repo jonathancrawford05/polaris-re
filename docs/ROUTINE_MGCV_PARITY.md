@@ -18,8 +18,18 @@
 > the box is a maintainer edit nobody else can make.
 **Repo:** `jonathancrawford05/polaris-re`
 **Connectors:** GitHub
-**Plan:** `docs/PLAN_mgcv_parity_engine.md`
-**Created:** 2026-08-10, from maintainer direction plus the measurements in that PLAN §1.
+**Plan:** `docs/PLAN_wood_outer_solver.md` (the ACTIVE epic, ADR-241); parent plan and
+anchors: `docs/PLAN_mgcv_parity_engine.md`
+**Created:** 2026-08-10, from maintainer direction plus the measurements in the parent PLAN §1.
+
+> **ACTIVE EPIC POINTER (maintainer, 2026-10-03, ADR-241) — READ THIS FIRST.**
+> The active epic is **`docs/PLAN_wood_outer_solver.md`** (continuation:
+> `docs/CONTINUATION_wood_outer_solver.md`). "The PLAN's next unchecked slice"
+> in this file means **that** plan's next slice until its Slice 4 is DONE. The
+> capability ladder and the parity engine's other slices wait behind it. Read
+> its §1-§2 before anything else: they record why the previous eleven slices
+> circled the outer search without fixing it, and the rule below
+> ("MECHANISM BEFORE SLICE") that stops it recurring.
 
 ---
 
@@ -395,8 +405,31 @@ target model form, or to characterise precisely why it cannot move.
      and the workflow step did not exist), and "this epic advances only when the
      routine is registered" (false for fourteen days, and believed).
 
-10. **A GAP YOU OPEN IS CLOSED OR REGISTERED — never merely filed** (ADR-209
-    decision 1). If this session opens a gap it does not close, **add it to
+10. **MECHANISM BEFORE SLICE** (ADR-241, maintainer 2026-10-03). Before
+    registering any new slice for a gap, name the gap's MECHANISM class:
+    (i) basis / design, (ii) criterion / formula, (iii) OUTER SEARCH (the
+    criterion is right but the search does not reach its minimum — `mgcv`'s
+    point scores better under our own criterion, or
+    `scripts/gam_outer_solver_landscape_probe.py` shows an overshoot, an
+    early stop or a plateau), (iv) other.
+    - **Class (iii) is NEVER a new slice and NEVER a new start strategy**
+      (no multistart variant, seeded start, best-of-N, two-start rule). It is
+      added as a CASE to `PLAN_wood_outer_solver.md` Slice 4's gauntlet, with
+      the probe's reading. That epic's solver is what closes it.
+    - **CHAIN CAP.** If the slice you are about to register would be the
+      THIRD consecutive slice addressing the same mechanism class without a
+      structural change to the component that owns it, do not register it.
+      Stop, write the chain into the session log, and put it to the maintainer
+      as "the structural slice is X; here is why it has not been taken".
+      Precedent: ladder 3c -> 3d -> 3e -> 3f, all class (iii), all start
+      strategies, while the structural fix sat registered as parity slice 8
+      since 2026-09-05.
+    - **OLDER STRUCTURAL BEATS NEWER PATCH.** When a newly opened gap and an
+      already-registered slice share a mechanism, the older slice owns it.
+      Registering a newer, narrower slice for it is the spiral, not progress.
+
+11. **A GAP YOU OPEN IS CLOSED OR REGISTERED — never merely filed** (ADR-209
+    decision 1) — after step 10 has classified it. If this session opens a gap it does not close, **add it to
     `PLAN_mgcv_parity_engine.md` as a slice, with a release condition**, using the
     letter-suffix convention (5b, 5c) so slice numbers do not renumber. An entry in a
     CONTINUATION "Open questions" list is a note, not a registration: **the work
@@ -404,7 +437,7 @@ target model form, or to characterise precisely why it cannot move.
     ADRs and built zero times for exactly this reason; registering it as slice 5b got
     it delivered in a day.
 
-11. **RUN IT IF IT IS UNDER AN HOUR** (ADR-209 decision 2). A measurement this session
+12. **RUN IT IF IT IS UNDER AN HOUR** (ADR-209 decision 2). A measurement this session
     or a review can name, costing under an hour, is **run** — not filed. Filing it
     requires stating why it could not be run. Precedent, and the label was a
     reviewer's own: PR #212's round-2 review named a twenty-minute localisation

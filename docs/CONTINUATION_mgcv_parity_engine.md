@@ -5,9 +5,10 @@
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md` — a convergence loop, not a backlog walk.
 **Predecessors:** ADR-189 + amendment 1 (the conformance suite and its first run),
 ADR-185 through ADR-188 (the penalized fitter this epic reuses).
-**Status:** **IN PROGRESS — but YIELDING THE ACTIVE SLOT to
-`PLAN_gam_production_wiring.md` slice 1 (maintainer, 2026-09-14; see the
-banner at the end of this file). Not parked; `NEXT: slice 8` when it resumes.**
+**Status:** **IN PROGRESS. Slice 8 PROMOTED 2026-10-03 to its own ACTIVE epic,
+`docs/PLAN_wood_outer_solver.md` (ADR-241) — that file now owns it.** (History:
+yielded the slot to `PLAN_gam_production_wiring.md` slice 1 on 2026-09-14, then
+the ladder held it; see the banners at the end of this file.)
 — slice 1 is **DONE (raw path only)** (2026-08-15b); slice
 1b (mgcv-native extraction) is **DONE** (2026-08-16, tier 1 and tier 3 both confirmed);
 slice 2 (`bs = "cr"`) is **DONE** (2026-08-17, tier 1 and tier 3 both confirmed — ADR-194)
@@ -1933,3 +1934,17 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > **Update 2026-10-02c (ladder slice 3e, ADR-240):** the seeded `initial.spg` start does NOT meet ADR-221 on every free-scale cell — it DISAGREES on gaussian L1 (`eta` `2.107e-01`, `edf_total` `-8.9905`; tier 3, run 37071666519, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`) where the default agrees; the default fails the 3c draw. Default NOT flipped. Best-of-both by own score agrees on all six cells (not shipped). Registered as slice 3f. `NEXT`: slice 3f (and 7c); `NEXT: slice 8` unchanged.
 
 > **Update 2026-10-03 (maintainer decision, ADR-240 amendment 1):** keep both starts opt-in. Slices 3e and 3f are closed; default unchanged. `NEXT`: slice 7c; `NEXT: slice 8` unchanged.
+
+> **Update 2026-10-03 (ADR-241): slice 8 PROMOTED to its own active epic,
+> `docs/PLAN_wood_outer_solver.md`.** Slice 8 sat `NEXT` here from 2026-09-14
+> while the active slot went to wiring and then the ladder, whose slices kept
+> registering start strategies for the very defect slice 8 fixes. Outer-solver
+> slice 0 measured the mechanism directly: on L1 the first ACCEPTED L-BFGS-B
+> step spans 11.8 decades onto the plateau; on the 3c draw there is no barrier
+> between our stop and `mgcv`'s point, and the search stops non-stationary on
+> L-BFGS-B's function-reduction test. Slice 8's full scope and
+> DoD (Hessian, safeguarded Newton, §3.1 reparameterisation, deterministic
+> start, retire multistart, the far-phi re-run, the plateau re-measurement)
+> are carried into that PLAN's Slices 1-4. `NEXT` for this file: none of its
+> own until that epic closes (this supersedes `NEXT: slice 7c` in the entry
+> above, which ADR-241 marks SUPERSEDED); slice 9+ unchanged.
