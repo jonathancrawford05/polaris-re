@@ -76,3 +76,12 @@ def test_first_move_on_a_search_that_never_moves() -> None:
     start = np.array([1.0], dtype=np.float64)
     move = first_move([start, start + 1e-9], upper=12.0)
     np.testing.assert_allclose(move.max_abs_step, 0.0)
+
+
+def test_first_move_counts_lower_bound_hits() -> None:
+    """PR #250 review [P2]: a move onto the LOWER bound is reported, not read by hand."""
+    trace = [np.array([5.0, 5.0], dtype=np.float64), np.array([-2.0, 9.8], dtype=np.float64)]
+    move = first_move(trace, upper=12.0, lower=-2.0)
+    assert move.n_at_lower == 1
+    assert move.n_at_upper == 0
+    np.testing.assert_allclose(move.max_abs_step, 7.0)

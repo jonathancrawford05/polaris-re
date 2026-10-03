@@ -12,8 +12,10 @@ Polaris's OWN free-scale REML score:
 1. along the straight segment, in ``log10(lambda)``, from the point Polaris's
    search stopped at (``a``) to the point ``mgcv`` selected (``b``); and
 2. as a central-difference gradient at ``a``; and
-3. along the search's own path: the first trial point that is a MOVE rather
-   than a finite-difference probe, and how far that one step went.
+3. along the search's own path: the first trial point the line search
+   evaluated AND the first iterate L-BFGS-B accepted, and how far each went.
+   (A trial point can be rejected by the line search; only an accepted iterate
+   says where the search actually moved — PR #250 review [P1].)
 
 The two outcomes it discriminates, registered before the run (ADR-241):
 
@@ -120,22 +122,33 @@ FIRST_MOVE_TOL = 1e-3
 coordinate differs from the start by more than this, in ``log10(lambda)``.
 L-BFGS-B's own forward-difference step is ~1.5e-8, five orders smaller."""
 
+_LOWER_BOUND = -2.0
+_UPPER_BOUND = 12.0
+"""The free-sp search box (``fit_polaris_gam``'s ``PRODUCTION_LOG10_BOUNDS``,
+which neither cell's fit helper overrides)."""
+
 
 @dataclass(frozen=True)
 class FirstMove:
-    """The search's first trial point that is a move rather than a gradient probe."""
+    """One step away from the search's start: either the first TRIAL point
+    (what the line search evaluated) or the first ACCEPTED iterate (where
+    L-BFGS-B actually moved). The two differ when the line search rejects or
+    shortens its first trial — which is why the probe reports both."""
 
     start: np.ndarray
     point: np.ndarray
     max_abs_step: float
     """Largest single-coordinate change, in decades of ``lambda``."""
     n_at_upper: int
-    """How many coordinates that one move put on the upper bound."""
+    """How many coordinates sit on the upper bound at ``point``."""
+    n_at_lower: int
+    """How many coordinates sit on the lower bound at ``point``."""
 
 
-def first_move(trace: list[np.ndarray], *, upper: float) -> FirstMove:
+def first_move(trace: list[np.ndarray], *, upper: float, lower: float = _LOWER_BOUND) -> FirstMove:
     """The first entry of ``trace`` that moved more than :data:`FIRST_MOVE_TOL`
-    from ``trace[0]`` (the start)."""
+    from ``trace[0]`` (the start). Applied to the evaluation trace it gives the
+    first trial point; applied to the accepted-iterate trace, the first step."""
     start = trace[0]
     for point in trace[1:]:
         step = np.abs(point - start)
@@ -145,29 +158,62 @@ def first_move(trace: list[np.ndarray], *, upper: float) -> FirstMove:
                 point=point,
                 max_abs_step=float(np.max(step)),
                 n_at_upper=int(np.sum(point >= upper)),
+                n_at_lower=int(np.sum(point <= lower)),
             )
-    return FirstMove(start=start, point=start, max_abs_step=0.0, n_at_upper=0)
+    return FirstMove(start=start, point=start, max_abs_step=0.0, n_at_upper=0, n_at_lower=0)
+
+
+@dataclass(frozen=True)
+class SearchTrace:
+    """What the search did, recorded from outside it."""
+
+    evaluated: list[np.ndarray]
+    """Every ``log10(lambda)`` the scorer was called at, in order — trial
+    points AND finite-difference probes."""
+    accepted: list[np.ndarray]
+    """The start, then every iterate L-BFGS-B ACCEPTED (its ``callback``), in
+    order, concatenated across any restarts the search makes."""
+    exits: list[str]
+    """SciPy's own termination message and iteration count, one per
+    ``minimize`` call — names WHICH stopping rule ended the search."""
 
 
 def _traced_fit(
     fit_fn: Callable[..., PolarisGAMFit], payload: dict[str, object], *, seeded: bool
-) -> tuple[PolarisGAMFit, list[np.ndarray]]:
-    """Run the fit while recording every ``log10(lambda)`` the search evaluates,
-    in order. Wraps the module-level scorer the search calls; restores it after."""
-    trace: list[np.ndarray] = []
-    original = gam_reml_optimize.penalized_fit_and_score
+) -> tuple[PolarisGAMFit, SearchTrace]:
+    """Run the fit while recording every point the search evaluates and every
+    iterate it accepts. Wraps the two module-level names the search calls
+    (``penalized_fit_and_score`` and SciPy's ``minimize``) and restores both."""
+    evaluated: list[np.ndarray] = []
+    accepted: list[np.ndarray] = []
+    exits: list[str] = []
+    original_score = gam_reml_optimize.penalized_fit_and_score
+    original_minimize = gam_reml_optimize.minimize
 
-    def recording(*args: object, **kwargs: object) -> tuple[np.ndarray, float]:
+    def recording_score(*args: object, **kwargs: object) -> tuple[np.ndarray, float]:
         log_lambda = args[4] if len(args) > 4 else kwargs["log_lambda"]
-        trace.append(np.array(log_lambda, dtype=np.float64))
-        return original(*args, **kwargs)  # type: ignore[arg-type]
+        evaluated.append(np.array(log_lambda, dtype=np.float64))
+        return original_score(*args, **kwargs)  # type: ignore[arg-type]
 
-    gam_reml_optimize.penalized_fit_and_score = recording  # type: ignore[assignment]
+    def recording_minimize(fun: object, x0: np.ndarray, *args: object, **kwargs: object) -> object:
+        if not accepted:
+            accepted.append(np.array(x0, dtype=np.float64))
+
+        def callback(xk: np.ndarray) -> None:
+            accepted.append(np.array(xk, dtype=np.float64))
+
+        result = original_minimize(fun, x0, *args, callback=callback, **kwargs)  # type: ignore[arg-type]
+        exits.append(f"{result.message} (nit={result.nit}, success={result.success})")
+        return result
+
+    gam_reml_optimize.penalized_fit_and_score = recording_score  # type: ignore[assignment]
+    gam_reml_optimize.minimize = recording_minimize  # type: ignore[assignment]
     try:
         fit = fit_fn(payload, initial_sp_start=seeded)
     finally:
-        gam_reml_optimize.penalized_fit_and_score = original
-    return fit, trace
+        gam_reml_optimize.penalized_fit_and_score = original_score
+        gam_reml_optimize.minimize = original_minimize
+    return fit, SearchTrace(evaluated=evaluated, accepted=accepted, exits=exits)
 
 
 def _score_fn(fit: PolarisGAMFit, y: np.ndarray) -> ScoreFn:
@@ -195,9 +241,13 @@ CELLS: dict[str, tuple[str, Callable[..., PolarisGAMFit], bool]] = {
 }
 """The two (cell, start) pairs ADR-240 found disagreeing with ``mgcv``."""
 
-_UPPER_BOUND = 12.0
-"""The free-sp search box's upper edge on both cells (``fit_polaris_gam``'s
-production default, which neither cell's fit helper overrides)."""
+
+def _fmt_move(label: str, move: FirstMove) -> str:
+    return (
+        f"- {label}: `{np.array2string(move.point, precision=3)}` — largest step "
+        f"`{move.max_abs_step:.2f}` decades; on upper bound: `{move.n_at_upper}`, "
+        f"on lower bound: `{move.n_at_lower}`"
+    )
 
 
 def main(probe_dir: Path, out: Path | None) -> None:
@@ -215,7 +265,8 @@ def main(probe_dir: Path, out: Path | None) -> None:
         payload = dispersion_draw_payload(probe) if "joint" in probe else probe
         y = np.asarray(payload["y"], dtype=np.float64)
         fit, trace = _traced_fit(fit_fn, payload, seeded=seeded)
-        move = first_move(trace, upper=_UPPER_BOUND)
+        trial = first_move(trace.evaluated, upper=_UPPER_BOUND)
+        step = first_move(trace.accepted, upper=_UPPER_BOUND)
         score = _score_fn(fit, y)
         a = np.asarray(fit.log_lambda, dtype=np.float64)
         b = np.log10(np.asarray(payload["sp"], dtype=np.float64))
@@ -231,11 +282,13 @@ def main(probe_dir: Path, out: Path | None) -> None:
             f"- Polaris stop `a` log10(lambda): `{np.array2string(a, precision=3)}` "
             f"(converged={fit.converged}, at_bound={fit.at_bound}, "
             f"evals={fit.n_function_evals})",
-            f"- search start: `{np.array2string(move.start, precision=3)}`; FIRST MOVE to "
-            f"`{np.array2string(move.point, precision=3)}` — largest step "
-            f"`{move.max_abs_step:.2f}` decades, `{move.n_at_upper}` block(s) put on the "
-            f"upper bound by that one step (mgcv's `gam.control()$newton$maxNstep` = 5 "
-            "natural-log units, about 2.17 decades)",
+            f"- search start: `{np.array2string(trial.start, precision=3)}` "
+            "(mgcv's `gam.control()$newton$maxNstep` = 5 natural-log units, ~2.17 decades)",
+            _fmt_move("first TRIAL point (line search's first evaluation)", trial),
+            _fmt_move("first ACCEPTED iterate (L-BFGS-B callback)", step),
+            "- SciPy exit(s): " + "; ".join(f"`{e}`" for e in trace.exits),
+            "- first accepted iterates: "
+            + "; ".join(f"`{np.array2string(x, precision=2)}`" for x in trace.accepted[:6]),
             f"- mgcv point `b` log10(sp): `{np.array2string(b, precision=3)}`",
             f"- own score: `a` = `{profile.score[0]:.6f}`, `b` = `{profile.score[-1]:.6f}`, "
             f"descent a->b = `{profile.descent:.6f}`",
