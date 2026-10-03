@@ -24477,3 +24477,39 @@ Slice 8 has specified this solver since ADR-222 amendment 1 (2026-09-05). It sat
 
 ### Consequences
 No `src/` change; no default changes; goldens untouched. New: the probe script, seven closed-form tests of its helpers, one non-gating CI step. Not tested: whether a capped Newton step from `initial.spg` avoids L1's ridge (that is slice 1's registered hypothesis); profiled vs joint `phi` geometry (PLAN risk 3).
+
+
+## ADR-242: Outer-solver slice 1 — a safeguarded Newton search with an analytic free-scale gradient reaches `mgcv` on both ADR-241 cells from one start (INDEPENDENT eta/edf, tier 3)
+
+**Status:** Accepted, 2026-10-03. Opt-in (`fit_polaris_gam(outer="newton")`); no default changes; goldens untouched.
+
+### Claim sentence (ADR-193, written before the code)
+Polaris computes `eta`/`edf_total` by assembling the design from the shared recipe, selecting its own `log10(lambda)` with the new Newton search under the free-scale REML criterion and fitting; `mgcv` computes them via `gam(method="REML")` with its own free `sp`; compared on `eta` and `edf_total` under ADR-221's gate (imported). The producer takes a recipe that structurally excludes `mgcv`'s `eta/coef/sp/edf`. **INDEPENDENT.** The step/gradient/condition columns are Polaris-only MEASUREMENTS (own criterion), not comparisons.
+
+### Hypothesis (registered in PLAN slice 1)
+The two ADR-241 defects — an uncapped accepted step and a function-reduction stop at a non-stationary point — are the search, not the start or the criterion. Newton with `mgcv`'s safeguards and a gradient test, from `initial.spg`, reaches `mgcv`'s point on BOTH cells with no multistart.
+
+### What was built
+1. `reml_score_gradient_profiled` (`gam_reml_gradient.py`): the free-scale analytic gradient. Envelope theorem one order up — `phi_hat` is the criterion's own stationary point in `phi`, `H` and `log|S|+` do not involve `phi`, `Mp` is structural, so the profiled gradient is the known-scale gradient with `gamma := phi_hat`. Verified, not assumed: matches a central difference of the score to 1e-6..2e-5 (per natural-log rho) at three points each on gaussian and quasipoisson including a block at `lambda = 1e11` (`test_gam_reml_newton.py`).
+2. `gam_reml_newton.newton_select_lambdas`: Hessian = central difference of the analytic gradient; eigen-flip to PD with a `sqrt(eps)` floor; step cap 5 natural-log units; halving up to 30; steepest-descent fallback capped at 2; converged directions dropped from the step; stop only on `max|projected gradient| <= 1e-6 (1 + |score|)`. The four constants are `gam.control()$newton` defaults read from `mgcv:::newton` 1.9.1 (tier 1; behaviour/constants only, no transcribed code). **Re-read on tier 3 before treating them as settled is still open** (CONTINUATION note).
+
+### Measurement — tier 3, CI run 37130685404, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+| cell | max abs eta diff | edf_total diff | own score | stop | max accepted step | max abs proj. grad / tol | eps*cond(H) | fits |
+|---|---:|---:|---:|---|---:|---:|---:|---:|
+| gaussian L1 | 4.854e-06 | +0.001 | 165.2963 | gradient test | 2.171 decades (= the cap) | 1.174e-04 / 1.663e-04 | 4.63e-05 | 79 |
+| quasipoisson 3b | 4.048e-05 | -0.001 | 1624.6215 | gradient test | 2.171 | 7.253e-04 / 1.626e-03 | 1.82e-10 | 37 |
+| quasipoisson 3c draw | 1.120e-05 | -0.000 | 1638.9456 | gradient test | 2.171 | 1.879e-04 / 1.640e-03 | 1.61e-10 | 52 |
+
+All three pass ADR-221's gate (`eta < 2e-2`, `|edf| < 1`) AND `converged=True` from one start, no multistart. Before (same tier, same oracle, ADR-241): L1 with the seeded start disagreed (eta 2.1e-1, score 180.84 vs 165.30), 3c with the centre start disagreed (eta 2.9e-1, score 1642.33 vs 1638.95). Every accepted step is <= the cap; no 11.8-decade jump.
+
+### Findings
+1. **The hypothesis holds on both cells at tier 3.** The fix was the step and the stopping rule; no start strategy was added.
+2. **L1's tier-3 pass is thin and the mechanism behind its tier-1 stall is a precision floor, not a search defect.** Tier 1 (R 4.3.3 / mgcv 1.9.1 payload) STALLED on L1 (`converged=False`, projected gradient 6.1e-4 vs tolerance 1.7e-4; eta 3.0e-6, edf 0.000, score 165.2961 — i.e. at `mgcv`'s point). At that stop `cond(H) = 3.6e11` and the analytic gradient on a `lambda ~ 1e11` block read 1.4e-3 against a central difference of the score of ~ -1e-5..-3e-5: error ~ 18 x eps*cond(H). The true gradient is ~0; the analytic one cannot certify it at that conditioning. Tier 3's margin (1.17e-4 vs 1.66e-4, eps*cond 4.6e-5) is the same regime on a payload where it happened to fit. **A second tier-3 sample (PR #251 review P1-a; run 37131342451, same image and same `src/`) did NOT reproduce L1 bit-for-bit: eta 6.562e-06, score 165.2964, projected gradient 1.408e-04 vs tolerance 1.663e-04 (margin 0.85, up from 0.71), eps*cond 3.90e-05, 92 fits (was 79). L1 still passes and converges, but the search path is not deterministic run-to-run at tier 3, so "L1 converged at tier 3" rests on two samples with margins 0.71 and 0.85 — not a robust pass. 3b and 3c reproduced to every printed digit.** Whether `converged` on L1 counts as met before Slice 3 is a maintainer call; this ADR reports it as met-but-fragile. **This is Wood 2011 §3.1's precision loss — outer-solver Slice 3's scope — and is why Slice 3 matters for the gauntlet's reproducibility axes.** `eps*cond(H)` is reported (`gradient_precision_floor`) as a diagnostic only; it is not a tolerance and no constant multiplies it.
+3. **Newton is not start-free on a plateau (PLAN risk 1/2, realised on a synthetic problem).** A block at `lambda = 1e5` with no signal has vanishing derivative, the gradient test is met there, and a descent path still exists (score 117.98 vs 117.26 from a better start). Pinned by `test_newton_from_a_plateau_start_stops_there_and_says_so_honestly`. `initial.spg` stays the start; Slice 4's gauntlet (selected-basin case 3) is where this is decided, not a new start strategy.
+4. Hessian cost: 215 fits on L1 at tier 1 (79 at tier 3) vs 180/320 for L-BFGS-B; the central-difference Hessian costs `2 x free` gradient evaluations per iteration — the exact Hessian (Slice 2) removes it.
+
+### Not claimed
+Not parity on any cell beyond the three measured; not that `converged` is robust to a precision-floored gradient (finding 2); not a default (Slice 4). The CI report's headline is now derived with `gam_reml_newton.newton_variant(claim)` from the existing L5/3b claims, so its producers name `newton_select_lambdas` (PR #251 review P1-b); classification unchanged.
+
+### Consequences
+New: `gam_reml_newton.py`, `reml_score_gradient_profiled`, `outer=` on `fit_polaris_gam` and the two free-sp fit helpers, 14 tests, `scripts/gam_newton_outer_check.py`, one non-gating CI step. Tier-1 numbers appear only in the ledger/this ADR's finding 2, labelled; every table figure is tier 3.

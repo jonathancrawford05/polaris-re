@@ -4117,3 +4117,8 @@ Provenance: INDEPENDENT comparison (Polaris two-start fit vs `mgcv` `quasipoisso
 - **IMPORTANT (epic, active): `PLAN_wood_outer_solver.md` Slices 1-4** — safeguarded Newton outer search with free-scale analytic gradient, exact Hessian, §3.1 reparameterisation, then one deterministic solver as `fit_polaris_gam`'s default against a fixed gauntlet. Source: `PLAN_mgcv_parity_engine.md` slice 8 (1st-order — the parity epic's own planned solver, registered 2026-09-05), promoted by maintainer decision 2026-10-03.
 - ~~Ladder slice 7c (two-start promotion)~~ — **SUPERSEDED** (ADR-241): a start strategy for an outer-search mechanism.
 - 2nd-order NICE-TO-HAVE: re-read `mgcv`'s `gam.control()$newton` constants on the tier-3 image (1.9.4) before an ADR cites them as settled; read at tier 1 (1.9.1) only. Source: ADR-241 (2nd-order — follow-up of the slice-0 diagnosis).
+
+### Harvested 2026-10-03 — outer-solver slice 1 (ADR-242)
+- **IMPORTANT (epic, active): `PLAN_wood_outer_solver.md` Slice 2 (exact Hessian) and Slice 3 (§3.1 reparameterisation).** Slice 3 is promoted in priority: ADR-242 finding 2 shows L1's analytic gradient is precision-floored at `cond(H) ~ 3.6e11` (tier-1 stall; tier-3 pass with a 0.7 margin). Source: ADR-242. (1st-order — it decides whether `converged` is reproducible across BLAS.)
+- 2nd-order NICE-TO-HAVE: have the Newton stop test treat a gradient within `eps*cond(H)` of tolerance as "unresolved" rather than converged/stalled — needs a derivation of the gradient's error bound, not a multiplier. Source: ADR-242 finding 2.
+- 3rd-order parked: Newton's plateau start-dependence (synthetic 117.98 vs 117.26) belongs to Slice 4 gauntlet case 3, not a new start strategy.

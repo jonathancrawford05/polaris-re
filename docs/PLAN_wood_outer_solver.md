@@ -1,7 +1,7 @@
 # Plan: the Wood-shaped outer solver — mgcv's smoothing-parameter search, not a better start
 
 > **STATUS: IN PROGRESS — ACTIVE EPIC (maintainer, 2026-10-03; ADR-241).**
-> Slice 0 (diagnosis) DONE in the epic-start PR. **NEXT: Slice 1.**
+> Slice 0 (diagnosis) DONE (ADR-241). Slice 1 DONE (ADR-242, tier 3, run 37130685404). **NEXT: Slice 2** (exact Hessian) — read ADR-242 finding 2 first: Slice 3 decides whether `converged` is BLAS-reproducible on L1.
 > This epic takes the active slot from `PLAN_mgcv_capability_ladder.md`, which
 > yields; its remaining start-strategy slice (7c) is SUPERSEDED here (3e/3f
 > were closed by maintainer decision, ADR-240 amendment 1).
@@ -106,7 +106,7 @@ byte-identical throughout — no pricing path uses `fit_polaris_gam` (Anchor 7).
 
 Probe, tests, non-gating CI step, ledger rows. See §1.
 
-### Slice 1 — a safeguarded Newton outer loop, with the gradient we have
+### Slice 1 — a safeguarded Newton outer loop, with the gradient we have — ✅ DONE 2026-10-03 (ADR-242)
 
 **Hypothesis (registered before the code):** the two §1 defects — an
 uncapped accepted step and a function-reduction stop at a non-stationary point
@@ -134,7 +134,7 @@ multistart.
   the method, not tuned to a cell.
 - `initial.spg` start (ADR-239) as this loop's only start.
 
-**Definition of Done (ADR-209 decision 3).**
+**Definition of Done (ADR-209 decision 3) — status:** all four items met at tier 3 (see ADR-242); L1's margin is thin and its tier-1 run stalled on the gradient's precision floor (Slice 3).
 - `[machine]` Free-scale analytic gradient equals a central difference of the
   score on gaussian and quasipoisson, at three `rho` points each including one
   with a block at `lambda >= 1e10`.
