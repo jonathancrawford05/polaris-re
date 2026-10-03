@@ -4111,4 +4111,9 @@ Provenance: INDEPENDENT comparison (Polaris two-start fit vs `mgcv` `quasipoisso
 - **1st-order (promoted): ladder slice 3d** — default single-start free-scale fit misses mgcv's basin on a fresh draw (`eta` 0.2864); `multistart=True` fixes it. Registered in `PLAN_mgcv_capability_ladder.md`.
 - 2nd-order NICE-TO-HAVE: make the slice-3c CI comparison a blocking gate once a second tier-3 reading exists.
 - 3rd-order (parked): promote the two-stage workflow helper out of the conformance module if users ask for it (maintainer: optional, non-standard).
-- 1st-order (promoted, slice 3f in `PLAN_mgcv_capability_ladder.md`): the seeded start stalls on gaussian L1 and neither start dominates; localise the stall or ship best-of-both opt-in (ADR-240).
+- ~~1st-order (promoted, slice 3f in `PLAN_mgcv_capability_ladder.md`): the seeded start stalls on gaussian L1 and neither start dominates; localise the stall or ship best-of-both opt-in (ADR-240).~~ — **SUPERSEDED** (ADR-241, maintainer 2026-10-03): ruling option (c); the stall is the first L-BFGS-B move overshooting 11.8 decades, owned by `PLAN_wood_outer_solver.md`.
+
+### Harvested 2026-10-03 — outer-solver epic start (ADR-241)
+- **IMPORTANT (epic, active): `PLAN_wood_outer_solver.md` Slices 1-4** — safeguarded Newton outer search with free-scale analytic gradient, exact Hessian, §3.1 reparameterisation, then one deterministic solver as `fit_polaris_gam`'s default against a fixed gauntlet. Source: `PLAN_mgcv_parity_engine.md` slice 8 (1st-order — the parity epic's own planned solver, registered 2026-09-05), promoted by maintainer decision 2026-10-03.
+- ~~Ladder slice 7c (two-start promotion)~~ — **SUPERSEDED** (ADR-241): a start strategy for an outer-search mechanism.
+- 2nd-order NICE-TO-HAVE: re-read `mgcv`'s `gam.control()$newton` constants on the tier-3 image (1.9.4) before an ADR cites them as settled; read at tier 1 (1.9.1) only. Source: ADR-241 (2nd-order — follow-up of the slice-0 diagnosis).
