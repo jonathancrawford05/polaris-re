@@ -22,8 +22,10 @@ is what it does *after* the start.
    scale — a STATIONARITY test, never a function-reduction test;
 3. drops already-converged directions (``|g_j|`` below that same tolerance, or
    pinned at a bound with the gradient pushing outward) from the step;
-4. forms the Hessian of the remaining directions as a central difference of the
-   analytic gradient (exact Hessian is Slice 2), forces it positive definite by
+4. forms the Hessian of the remaining directions — EXACT by default
+   (:func:`~polaris_re.analytics.gam_reml_hessian.reml_score_hessian`, Slice 2,
+   ADR-243), or ``hessian="difference"``: Slice 1's central difference of the
+   analytic gradient, kept so the two can be compared — forces it positive definite by
    eigendecomposition (negative eigenvalues flipped, tiny ones floored), and
    takes the Newton step;
 5. caps the step at ``max_step`` natural-log units, clips it to the bounds, and
@@ -44,6 +46,7 @@ this module's own (a stable-step measurement, see its docstring).
 """
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 
@@ -53,6 +56,10 @@ from polaris_re.analytics.gam_reml import penalty_block_square_roots
 from polaris_re.analytics.gam_reml_gradient import (
     reml_score_gradient,
     reml_score_gradient_profiled,
+)
+from polaris_re.analytics.gam_reml_hessian import (
+    reml_score_hessian,
+    reml_score_hessian_profiled,
 )
 from polaris_re.analytics.gam_reml_optimize import penalized_fit_and_score
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
@@ -108,8 +115,9 @@ class NewtonLambdaSelection:
     reml_score: float
     edf_total: float
     n_function_evals: int
-    """Penalized fits spent: score+gradient evaluations at trial points plus the
-    Hessian's central-difference gradient evaluations."""
+    """Penalized fits spent: score+gradient evaluations at trial points, plus
+    (``hessian="difference"`` only) the Hessian's central-difference gradient
+    evaluations. The exact Hessian costs no extra fit."""
     n_rejected: int
     """Trial points whose inner fit did not converge (treated as a failed step)."""
     converged: bool
@@ -163,6 +171,7 @@ def newton_select_lambdas(
     max_half: int = MGCV_NEWTON_MAX_HALF,
     hessian_step: float = _HESSIAN_STEP,
     step_halving: bool = False,
+    hessian: Literal["exact", "difference"] = "exact",
 ) -> NewtonLambdaSelection:
     """Select ``log10(lambda)`` for every block by safeguarded Newton from ``x0``.
 
@@ -183,6 +192,10 @@ def newton_select_lambdas(
         )
     if bounds[0] >= bounds[1]:
         raise PolarisValidationError(f"newton_select_lambdas: bounds {bounds} are not lo < hi.")
+    if hessian not in ("exact", "difference"):
+        raise PolarisValidationError(
+            f"newton_select_lambdas: hessian must be 'exact' or 'difference', got {hessian!r}."
+        )
     if not family.dispersion_fixed and gamma != 1.0:
         raise PolarisValidationError("newton_select_lambdas: gamma is undefined for free scale.")
     lo, hi = bounds[0] * _LN10, bounds[1] * _LN10
@@ -231,7 +244,35 @@ def newton_select_lambdas(
             return None
         return coef, float(score), grad
 
-    def hessian(rho: np.ndarray, free: np.ndarray) -> np.ndarray | None:
+    def exact_hessian(rho: np.ndarray, coef: np.ndarray, free: np.ndarray) -> np.ndarray | None:
+        """The analytic Hessian restricted to the ``free`` coordinates, from the
+        fit already in hand (no extra penalized fit). ``None`` if it cannot be
+        formed (a singular ``H``)."""
+        lambdas = np.exp(rho)
+        try:
+            if family.dispersion_fixed:
+                full = reml_score_hessian(
+                    y,
+                    x,
+                    family,
+                    coef,
+                    penalty_blocks,
+                    lambdas,
+                    offset=offset,
+                    weights=weights,
+                    gamma=gamma,
+                )
+            else:
+                full = reml_score_hessian_profiled(
+                    y, x, family, coef, penalty_blocks, lambdas, offset=offset, weights=weights
+                )
+        except (PolarisComputationError, np.linalg.LinAlgError):
+            return None
+        if not np.all(np.isfinite(full)):
+            return None
+        return np.asarray(full[np.ix_(free, free)], dtype=np.float64)
+
+    def difference_hessian(rho: np.ndarray, free: np.ndarray) -> np.ndarray | None:
         """Central difference of the analytic gradient over the ``free``
         coordinates (one-sided at a bound). ``None`` if any probe fails."""
         idx = np.flatnonzero(free)
@@ -269,7 +310,9 @@ def newton_select_lambdas(
             n_iter -= 1
             break
         free = np.abs(g_proj) > tol  # converged directions are dropped from the step
-        h_free = hessian(rho, free)
+        h_free = (
+            exact_hessian(rho, coef, free) if hessian == "exact" else difference_hessian(rho, free)
+        )
         step = np.zeros(m, dtype=np.float64)
         if h_free is not None:
             evals, evecs = np.linalg.eigh(h_free)

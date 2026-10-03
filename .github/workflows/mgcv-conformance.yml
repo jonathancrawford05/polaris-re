@@ -215,6 +215,12 @@ on:
       - "src/polaris_re/analytics/gam_reml_newton.py"
       - "src/polaris_re/analytics/gam_reml_gradient.py"
       - "scripts/gam_newton_outer_check.py"
+      # OUTER-SOLVER EPIC slice 2 (ADR-243) — the exact Hessian, its mgcv
+      # comparison module, and the probe that exports mgcv's outer Hessian.
+      - "src/polaris_re/analytics/gam_reml_hessian.py"
+      - "src/polaris_re/analytics/gam_hessian_conformance.py"
+      - "scripts/gam_hessian_probe.R"
+      - "scripts/gam_hessian_compare.py"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -672,6 +678,18 @@ jobs:
       # (joint quasipoisson, poisson stage 1, quasipoisson at scale = its own
       # stage-1 Pearson dispersion). Same DIAGNOSTIC contract as every probe
       # above; the comparison happens in the `compare` job below.
+      # OUTER-SOLVER EPIC slice 2 (ADR-243) — mgcv's own outer Hessian of the
+      # REML criterion on five family/link cases (known and free scale). Same
+      # DIAGNOSTIC contract as every probe above; the comparison against
+      # Polaris's exact Hessian happens in the `compare` job below.
+      - name: Export mgcv's outer REML Hessian (outer-solver slice 2)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_hessian_probe.R \
+              gam_hessian_probe.json
+
       - name: Fit the dispersion chain under mgcv (ladder slice 3c)
         continue-on-error: true
         run: |
@@ -888,6 +906,7 @@ jobs:
             gam_quasipoisson_free_sp_probe.json
             gam_quasipoisson_fixed_scale_probe.json
             gam_dispersion_two_stage_probe.json
+            gam_hessian_probe.json
             gam_by_factor_probe.json
             gam_by_factor_free_sp_probe.json
             gam_parametric_stage_a_probe.json
@@ -2998,6 +3017,22 @@ jobs:
             cat gam_newton_outer_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # OUTER-SOLVER EPIC slice 2 (ADR-243). DIAGNOSTIC, gates nothing: Polaris's
+      # exact REML Hessian (producer sees the recipe only) against mgcv's own
+      # outer.info$hess. The headline is derived from the declared claim.
+      - name: Exact REML Hessian vs mgcv outer.info$hess (outer-solver slice 2)
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f gam_hessian_probe.json ]; then
+            uv run python scripts/gam_hessian_compare.py \
+              --probe gam_hessian_probe.json \
+              --markdown gam_hessian_report.md
+            cat gam_hessian_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_hessian_probe.json — the R probe above did not produce one."
+          fi
+
       - name: Compare the factor-by basis vs smoothCon(s(x, by=fac, bs="cr")) (ladder L3 Stage A)
         if: always()
         continue-on-error: true
@@ -3937,6 +3972,8 @@ jobs:
             gam_deriv_report.md
             gam_vc_probe.json
             gam_vc_report.md
+            gam_hessian_probe.json
+            gam_hessian_report.md
             gam_multiterm_probe.json
             gam_multiterm_probe_report.md
             gam_multiterm_sz_probe.json

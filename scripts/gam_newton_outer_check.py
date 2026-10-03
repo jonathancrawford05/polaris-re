@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-"""Outer-solver epic Slice 1 (ADR-242): the safeguarded Newton search against
-``mgcv`` on the free-scale cells ADR-241 diagnosed.
+"""Outer-solver epic Slices 1-2 (ADR-242, ADR-243): the safeguarded Newton search
+against ``mgcv`` on the free-scale cells ADR-241 diagnosed — with the EXACT
+Hessian (Slice 2, the default) beside Slice 1's differenced Hessian and the
+L-BFGS-B search from the same ``initial.spg`` start, so function evaluations
+per fit are reported side by side.
 
 Usage: gam_newton_outer_check.py <probe_dir> [report.md]
 
@@ -18,6 +21,7 @@ The step/gradient columns are Polaris-only MEASUREMENTS (own criterion), not a
 comparison. Reports; gates nothing.
 """
 
+import functools
 import json
 import sys
 from pathlib import Path
@@ -54,7 +58,7 @@ _LN10 = float(np.log(10.0))
 def main(probe_dir: Path, out: Path | None) -> None:
     lines = [
         "",
-        "### Outer-solver slice 1 — safeguarded Newton, one start (`initial.spg`), vs mgcv",
+        "### Outer-solver slices 1-2 — safeguarded Newton (exact Hessian), one start, vs mgcv",
         "",
         "**Claim (ADR-193):** the Polaris free-sp fit (producer takes a recipe that excludes "
         "mgcv's eta/coef/sp/edf) and mgcv's own free-sp REML fit compute eta and edf_total "
@@ -71,6 +75,7 @@ def main(probe_dir: Path, out: Path | None) -> None:
     ]
     captured: list[NewtonLambdaSelection] = []
     original = gam_model.newton_select_lambdas
+    cost_rows: list[str] = []
 
     def spy(*args: object, **kwargs: object) -> NewtonLambdaSelection:
         result = original(*args, **kwargs)  # type: ignore[arg-type]
@@ -89,6 +94,26 @@ def main(probe_dir: Path, out: Path | None) -> None:
                 fit = fit_quasipoisson_free_sp_case(payload, outer="newton")
                 comp = compare_quasipoisson_free_sp_case(fit, payload)
             sel = captured[-1]
+            # Cost comparison, same cell and start: Slice 1's differenced
+            # Hessian, and L-BFGS-B from initial.spg. Both are Polaris-only
+            # measurements (fits spent), not comparisons against mgcv.
+            gam_model.newton_select_lambdas = functools.partial(  # type: ignore[assignment]
+                original, hessian="difference"
+            )
+            try:
+                if kind == "gaussian":
+                    diff_fit = fit_gaussian_free_sp_case(payload, outer="newton")
+                    lb_fit = fit_gaussian_free_sp_case(payload, initial_sp_start=True)
+                else:
+                    diff_fit = fit_quasipoisson_free_sp_case(payload, outer="newton")
+                    lb_fit = fit_quasipoisson_free_sp_case(payload, initial_sp_start=True)
+            finally:
+                gam_model.newton_select_lambdas = spy  # type: ignore[assignment]
+            cost_rows.append(
+                f"| {label} | {sel.n_function_evals} | {diff_fit.n_function_evals} "
+                f"| {lb_fit.n_function_evals} | {fit.reml_score:.4f} | {diff_fit.reml_score:.4f} "
+                f"| {lb_fit.reml_score:.4f} |"
+            )
             eta_edf_only = comp["max_abs_eta_diff"] < 2e-2 and abs(comp["edf_total_diff"]) < 1.0
             lines.append(
                 f"| {label} | {comp['max_abs_eta_diff']:.3e} | {comp['edf_total_diff']:+.3f} "
@@ -100,6 +125,16 @@ def main(probe_dir: Path, out: Path | None) -> None:
             )
     finally:
         gam_model.newton_select_lambdas = original  # type: ignore[assignment]
+    lines += [
+        "",
+        "#### Function evaluations per fit (Polaris-only measurement, same start)",
+        "",
+        "| cell | Newton, exact Hessian (Slice 2) | Newton, differenced Hessian (Slice 1) "
+        "| L-BFGS-B from initial.spg | own score (exact) | own score (differenced) "
+        "| own score (L-BFGS-B) |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+        *cost_rows,
+    ]
     report = "\n".join(lines) + "\n"
     print(report)
     if out is not None:
