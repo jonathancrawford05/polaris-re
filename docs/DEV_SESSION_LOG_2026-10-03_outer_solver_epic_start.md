@@ -53,7 +53,8 @@ No INDEPENDENT, ECHO or TRANSPORT columns; nothing here is parity evidence.
 - `docs/ROUTINE_MGCV_PARITY.md`: active-epic pointer; new step 10 "MECHANISM BEFORE SLICE"
   (outer-search gaps become gauntlet cases, never new start-strategy slices; chain cap;
   older structural beats newer patch).
-- Ladder: yields; 3f and 7c SUPERSEDED (maintainer ruling on 3f: option (c)).
+- Ladder: yields; 7c SUPERSEDED. 3e/3f were already closed by the maintainer's ruling
+  (option (c), ADR-240 amendment 1, merged with #249).
 
 ## Decomposition Plan
 | slice | status |

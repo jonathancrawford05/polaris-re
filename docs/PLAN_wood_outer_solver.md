@@ -3,7 +3,8 @@
 > **STATUS: IN PROGRESS — ACTIVE EPIC (maintainer, 2026-10-03; ADR-241).**
 > Slice 0 (diagnosis) DONE in the epic-start PR. **NEXT: Slice 1.**
 > This epic takes the active slot from `PLAN_mgcv_capability_ladder.md`, which
-> yields with its remaining start-strategy slices (3f, 7c) SUPERSEDED here.
+> yields; its remaining start-strategy slice (7c) is SUPERSEDED here (3e/3f
+> were closed by maintainer decision, ADR-240 amendment 1).
 > It is `PLAN_mgcv_parity_engine.md` slice 8, promoted to its own epic so the
 > work-selection rule can reach it (§2).
 
@@ -15,7 +16,8 @@ effort."* And earlier, 2026-09-05, recorded as slice 8's origin: *"we need a
 reliable solver (mgcv achieves this so a real and implementable mechanism
 exists)."*
 **Supersedes:** `PLAN_mgcv_parity_engine.md` slice 8 (its scope and DoD are
-carried in full below); ladder slices 3f and 7c.
+carried in full below); ladder slice 7c. (Ladder 3e/3f were closed by
+maintainer decision, ADR-240 amendment 1, before this epic started.)
 **Total slices:** 0 (done) + 4.
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md` — a convergence loop with a live
 oracle. Same tiers, same provenance gate, same nevers.

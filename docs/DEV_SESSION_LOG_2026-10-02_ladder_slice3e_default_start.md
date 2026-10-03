@@ -34,3 +34,6 @@ No ECHO or TRANSPORT columns. Headline derived with `evidence_markdown`.
 
 ## Follow-ups
 Slice 3f registered (PLAN). No perf row: PR touches only `*_conformance.py` modules outside the perf import closure (ADR-177 amendment 2; check returned `[]`). Single draw per cell is a small sample.
+
+## Maintainer decision (2026-10-03)
+Keep both starts opt-in. Slices 3e/3f closed; no code change. Recorded in ADR-240 amendment 1.

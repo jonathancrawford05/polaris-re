@@ -24436,10 +24436,13 @@ Default start unchanged; seeded start stays opt-in. Slice 3e's release condition
 ### Consequences
 No production default changes. Four conformance fit helpers gain an additive `initial_sp_start=False` keyword. `tests/qa/` goldens untouched.
 
+### ADR-240 amendment 1 (2026-10-03): maintainer decision — keep both starts opt-in
+The maintainer ruled: **keep both starts opt-in.** The default start is unchanged, `initial_sp_start=True` stays opt-in, and the lower-own-score rule stays a study-only reading (not shipped). This is the alternative branch of slice 3e's release condition ("a maintainer decision to keep it opt-in") and release condition (c) of slice 3f. Consequence: slice 3e is closed; slice 3f is closed by decision. NOT discharged: the mechanism of the seeded gaussian-L1 stall (untested hypothesis: finite-difference gradient noise at extreme `lambda`) — a note, not a registered slice, because no work is pending on it.
+
 
 ## ADR-241: The outer search, not the start — slice 0 of a new active epic, `PLAN_wood_outer_solver.md` (MEASUREMENT (own criterion), tier 1 and tier 3 identical)
 
-**Status:** Accepted, 2026-10-03. **Maintainer decisions recorded here:** (1) ladder slice 3f is resolved by its option (c) — the `initial.spg` seeded start stays opt-in and best-of-both is not shipped; (2) the capability ladder yields the active slot, with 3f and 7c SUPERSEDED; (3) `PLAN_mgcv_parity_engine.md` slice 8 is promoted to its own active epic, `docs/PLAN_wood_outer_solver.md`. Source: maintainer review of PR #249, 2026-10-03 — *"clearly we are spiralling … we have described the exact components, but failed to prioritize the effort … do what you can to get us out of this loop and on track for the complete outer solver parity."*
+**Status:** Accepted, 2026-10-03. **Maintainer decisions:** (1) ladder slice 3f is resolved by its option (c) — recorded in ADR-240 amendment 1 (keep both starts opt-in), not re-decided here; recorded here: (2) the capability ladder yields the active slot, with 7c SUPERSEDED (3e/3f already closed by amendment 1); (3) `PLAN_mgcv_parity_engine.md` slice 8 is promoted to its own active epic, `docs/PLAN_wood_outer_solver.md`. Source: maintainer review of PR #249, 2026-10-03 — *"clearly we are spiralling … we have described the exact components, but failed to prioritize the effort … do what you can to get us out of this loop and on track for the complete outer solver parity."*
 
 ### Provenance (ADR-193, VERIFICATION_STANDARD §2.1)
 `MEASUREMENT (own criterion)`. Every number is Polaris's own REML score, gradient or search trace; `mgcv`'s `sp` enters only as the endpoint of the segment. Remove `mgcv` and every number exists for any endpoint. Nothing here is parity evidence and no acceptance criterion is ticked on it.
