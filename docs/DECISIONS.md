@@ -24513,3 +24513,53 @@ Not parity on any cell beyond the three measured; not that `converged` is robust
 
 ### Consequences
 New: `gam_reml_newton.py`, `reml_score_gradient_profiled`, `outer=` on `fit_polaris_gam` and the two free-sp fit helpers, 14 tests, `scripts/gam_newton_outer_check.py`, one non-gating CI step. Tier-1 numbers appear only in the ledger/this ADR's finding 2, labelled; every table figure is tier 3.
+
+---
+
+## ADR-243: Outer-solver slice 2 — the exact REML Hessian reproduces `mgcv`'s own `outer.info$hess` (INDEPENDENT, tier 3), and replaces Slice 1's differenced Hessian in the Newton search
+
+**Status:** Accepted, 2026-10-03. `fit_polaris_gam(outer="newton")` now uses the exact Hessian; `newton_select_lambdas(hessian="difference")` keeps Slice 1's behaviour for A/B. No default outside `outer="newton"` changes; goldens untouched.
+
+### Claim sentence (ADR-193, written before the code)
+`gam_reml_hessian` computes the Hessian of the REML criterion in natural-log `sp` by differentiating Polaris's own analytic gradient (Wood 2011 §3.4-3.5, derived in the module, not transcribed), from a Polaris penalized fit over the shared `(X, S_j, y, prior weights)` evaluated at the shared `sp`; `mgcv` computes it as `gam(method="REML")$outer.info$hess` from its own fit and derivative code; compared element-wise, each entry scaled by `sqrt(H_ii H_jj)` of `mgcv`'s matrix (free scale: the Schur complement over `log phi`). **INDEPENDENT.** The producer (`hessian_at_recipe`) takes `RHessianRecipe`, which has no `outer_hessian`/`scale`/gradient key; a test pins that its output is unchanged when the payload's reference Hessian is replaced. The ONE shared input is `selected_sp` as the **point of evaluation** (VERIFICATION_STANDARD §2.1) — disclosed, not an operand. `scale_hat` is a second INDEPENDENT quantity for gaussian only (for quasi families `m$sig2` is a Pearson-type reporting estimate, not the REML profile's `phi_hat`; they differ by 16.6% at tier 1 while the Schur-reduced Hessians agree to 6e-8 — the internal scale is shared, so comparing the two would compare two estimators; excluded, not reported as a disagreement).
+
+### Mechanism class (ROUTINE step 10)
+Class (iii) — outer search. Not a new slice: this is PLAN `wood_outer_solver` Slice 2 as registered.
+
+### What was built
+1. `gam_reml_hessian.py`: `reml_score_hessian` (known scale), `reml_score_hessian_profiled` (free scale), `d2w_deta2_observed`, `d2log_det_s_plus_drho2`. Derivation in the module docstring: `b_jk = -H⁻¹[H_k b_j + A_j b_k + δ_jk A_j β]`, `H_jk = δ_jk A_j + Xᵀdiag(w'' u_j u_k + w' u_jk)X`, `d²log|S|+ = δ_jk λ_j tr(S⁺S_j) − λ_jλ_k tr(S⁺S_jS⁺S_k)` (stable route through Appendix B's `e`), free-scale Schur term `−(β'A_jβ)(β'A_kβ)/(2φ̂²(n−Mp))`. The only new per-observation ingredient, `w'' = d²w_obs/dη²`, is built by truncated Taylor-series arithmetic from each link's own ODE (so cloglog's non-canonical `α ≠ 1` is included), and its first-order coefficient is pinned to the independently derived `dw_deta_observed`.
+2. `newton_select_lambdas(hessian="exact"|"difference")`; exact is the default and costs no penalized fit beyond the iterate's own.
+3. `gam_hessian_conformance.py`, `scripts/gam_hessian_probe.R` (five cases: poisson-log, binomial-logit, binomial-cloglog at known scale; quasipoisson-log, gaussian-identity at free scale), `scripts/gam_hessian_compare.py`, two non-gating CI steps.
+
+### Measurement — tier 3, CI run 37153229821, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+Exact Hessian vs `outer.info$hess` (INDEPENDENT; scaled diff `abs(dH_ij)/sqrt(H_ii H_jj)`, tolerance 1e-6 = `gam.control()$newton$conv.tol`, chosen as `mgcv`'s own certification resolution for the point its Hessian is evaluated at, not fitted to these readings):
+
+| case | max scaled diff | max abs diff | scale_hat rel diff | agrees |
+|---|---:|---:|---:|---|
+| poisson-log | 1.203e-10 | 1.421e-14 | n/a | yes |
+| binomial-logit | 1.680e-10 | 2.228e-14 | n/a | yes |
+| binomial-cloglog (non-canonical) | 2.006e-11 | 1.386e-12 | n/a | yes |
+| quasipoisson-log (Schur over log phi) | 6.037e-08 | 9.226e-08 | n/a | yes |
+| gaussian-identity (Schur over log phi) | 1.254e-09 | 1.745e-10 | 4.982e-08 | yes |
+
+The tolerance was chosen from `mgcv`'s control constant, but the author had seen tier-1 readings (≤ 6e-8) before fixing it; the margin it leaves (≥ 16x) is therefore not evidence of a derived bound, only that nothing sits near it.
+
+Newton search, one start (`initial.spg`), same run (INDEPENDENT eta/edf vs `mgcv` under ADR-221; fits are a Polaris-only measurement):
+
+| cell | eta diff | edf diff | own score | stop | max step | grad / tol | fits: exact / differenced (Slice 1) / L-BFGS-B |
+|---|---:|---:|---:|---|---:|---:|---|
+| gaussian L1 | 3.674e-06 | +0.000 | 165.2963 | gradient test | 2.171 dec | 7.885e-05 / 1.663e-04 | **11** / 92 / 790 |
+| quasipoisson 3b | 4.048e-05 | -0.001 | 1624.6215 | gradient test | 2.171 | 7.253e-04 / 1.626e-03 | **5** / 37 / 65 |
+| quasipoisson 3c draw | 1.120e-05 | -0.000 | 1638.9456 | gradient test | 2.171 | 1.879e-04 / 1.640e-03 | **8** / 52 / 75 |
+
+### Findings
+1. **The exact Hessian is `mgcv`'s Hessian**, to ≤ 6e-8 on all five cases including the non-canonical cloglog link and both free-scale families. The derivation, including the `w''` series and the Schur profile term, is confirmed by a producer that shares nothing with it. (Internal checks, own criterion: analytic vs central difference of the analytic gradient ≤ 5e-5 scaled on 5 family/links × 3 points incl. a `1e11` block; mutation-checked — dropping the Schur term, the `w''` term or the `δ_jk A_jβ` term each fails the suite.)
+2. **Same verdicts as Slice 1, at 4-8x fewer fits than the differenced Hessian and 7-72x fewer than L-BFGS-B** (L1: 11 vs 92 vs 790). Slice 1's three cells all still agree with `mgcv` from one start, stopping on the gradient test, every accepted step ≤ the 2.171-decade cap.
+3. **L1's tier-1/tier-3 split closed in the direction Slice 3 asked about.** Slice 1's tier-1 L1 STALLED on the gradient's precision floor and its tier-3 pass was thin and not run-to-run reproducible. With the exact Hessian, tier 1 (local R 4.3.3, local BLAS) and tier 3 (this run) give the SAME L1 reading to the printed digits — gradient 7.885e-05 vs tolerance 1.663e-04 (margin 0.47, against Slice 1's 0.71-0.85), `converged=True`, 11 fits, `eps*cond(H)=7.71e-05` in both. One tier-3 sample only, so run-to-run reproducibility is not re-measured here; what is measured is agreement across two BLAS/mgcv-payload environments. The precision floor itself (`cond(H)` ~ 1e11-1e12 at the `lambda ~ 1e11` block) is untouched — Slice 3 still owns it, but its urgency drops: the stall's immediate cause was a differenced Hessian, not only the gradient.
+4. **Not a finding of disagreement anywhere.** Nothing in this slice disagreed with `mgcv`; the one apparent difference (quasipoisson `scale_hat`) is a different estimator and is excluded by construction.
+
+### Not claimed
+Not that the exact Hessian is correct beyond the five cases and the point of evaluation (`mgcv`'s own `sp`); not that Newton with it is robust on the plateau (Slice 4 gauntlet case 3); not a default outside `outer="newton"`. Level 4 still reads DISAGREES on the shipped path (standing, ADR-207 decision 3).
+
+### Consequences
+New: `gam_reml_hessian.py`, `gam_hessian_conformance.py`, `scripts/gam_hessian_probe.R`, `scripts/gam_hessian_compare.py`, 30 new tests across three files (one R-gated), two CI steps. `gam_newton_outer_check.py` now reports fits for all three searches. Follow-up (2nd-order, not a gap): level 4's new stack (ADR-202) still takes `mgcv`'s Hessian as a SHARED INPUT (`gam_uncertainty_conformance`); this module can supply an independent one.

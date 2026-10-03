@@ -4122,3 +4122,8 @@ Provenance: INDEPENDENT comparison (Polaris two-start fit vs `mgcv` `quasipoisso
 - **IMPORTANT (epic, active): `PLAN_wood_outer_solver.md` Slice 2 (exact Hessian) and Slice 3 (§3.1 reparameterisation).** Slice 3 is promoted in priority: ADR-242 finding 2 shows L1's analytic gradient is precision-floored at `cond(H) ~ 3.6e11` (tier-1 stall; tier-3 pass with a 0.7 margin). Source: ADR-242. (1st-order — it decides whether `converged` is reproducible across BLAS.)
 - 2nd-order NICE-TO-HAVE: have the Newton stop test treat a gradient within `eps*cond(H)` of tolerance as "unresolved" rather than converged/stalled — needs a derivation of the gradient's error bound, not a multiplier. Source: ADR-242 finding 2.
 - 3rd-order parked: Newton's plateau start-dependence (synthetic 117.98 vs 117.26) belongs to Slice 4 gauntlet case 3, not a new start strategy.
+
+### Harvested 2026-10-03 — outer-solver slice 2 (ADR-243)
+- **IMPORTANT (epic, active): `PLAN_wood_outer_solver.md` Slice 3** (§3.1 reparameterisation; thread-axis study first, re-measured on the exact-Hessian search). Source: ADR-243 finding 3 (1st-order — the `cond(H) ~ 1e11` precision floor is unchanged though L1 is now cross-environment reproducible).
+- 2nd-order NICE-TO-HAVE: use `gam_reml_hessian.reml_score_hessian` as level 4's own rho-Hessian so `gam_uncertainty_conformance` stops taking `mgcv`'s `outer.info$hess` as a SHARED INPUT (the disclosure in `VC_CLAIM`). Source: ADR-243 (2nd-order — follow-up of an independent Hessian now existing).
+- 3rd-order parked: a second tier-3 sample of L1 on the exact-Hessian search to re-measure run-to-run reproducibility (Slice 1's was not reproducible); fold into Slice 3's thread/seed-axis study.
