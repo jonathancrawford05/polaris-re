@@ -24532,6 +24532,8 @@ Class (iii) — outer search. Not a new slice: this is PLAN `wood_outer_solver` 
 3. `gam_hessian_conformance.py`, `scripts/gam_hessian_probe.R` (five cases: poisson-log, binomial-logit, binomial-cloglog at known scale; quasipoisson-log, gaussian-identity at free scale), `scripts/gam_hessian_compare.py`, two non-gating CI steps.
 
 ### Measurement — tier 3, CI run 37153229821, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(Run 37153229821 is on commit `f48cdbc`, the last commit touching code; the branch head adds only docs and the perf row, and a later head run, 37153754551, exercises identical code.)
+
 Exact Hessian vs `outer.info$hess` (INDEPENDENT; scaled diff `abs(dH_ij)/sqrt(H_ii H_jj)`, tolerance 1e-6 = `gam.control()$newton$conv.tol`, chosen as `mgcv`'s own certification resolution for the point its Hessian is evaluated at, not fitted to these readings):
 
 | case | max scaled diff | max abs diff | scale_hat rel diff | agrees |
