@@ -24435,3 +24435,6 @@ Default start unchanged; seeded start stays opt-in. Slice 3e's release condition
 
 ### Consequences
 No production default changes. Four conformance fit helpers gain an additive `initial_sp_start=False` keyword. `tests/qa/` goldens untouched.
+
+### ADR-240 amendment 1 (2026-10-03): maintainer decision — keep both starts opt-in
+The maintainer ruled: **keep both starts opt-in.** The default start is unchanged, `initial_sp_start=True` stays opt-in, and the lower-own-score rule stays a study-only reading (not shipped). This is the alternative branch of slice 3e's release condition ("a maintainer decision to keep it opt-in") and release condition (c) of slice 3f. Consequence: slice 3e is closed; slice 3f is closed by decision. NOT discharged: the mechanism of the seeded gaussian-L1 stall (untested hypothesis: finite-difference gradient noise at extreme `lambda`) — a note, not a registered slice, because no work is pending on it.

@@ -1,6 +1,6 @@
 # Plan: climb the mgcv capability ladder — L1 through L5, reopened for a narrow near-term target formula
 
-> **STATUS: IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); Slice 7 MEASURED 2026-10-01 (ADR-236; far-phi disagreement); Slice 7b DONE 2026-10-01 (ADR-237; far-phi closed at tier 3, gate blocking); NEXT: Slice 3f (3e measured, ADR-240; 7c registered, not blocking).** L1-L5 (the
+> **STATUS: IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); Slice 7 MEASURED 2026-10-01 (ADR-236; far-phi disagreement); Slice 7b DONE 2026-10-01 (ADR-237; far-phi closed at tier 3, gate blocking); NEXT: Slice 7c (3e/3f closed by maintainer decision 2026-10-03, ADR-240 amendment 1; 7c registered, not blocking).** L1-L5 (the
 > original five slices) are COMPLETE — ADR-229 (L1), ADR-230 (L2), ADR-231
 > (L5), ADR-232 (L3), ADR-233 (L4). `docs/MGCV_FEATURE_COVERAGE.md` §4 marks
 > all five rungs climbed. **Nothing about Slices 1-5 or their ADRs changes
@@ -366,9 +366,9 @@ scope post-hoc inside a landed PR is exactly the "widen on your own"
 this project's routines refuse; a registered follow-up slice is the correct
 container instead.
 
-> **Slice 3e status, 2026-10-02 (ADR-240): MEASURED — release condition NOT met, default NOT flipped.** The seeded start disagrees with mgcv on gaussian L1 (tier 3, run 37071666519, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`: `eta` `2.107e-01`, `edf_total` `-8.9905`, own score 180.84 vs 165.30, upper bound hit) while the default agrees; the default fails the 3c draw. Best-of-both by own score agrees on all six cells but is not shipped.
+> **Slice 3e status, 2026-10-03: CLOSED by maintainer decision (ADR-240 amendment 1) — keep both starts opt-in. Measured 2026-10-02 (ADR-240): release condition NOT met, default NOT flipped.** The seeded start disagrees with mgcv on gaussian L1 (tier 3, run 37071666519, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`: `eta` `2.107e-01`, `edf_total` `-8.9905`, own score 180.84 vs 165.30, upper bound hit) while the default agrees; the default fails the 3c draw. Best-of-both by own score agrees on all six cells but is not shipped.
 
-### Slice 3f — why the seeded start stalls on gaussian L1, and whether best-of-both ships (registered 2026-10-02, ADR-209 decision 1)
+### Slice 3f — why the seeded start stalls on gaussian L1, and whether best-of-both ships (registered 2026-10-02) — ✅ **CLOSED 2026-10-03 by release condition (c): maintainer decision, keep both starts opt-in (ADR-240 amendment 1)**
 
 **Release condition:** EITHER (a) the stall is localised at tier 3 (hypothesis: finite-difference gradient noise at `lambda ~ 1e10-1e12` on the free-scale path, which has no analytic gradient) and fixed or ruled out, with L1 agreeing under the seeded start; OR (b) best-of-both is promoted to an opt-in `fit_polaris_gam` option and meets ADR-221 at tier 3 on a cell that is NOT one of the six draws already used; OR (c) a maintainer decision to keep both opt-in/absent. Not started.
 

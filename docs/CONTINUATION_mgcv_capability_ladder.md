@@ -3,7 +3,7 @@
 **Plan:** `docs/PLAN_mgcv_capability_ladder.md`
 **Created:** 2026-09-19, by the session that started slice 1 — as the plan's §3
 requires, and not before (the one-active-epic rule).
-**Status (updated 2026-10-02: slice 3c DONE ADR-238; slice 3d MET AS OPT-IN ADR-239; slice 3e MEASURED, default NOT flipped ADR-240; NEXT: slice 3f and 7c):** **IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); Slice 7 MEASURED 2026-10-01 (ADR-236; acceptance NOT met — agrees at phi=2, disagrees at phi=6); NEXT: Slice 7b (far-phi basin), then Slice 3c (dispersion estimate + two-stage workflow).** L1-L5
+**Status (updated 2026-10-02: slice 3c DONE ADR-238; slice 3d MET AS OPT-IN ADR-239; slice 3e MEASURED ADR-240, CLOSED 2026-10-03 by maintainer decision (both starts stay opt-in); NEXT: slice 7c):** **IN PROGRESS (REOPENED 2026-09-27) — Slice 6 DONE 2026-09-28 (ADR-234); Slice 3b DONE 2026-09-30 (ADR-235); Slice 7 MEASURED 2026-10-01 (ADR-236; acceptance NOT met — agrees at phi=2, disagrees at phi=6); NEXT: Slice 7b (far-phi basin), then Slice 3c (dispersion estimate + two-stage workflow).** L1-L5
 (the original five slices) are COMPLETE and unchanged below — nothing about
 them is revised by the reopening. `PLAN_mgcv_capability_ladder.md` §2.3,
 maintainer direction: the actual near-term dev target is a formula built
@@ -641,3 +641,7 @@ Fixed-scale quasi-Poisson now agrees with `mgcv` at the far phi=6 (INDEPENDENT; 
 ## Update 2026-10-02c — slice 3e (ADR-240)
 
 Measured default vs seeded start on all six free-scale cells (tier 3, run 37071666519, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`). Seeded fails gaussian L1 (`eta` `2.107e-01`, `edf_total` `-8.9905`, own score `180.84` vs `165.30`, at bound); default fails the 3c draw. Best-of-both by own score agrees on all six (not shipped). Default unchanged. **NEXT: slice 3f** (stall localisation / best-of-both promotion, PLAN), then 7c.
+
+## Update 2026-10-03 — maintainer decision on slice 3e
+
+Keep both starts opt-in (ADR-240 amendment 1). Slices 3e and 3f closed; default unchanged. **NEXT: slice 7c.**
