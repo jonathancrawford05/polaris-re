@@ -251,7 +251,7 @@ def reml_score_gradient_profiled(
     ``Mp = p - rank(S)`` is structural, so the only ``phi``-dependent gradient
     term is term 1 — which is the known-scale gradient with ``gamma``
     replaced by ``phi_hat``. This is a hypothesis verified against a central
-    difference of the score (``tests/test_analytics/test_gam_reml_gradient.py``),
+    difference of the score (``tests/test_analytics/test_gam_reml_newton.py``),
     not an assumption.
 
     Raises:

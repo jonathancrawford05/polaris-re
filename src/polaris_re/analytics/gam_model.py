@@ -69,7 +69,7 @@ penalty at all, unchanged.
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import numpy as np
 
@@ -464,7 +464,7 @@ def fit_polaris_gam(
     max_gtol_restarts: int = 0,
     step_halving: bool = False,
     initial_sp_start: bool = False,
-    outer: str = "lbfgsb",
+    outer: Literal["lbfgsb", "newton"] = "lbfgsb",
 ) -> PolarisGAMFit:
     """Fit ``model`` to ``data``/``y``, selecting every smoothing parameter by
     continuous REML (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`,

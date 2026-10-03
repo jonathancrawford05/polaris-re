@@ -4,8 +4,8 @@ the safeguarded Newton search.
 Internal self-consistency only (no ``mgcv`` comparison): the profiled gradient
 is checked against a central difference of this engine's own free-scale score,
 and the Newton search against the properties its docstring claims — a capped
-accepted step, a gradient-test stop, and agreement with a tight L-BFGS-B
-reference on the criterion's own value. The ``mgcv`` comparison is the
+accepted step, a gradient-test stop, the same criterion value from different
+starts, and a score no worse than a dense grid. The ``mgcv`` comparison is the
 conformance suite's, not this file's.
 """
 
@@ -128,3 +128,16 @@ def test_newton_requires_a_start_of_the_right_shape() -> None:
     y, x, family, blocks = _problem("gaussian")
     with pytest.raises(PolarisValidationError, match="x0 has shape"):
         newton_select_lambdas(y, x, family, blocks, x0=np.zeros(3))
+
+
+def test_newton_variant_names_the_newton_search_and_keeps_provenance() -> None:
+    from polaris_re.analytics.gam_gaussian_conformance import GAUSSIAN_FREE_SP_CLAIM
+    from polaris_re.analytics.gam_reml_newton import newton_variant
+
+    variant = newton_variant(GAUSSIAN_FREE_SP_CLAIM)
+    text = variant.claim + "".join(q.left_producer for q in variant.quantities)
+    assert "select_lambdas_continuous" not in text
+    assert "newton_select_lambdas" in text
+    assert [q.provenance for q in variant.quantities] == [
+        q.provenance for q in GAUSSIAN_FREE_SP_CLAIM.quantities
+    ]

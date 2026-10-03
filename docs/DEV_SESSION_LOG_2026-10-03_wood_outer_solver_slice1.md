@@ -1,5 +1,6 @@
 # Dev session log — 2026-10-03 — outer-solver slice 1 (safeguarded Newton, free-scale analytic gradient)
 
+**Branch:** `claude/intelligent-hamilton-fwiu4i`. **Perf verdict (ADR-177):** row appended; no structural creep, no wall-time creep, no config drift (peak 33 -> 33 MiB).
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md` (active epic `PLAN_wood_outer_solver.md`). **PR title class:** `feat(mgcv-parity)` — the slice lands an INDEPENDENT comparison.
 
 ## Baseline
@@ -33,3 +34,9 @@ Tier 3: L1 eta 4.854e-6 / edf +0.001; 3b 4.048e-5 / -0.001; 3c 1.120e-5 / -0.000
 
 ## Open / follow-ups
 Slice 2 NEXT; Slice 3 prioritised (PRODUCT_DIRECTION harvest). Mechanism class of this slice's gaps: (iii)/(iv) — handled inside the epic, no new slice registered. Perf row appended (touches non-conformance `src/` modules). Level 4 DISAGREES as standing.
+
+## PR #251 review response
+- P1-a: second tier-3 sample recorded in ADR-242 finding 2 and the ledger — L1 not run-to-run reproducible (margin 0.85 vs 0.71); reported met-but-fragile.
+- P1-b: `newton_variant(claim)` derives the Newton claims from the declared ones; the CI headline now names `newton_select_lambdas`; test added.
+- P2: fixed docstring test citation, dropped the untested doubled-step sentence, corrected the test module docstring, `outer` is `Literal["lbfgsb","newton"]`. Deferred: exposing selection diagnostics on `PolarisGAMFit` instead of the script's monkeypatch (Slice 4 surfaces the solver and is the natural place).
+- Parked polish: plateau start-dependence stays routed to Slice 4 gauntlet case 3.

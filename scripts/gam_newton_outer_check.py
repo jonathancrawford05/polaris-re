@@ -36,7 +36,11 @@ from polaris_re.analytics.gam_quasipoisson_conformance import (
     compare_quasipoisson_free_sp_case,
     fit_quasipoisson_free_sp_case,
 )
-from polaris_re.analytics.gam_reml_newton import MGCV_NEWTON_MAX_NSTEP, NewtonLambdaSelection
+from polaris_re.analytics.gam_reml_newton import (
+    MGCV_NEWTON_MAX_NSTEP,
+    NewtonLambdaSelection,
+    newton_variant,
+)
 from polaris_re.core.verification import evidence_markdown
 
 CELLS = (
@@ -56,14 +60,9 @@ def main(probe_dir: Path, out: Path | None) -> None:
         "mgcv's eta/coef/sp/edf) and mgcv's own free-sp REML fit compute eta and edf_total "
         "independently. Newton-specific columns are Polaris-only measurements.",
         "",
-        "*Caveat on the claim text below:* it names `select_lambdas_continuous` as the "
-        "smoothing-parameter search; in THIS report the search is `gam_reml_newton."
-        'newton_select_lambdas` (`outer="newton"`). The independence classification is '
-        "unchanged — the search is part of the Polaris producer either way.",
+        evidence_markdown(newton_variant(GAUSSIAN_FREE_SP_CLAIM)),
         "",
-        evidence_markdown(GAUSSIAN_FREE_SP_CLAIM),
-        "",
-        evidence_markdown(QUASIPOISSON_FREE_SP_CLAIM),
+        evidence_markdown(newton_variant(QUASIPOISSON_FREE_SP_CLAIM)),
         "",
         "| cell | max abs eta diff | edf_total diff | own score | converged (gradient test) "
         "| agrees (ADR-221) | eta/edf only | max accepted step (decades) | cap (decades) "

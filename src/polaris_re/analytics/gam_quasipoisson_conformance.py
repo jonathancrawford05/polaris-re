@@ -21,7 +21,7 @@ The gate is ADR-221's committed criterion, imported and never redeclared
 """
 
 from dataclasses import replace
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import numpy as np
 
@@ -151,7 +151,7 @@ def fit_quasipoisson_free_sp_case(
     *,
     multistart: bool = False,
     initial_sp_start: bool = False,
-    outer: str = "lbfgsb",
+    outer: Literal["lbfgsb", "newton"] = "lbfgsb",
 ) -> PolarisGAMFit:
     """The independent Python producer: assemble, select own lambda under the
     free-scale REML criterion, fit. Never reads ``mgcv``'s

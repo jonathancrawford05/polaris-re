@@ -56,6 +56,7 @@ from polaris_re.analytics.gam_reml_gradient import (
 )
 from polaris_re.analytics.gam_reml_optimize import penalized_fit_and_score
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
+from polaris_re.core.verification import ComparedQuantity, VerificationClaim
 
 __all__ = [
     "MGCV_NEWTON_CONV_TOL",
@@ -64,6 +65,7 @@ __all__ = [
     "MGCV_NEWTON_MAX_SSTEP",
     "NewtonLambdaSelection",
     "newton_select_lambdas",
+    "newton_variant",
 ]
 
 MGCV_NEWTON_MAX_NSTEP = 5.0
@@ -334,4 +336,28 @@ def newton_select_lambdas(
         max_accepted_step_decades=max_move,
         hessian_condition=kappa,
         gradient_precision_floor=float(np.finfo(np.float64).eps) * kappa,
+    )
+
+
+_LBFGSB_SEARCH = "gam_reml_optimize.select_lambdas_continuous"
+_NEWTON_SEARCH = "gam_reml_newton.newton_select_lambdas (outer='newton', initial.spg start)"
+
+
+def newton_variant(claim: VerificationClaim) -> VerificationClaim:
+    """The same declared claim with the smoothing-parameter search named as the
+    Newton one — derived from the existing claim, never re-written, so the
+    published table's producers name the code under test (PR #251 review P1-b).
+    Provenance per quantity is unchanged: the search is part of the Polaris
+    producer either way, and the recipe still excludes ``mgcv``'s outputs."""
+    return VerificationClaim(
+        claim=claim.claim.replace(_LBFGSB_SEARCH, _NEWTON_SEARCH),
+        quantities=tuple(
+            ComparedQuantity(
+                quantity=q.quantity,
+                left_producer=q.left_producer.replace(_LBFGSB_SEARCH, _NEWTON_SEARCH),
+                right_producer=q.right_producer,
+                provenance=q.provenance,
+            )
+            for q in claim.quantities
+        ),
     )
