@@ -17,7 +17,7 @@ endpoint.
 
 ## Oracle Version
 Tier 1: R 4.3.3 / mgcv 1.9.1 (apt), `OPENBLAS_NUM_THREADS=1`. Tier 2: unavailable.
-Tier 3: see ADR-241 (run and digest recorded there).
+Tier 3: R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, run 37091438628 — identical to tier 1 at every printed digit except the gradient at `mgcv`'s point (fifth significant figure). `gam.control()$newton` constants read at tier 1 only.
 
 ## Baseline
 `pytest tests/` (slow included, no R at the time, tables converted) on PR #249's head:

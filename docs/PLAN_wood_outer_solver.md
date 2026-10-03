@@ -37,8 +37,9 @@ where ADR-240 found a start that disagrees, is there a **barrier** between our
 stopping point and `mgcv`'s, or did the **search stop early**?
 `scripts/gam_outer_solver_landscape_probe.py`, `MEASUREMENT (own criterion)` —
 `mgcv`'s `sp` is only the point of evaluation (`VERIFICATION_STANDARD.md` §2.1).
-Numbers below are the ones ADR-241 commits (tier 3 when present there; this
-section quotes the ADR, not a tier-1 run).
+Tier 3, run 37091438628 (R 4.6.1 / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`); tier 1
+identical at every printed digit (ADR-241).
 
 | cell, start | first L-BFGS-B move | stop vs `mgcv` point (own score) | segment barrier | gradient at stop |
 |---|---|---|---|---|

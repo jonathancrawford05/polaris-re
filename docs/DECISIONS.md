@@ -24435,3 +24435,39 @@ Default start unchanged; seeded start stays opt-in. Slice 3e's release condition
 
 ### Consequences
 No production default changes. Four conformance fit helpers gain an additive `initial_sp_start=False` keyword. `tests/qa/` goldens untouched.
+
+
+## ADR-241: The outer search, not the start — slice 0 of a new active epic, `PLAN_wood_outer_solver.md` (MEASUREMENT (own criterion), tier 1 and tier 3 identical)
+
+**Status:** Accepted, 2026-10-03. **Maintainer decisions recorded here:** (1) ladder slice 3f is resolved by its option (c) — the `initial.spg` seeded start stays opt-in and best-of-both is not shipped; (2) the capability ladder yields the active slot, with 3f and 7c SUPERSEDED; (3) `PLAN_mgcv_parity_engine.md` slice 8 is promoted to its own active epic, `docs/PLAN_wood_outer_solver.md`. Source: maintainer review of PR #249, 2026-10-03 — *"clearly we are spiralling … we have described the exact components, but failed to prioritize the effort … do what you can to get us out of this loop and on track for the complete outer solver parity."*
+
+### Provenance (ADR-193, VERIFICATION_STANDARD §2.1)
+`MEASUREMENT (own criterion)`. Every number is Polaris's own REML score, gradient or search trace; `mgcv`'s `sp` enters only as the endpoint of the segment. Remove `mgcv` and every number exists for any endpoint. Nothing here is parity evidence and no acceptance criterion is ticked on it.
+
+### Measurement (tier 3, run 37091438628, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`; tier 1, R 4.3.3 / mgcv 1.9.1, identical at every printed digit except the gradient at `mgcv`'s point, which differs in the fifth significant figure)
+`scripts/gam_outer_solver_landscape_probe.py`, on the two (cell, start) pairs ADR-240 found disagreeing:
+
+| | gaussian L1, `initial.spg` seed | quasipoisson 3c draw, bounds-centre |
+|---|---|---|
+| search start, log10(lambda) | `[2.144, 3.139, 0.653, 0.188]` | `[5, 5, 5, 5]` |
+| **first move** (first trial point that is not a finite-difference probe) | `[10.334, 10.875, 12, 12]` — **11.81 decades**, two blocks onto the upper bound | `[-2, 9.812, 5.229, 4.788]` — **7.00 decades**, one block onto the LOWER bound |
+| stop `a` | `[10.905, 12, 2.928, 10.2]`, `converged=True`, 790 evals | `[4.208, 5.665, 5.202, 2.492]`, `converged=True`, 110 evals |
+| own score at `a` / at `mgcv`'s `b` | `180.837524` / `165.296133` | `1642.326016` / `1638.945559` |
+| barrier on segment `a -> b` | `0.158` (21 of 40 steps rise), then a 15.54 descent | **none** — 0 of 40 steps rise; monotone descent of 3.38 |
+| central-diff gradient at `a` (h = 0.01 decade) | `[-1.4e-05, -3.2e-06, -7.3e-02, 6.1e-05]` | `[-0.619, -1.242, 1.973, -0.234]` |
+
+### Findings
+1. **3c is not a second basin.** The stop is non-stationary (gradient up to ~2 per decade) yet reported `converged=True`, and the straight segment to `mgcv`'s point descends monotonically. ADR-239's wording — "a worse stationary point of the same criterion" — is **refuted**.
+2. **L1's seed was good and was discarded by the first step.** One L-BFGS-B move took the search 11.8 decades onto the `lambda -> infinity` plateau, where a fully penalised term's REML derivative vanishes (three of four gradient components ~1e-5). A small ridge (0.158) separates that plateau from `mgcv`'s point along a straight line; whether a curved path avoids it is untested.
+3. **Common mechanism: an uncapped first quasi-Newton step.** L-BFGS-B starts from an identity Hessian approximation and the box is the only limit on step length. `mgcv`'s Newton caps every step (`gam.control()$newton$maxNstep = 5` natural-log units, ~2.17 decades), halves failing steps (`maxHalf = 30`), perturbs the Hessian to positive definite by eigendecomposition and drops converged directions from the step (read from `mgcv:::newton` at TIER 1, mgcv 1.9.1 — behaviour and constants only; re-read at tier 3 before citing as settled).
+4. **Consequence for the last eleven slices.** Multistart (ADR-213), the two-start rule (ADR-237), the seeded start (ADR-239) and best-of-both (ADR-240) sampled more STARTS for a defect in the STEP. That is why each closed the cell it was built on and missed or broke another.
+
+### Why it was not built sooner (recorded so it is not repeated)
+Slice 8 has specified this solver since ADR-222 amendment 1 (2026-09-05). It sat `NEXT` in a CONTINUATION whose epic had yielded the slot, while the routine's work selection ("the PLAN's next unchecked slice") plus ADR-209 decision 1 ("register every opened gap as a slice") turned each solver symptom met on the ladder into a new, narrower, start-strategy slice that became next.
+
+### Decision
+- **`docs/PLAN_wood_outer_solver.md` is the active epic**: slice 0 (this) DONE; 1 free-scale analytic gradient + safeguarded Newton from `initial.spg`; 2 exact Hessian; 3 §3.1 reparameterisation through fit and derivatives; 4 surface as `fit_polaris_gam`'s default against a fixed gauntlet (six free-scale cells, far-phi fixed scale, ADR-226's `select=TRUE` basin, wiring slice 1's HGAM, both reproducibility axes). It carries slice 8's scope and DoD in full.
+- **`docs/ROUTINE_MGCV_PARITY.md` step 10, "MECHANISM BEFORE SLICE":** an outer-search gap is a gauntlet case for this epic, never a new slice or start strategy; a third consecutive slice on one mechanism without a structural change is escalated, not registered; an older structural slice owns a mechanism over a newer patch.
+
+### Consequences
+No `src/` change; no default changes; goldens untouched. New: the probe script, six closed-form tests of its helpers, one non-gating CI step. Not tested: whether a capped Newton step from `initial.spg` avoids L1's ridge (that is slice 1's registered hypothesis); profiled vs joint `phi` geometry (PLAN risk 3).
