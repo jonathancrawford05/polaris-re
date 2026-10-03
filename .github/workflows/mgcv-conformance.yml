@@ -210,6 +210,11 @@ on:
       - "scripts/gam_initial_sp_default_study.py"
       - "src/polaris_re/analytics/gam_initial_sp_default_conformance.py"
       - "scripts/gam_outer_solver_landscape_probe.py"
+      # OUTER-SOLVER EPIC slice 1 (ADR-242) — the Newton search, its gradient,
+      # and the script that measures it against mgcv.
+      - "src/polaris_re/analytics/gam_reml_newton.py"
+      - "src/polaris_re/analytics/gam_reml_gradient.py"
+      - "scripts/gam_newton_outer_check.py"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -2978,6 +2983,19 @@ jobs:
           uv run python scripts/gam_outer_solver_landscape_probe.py . gam_outer_solver_landscape_report.md
           if [ -f gam_outer_solver_landscape_report.md ]; then
             cat gam_outer_solver_landscape_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # OUTER-SOLVER EPIC slice 1 (ADR-242). DIAGNOSTIC, gates nothing: the three
+      # free-scale cells re-fit with the safeguarded Newton search (one start,
+      # initial.spg, no multistart) and compared under ADR-221's gate, beside
+      # the search's own step/gradient readings.
+      - name: Newton outer search vs mgcv on the free-scale cells (outer-solver slice 1)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python scripts/gam_newton_outer_check.py . gam_newton_outer_report.md
+          if [ -f gam_newton_outer_report.md ]; then
+            cat gam_newton_outer_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Compare the factor-by basis vs smoothCon(s(x, by=fac, bs="cr")) (ladder L3 Stage A)

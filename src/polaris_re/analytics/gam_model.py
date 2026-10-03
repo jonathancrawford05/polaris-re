@@ -83,7 +83,9 @@ from polaris_re.analytics.gam_family import (
     quasipoisson_log,
 )
 from polaris_re.analytics.gam_initial_sp import initial_log10_lambda
+from polaris_re.analytics.gam_reml_newton import NewtonLambdaSelection, newton_select_lambdas
 from polaris_re.analytics.gam_reml_optimize import (
+    ContinuousLambdaSelection,
     select_lambdas_continuous,
     select_lambdas_continuous_multistart,
 )
@@ -462,6 +464,7 @@ def fit_polaris_gam(
     max_gtol_restarts: int = 0,
     step_halving: bool = False,
     initial_sp_start: bool = False,
+    outer: str = "lbfgsb",
 ) -> PolarisGAMFit:
     """Fit ``model`` to ``data``/``y``, selecting every smoothing parameter by
     continuous REML (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`,
@@ -566,6 +569,16 @@ def fit_polaris_gam(
             start reaches ``mgcv``'s point (see ADR-239). Mutually exclusive
             with ``x0`` and ``multistart``.
 
+        outer: which outer search selects the smoothing parameters.
+            ``"lbfgsb"`` (default) is the existing SciPy search — every existing
+            caller's behaviour is unchanged. ``"newton"`` is the safeguarded
+            Newton search of :mod:`~polaris_re.analytics.gam_reml_newton`
+            (outer-solver epic Slice 1, ADR-241): analytic gradient, step cap,
+            step halving, gradient-based stopping, started from ``mgcv``'s
+            ``initial.spg`` (its ONLY start). Mutually exclusive with ``x0``,
+            ``multistart``, ``analytic_gradient``, ``max_gtol_restarts`` and
+            ``initial_sp_start`` (it IS the seeded single start).
+
     Raises:
         PolarisValidationError: propagated from :func:`assemble_model_design`
             or :func:`resolve_family`; or raised here if both ``multistart``
@@ -599,6 +612,18 @@ def fit_polaris_gam(
             "fit_polaris_gam: initial_sp_start=True is mutually exclusive with x0 and "
             "multistart=True (it IS the single start)."
         )
+    if outer not in ("lbfgsb", "newton"):
+        raise PolarisValidationError(
+            f"fit_polaris_gam: outer must be 'lbfgsb' or 'newton', got {outer!r}."
+        )
+    if outer == "newton" and (
+        x0 is not None or multistart or analytic_gradient or max_gtol_restarts or initial_sp_start
+    ):
+        raise PolarisValidationError(
+            "fit_polaris_gam: outer='newton' is mutually exclusive with x0, multistart, "
+            "analytic_gradient, max_gtol_restarts and initial_sp_start -- it always uses the "
+            "analytic gradient and its one start is mgcv's initial.spg."
+        )
     design = assemble_model_design(model, data)
     family = resolve_family(model.family, model.link)
     weights = (
@@ -620,7 +645,29 @@ def fit_polaris_gam(
         )
 
     n_function_evals: int
-    if multistart:
+    selection: ContinuousLambdaSelection | NewtonLambdaSelection
+    if outer == "newton":
+        selection = newton_select_lambdas(
+            y,
+            design["x"],
+            family,
+            design["penalty_blocks"],
+            x0=np.clip(
+                initial_log10_lambda(
+                    y, design["x"], family, design["penalty_blocks"], weights=weights
+                ),
+                bounds[0],
+                bounds[1],
+            ),
+            offset=offset,
+            weights=weights,
+            gamma=gamma,
+            bounds=bounds,
+            maxiter=maxiter,
+            step_halving=step_halving,
+        )
+        n_function_evals = selection.n_function_evals
+    elif multistart:
         multi = select_lambdas_continuous_multistart(
             y,
             design["x"],

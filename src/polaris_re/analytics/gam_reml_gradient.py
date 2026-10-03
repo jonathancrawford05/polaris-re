@@ -80,10 +80,11 @@ import scipy.linalg
 
 from polaris_re.analytics.gam_derivatives import d_eta_d_rho, dw_drho_observed
 from polaris_re.analytics.gam_family import Family
-from polaris_re.analytics.gam_reml_appendix_b import dlogdet_s_plus_drho
+from polaris_re.analytics.gam_reml import penalty_block_square_roots
+from polaris_re.analytics.gam_reml_appendix_b import appendix_b_transform, dlogdet_s_plus_drho
 from polaris_re.core.exceptions import PolarisValidationError
 
-__all__ = ["reml_score_gradient"]
+__all__ = ["reml_score_gradient", "reml_score_gradient_profiled"]
 
 
 def reml_score_gradient(
@@ -139,7 +140,37 @@ def reml_score_gradient(
             f"{len(penalty_blocks)} penalty_blocks were supplied — one lambda "
             "per block."
         )
+    return _gradient_at_scale(
+        y,
+        x,
+        family,
+        coef,
+        penalty_blocks,
+        lambdas,
+        offset=offset,
+        weights=weights,
+        scale=gamma,
+    )
 
+
+def _gradient_at_scale(
+    y: np.ndarray,
+    x: np.ndarray,
+    family: Family,
+    coef: np.ndarray,
+    penalty_blocks: tuple[np.ndarray, ...],
+    lambdas: np.ndarray,
+    *,
+    offset: np.ndarray | None,
+    weights: np.ndarray | None,
+    scale: float,
+) -> np.ndarray:
+    """The four-term gradient with the penalized deviance divided by ``scale``.
+
+    Known-scale: ``scale = gamma``. Free-scale: ``scale = phi_hat`` (see
+    :func:`reml_score_gradient_profiled`). Only term 1 sees ``scale`` — ``H``,
+    ``dW/drho`` and ``log|S|+`` do not depend on it.
+    """
     n = y.shape[0]
     offset = np.zeros(n, dtype=np.float64) if offset is None else np.asarray(offset)
     weights = np.ones(n, dtype=np.float64) if weights is None else np.asarray(weights)
@@ -179,7 +210,7 @@ def reml_score_gradient(
         # Term 1 — envelope theorem: at beta_hat, d(Dp)/dbeta = 0, so the
         # indirect term through d(beta_hat)/drho vanishes and only the
         # direct dependence of beta_hat^T @ S @ beta_hat on rho_j survives.
-        term1 = lam_j * float(coef @ block @ coef) / (2.0 * gamma)
+        term1 = lam_j * float(coef @ block @ coef) / (2.0 * scale)
         # Term 2 — the direct-penalty part of d(log|H|)/drho_j.
         term2 = 0.5 * lam_j * float(np.sum(h_inv * block))
         # Term 3 — the weight-matrix part of d(log|H|)/drho_j.
@@ -188,3 +219,87 @@ def reml_score_gradient(
         term4 = -0.5 * dlogdet_s[j]
         grad[j] = term1 + term2 + term3 + term4
     return grad
+
+
+def reml_score_gradient_profiled(
+    y: np.ndarray,
+    x: np.ndarray,
+    family: Family,
+    coef: np.ndarray,
+    penalty_blocks: tuple[np.ndarray, ...],
+    lambdas: np.ndarray,
+    *,
+    offset: np.ndarray | None = None,
+    weights: np.ndarray | None = None,
+) -> np.ndarray:
+    """``dV/drhoⱼ`` of the FREE-SCALE criterion
+    (:func:`~polaris_re.analytics.gam_reml.reml_score_general`, ``dispersion_fixed=False``),
+    natural-log ``rho`` — outer-solver epic, Slice 1.
+
+    **Derivation (envelope theorem, one order up).** The free-scale criterion
+    is the known-scale one profiled over the scale::
+
+        V(rho) = min_phi  V(rho, phi),
+        V(rho, phi) = Dp/(2 phi) + (n - Mp)/2 * log(phi) + k(rho) + const,
+
+    with ``k = log|H|/2 - log|S|+/2`` and ``phi_hat = Dp / (n - Mp)`` the
+    stationary point in ``phi`` (exactly ``reml_score_general``'s own
+    ``phi_hat``). Because ``dV/dphi = 0`` at ``phi_hat``, the total derivative
+    of the profiled criterion equals the PARTIAL derivative at fixed
+    ``phi = phi_hat``. ``H = XᵀWX + S`` and ``log|S|+`` do not involve ``phi``
+    (the penalty is unscaled; ``phi`` only divides the deviance), and
+    ``Mp = p - rank(S)`` is structural, so the only ``phi``-dependent gradient
+    term is term 1 — which is the known-scale gradient with ``gamma``
+    replaced by ``phi_hat``. This is a hypothesis verified against a central
+    difference of the score (``tests/test_analytics/test_gam_reml_gradient.py``),
+    not an assumption.
+
+    Raises:
+        PolarisValidationError: for a KNOWN-scale family (use
+            :func:`reml_score_gradient`), empty/mismatched ``penalty_blocks``,
+            or ``n <= Mp`` (no residual degrees of freedom).
+    """
+    if family.dispersion_fixed:
+        raise PolarisValidationError(
+            f"reml_score_gradient_profiled: family {family.name!r} has a fixed "
+            "dispersion — use reml_score_gradient."
+        )
+    if not penalty_blocks:
+        raise PolarisValidationError(
+            "reml_score_gradient_profiled: penalty_blocks must be non-empty."
+        )
+    if len(lambdas) != len(penalty_blocks):
+        raise PolarisValidationError(
+            f"reml_score_gradient_profiled: lambdas has {len(lambdas)} entries, but "
+            f"{len(penalty_blocks)} penalty_blocks were supplied — one lambda per block."
+        )
+    n = y.shape[0]
+    offset_vec = np.zeros(n, dtype=np.float64) if offset is None else np.asarray(offset)
+    weights_vec = np.ones(n, dtype=np.float64) if weights is None else np.asarray(weights)
+    coef = np.asarray(coef, dtype=np.float64)
+    lambdas = np.asarray(lambdas, dtype=np.float64)
+
+    mu = family.link.linkinv(offset_vec + x @ coef)
+    deviance = family.deviance(y, mu, weights_vec)
+    sqrt_blocks = penalty_block_square_roots(penalty_blocks)
+    penalized_deviance = deviance + sum(
+        lam * float(np.sum((root.T @ coef) ** 2))
+        for lam, root in zip(lambdas, sqrt_blocks, strict=True)
+    )
+    null_space_dim = float(x.shape[1] - appendix_b_transform(penalty_blocks, lambdas).rank)
+    residual_df = float(n) - null_space_dim
+    if residual_df <= 0.0:
+        raise PolarisValidationError(
+            f"reml_score_gradient_profiled: n={n} does not exceed Mp={null_space_dim:.1f}."
+        )
+    return _gradient_at_scale(
+        y,
+        x,
+        family,
+        coef,
+        penalty_blocks,
+        lambdas,
+        offset=offset,
+        weights=weights,
+        scale=penalized_deviance / residual_df,
+    )
