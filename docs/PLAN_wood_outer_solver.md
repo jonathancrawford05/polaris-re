@@ -39,27 +39,38 @@ where ADR-240 found a start that disagrees, is there a **barrier** between our
 stopping point and `mgcv`'s, or did the **search stop early**?
 `scripts/gam_outer_solver_landscape_probe.py`, `MEASUREMENT (own criterion)` —
 `mgcv`'s `sp` is only the point of evaluation (`VERIFICATION_STANDARD.md` §2.1).
-Tier 3, run 37091438628 (R 4.6.1 / mgcv 1.9.4, oracle
-`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`); tier 1
-identical at every printed digit (ADR-241).
+Tier 3 (R 4.6.1 / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`): run
+37091438628, plus the accepted-iterate and exit-message readings added after
+PR #250's review (run recorded in ADR-241); tier 1 identical at every printed
+digit.
 
-| cell, start | first L-BFGS-B move | stop vs `mgcv` point (own score) | segment barrier | gradient at stop |
-|---|---|---|---|---|
-| quasipoisson 3c draw, bounds-centre | **7.0 decades in one step** (block 1 to the LOWER bound) | 1642.33 vs 1638.95 | **none** — monotone descent | up to ~2 per decade; reported `converged=True` |
-| gaussian L1, `initial.spg` seed | **11.8 decades in one step** (two blocks to the UPPER bound) | 180.84 vs 165.30 | 0.158, on a 15.5 descent | ~0 on three plateau blocks, -0.073 on the fourth |
+| cell, start | first trial point | first ACCEPTED step | how the search ended | stop vs `mgcv` point (own score) | segment barrier | gradient at stop |
+|---|---|---|---|---|---|---|
+| gaussian L1, `initial.spg` seed | 11.81 decades | **11.81 decades — accepted**, two blocks onto the UPPER bound | `factr` relative-reduction test | 180.84 vs 165.30 | 0.158, on a 15.5 descent | ~0 on three plateau blocks, -0.073 on the fourth |
+| quasipoisson 3c draw, bounds-centre | 7.00 decades (one block to the lower bound) | 1.47 decades — the 7.00 trial was **rejected** by the line search | `factr` relative-reduction test, `converged=True` | 1642.33 vs 1638.95 | **none** — monotone descent | **up to ~2 per decade** |
 
-**Diagnosis.** Neither disagreement is a second basin that a better *start*
-would avoid. In both, the first quasi-Newton step — taken with an identity
-Hessian approximation and no step-length limit — throws the search 7-12
-decades across the box. On 3c it then stops at a non-stationary point and
-reports success. On L1 it lands on the `lambda -> infinity` plateau, where a
-fully-penalised term's REML derivative vanishes, and never comes back; the
-`initial.spg` seed was good and was discarded by the first step. `mgcv`'s
-Newton caps every step (`gam.control()$newton$maxNstep = 5` natural-log units,
-about 2.17 decades), halves steps that do not improve (`maxHalf = 30`), forces
-the Hessian positive definite by eigendecomposition, and removes
-already-converged directions from the step (read from `mgcv:::newton`, 1.9.1,
-tier 1 — behaviour and constants, not transcribed code).
+**Diagnosis: two outer-search defects, neither of them the start.**
+
+1. **An uncapped accepted step (L1).** L-BFGS-B's first quasi-Newton step,
+   taken with an identity Hessian approximation and no step-length limit,
+   moved 11.8 decades and was ACCEPTED, landing on the `lambda -> infinity`
+   plateau where a fully-penalised term's REML derivative vanishes. The
+   `initial.spg` seed was good and was discarded by that step.
+2. **A termination test that is not a stationarity test (3c, and L1's exit).**
+   Both searches end on L-BFGS-B's relative-function-reduction test (`factr`),
+   not its gradient test. On 3c that declares `converged=True` with the
+   gradient still ~2 per decade and a monotone descent of 3.38 still
+   available. ADR-239's "worse stationary point" is wrong: it is not
+   stationary.
+
+`mgcv`'s Newton addresses both: it caps every step
+(`gam.control()$newton$maxNstep = 5` natural-log units, about 2.17 decades),
+halves steps that do not improve (`maxHalf = 30`), forces the Hessian positive
+definite by eigendecomposition, drops already-converged directions from the
+step, and tests convergence on the GRADIENT relative to the score's scale
+(read from `mgcv:::newton`, 1.9.1, tier 1 — behaviour and constants, not
+transcribed code).
 
 **What this says about the last eleven slices.** Multistart (ADR-213), the
 two-start rule (ADR-237), the seeded start (ADR-239) and best-of-both (ADR-240)
@@ -97,10 +108,12 @@ Probe, tests, non-gating CI step, ledger rows. See §1.
 
 ### Slice 1 — a safeguarded Newton outer loop, with the gradient we have
 
-**Hypothesis (registered before the code):** the two §1 failures are caused by
-the outer step, not the start or the criterion. A Newton step with `mgcv`'s
-safeguards, from the `initial.spg` start, reaches `mgcv`'s point on BOTH cells
-without any multistart.
+**Hypothesis (registered before the code):** the two §1 defects — an
+uncapped accepted step and a function-reduction stop at a non-stationary point
+— are the outer search, not the start or the criterion. A Newton step with
+`mgcv`'s safeguards and a gradient-based convergence test, from the
+`initial.spg` start, reaches `mgcv`'s point on BOTH cells without any
+multistart.
 
 **Scope.**
 - **Free-scale analytic gradient.** `reml_score_gradient` raises for
@@ -127,8 +140,10 @@ without any multistart.
   with a block at `lambda >= 1e10`.
 - `[machine]` INDEPENDENT, tier 3: the Newton fit agrees with `mgcv` under
   ADR-221 on gaussian L1 AND the 3c draw, single start, no multistart.
-- `[machine]` Slice 0's probe re-run on the Newton fit: first move
-  `<= 2.17` decades on both cells.
+- `[machine]` Slice 0's probe re-run on the Newton fit: every ACCEPTED step
+  `<= 2.17` decades on both cells, and the search ends on its gradient test
+  (max |gradient| below the score-scaled tolerance at the stop), never on a
+  function-reduction test alone.
 - `[judgement]` If either cell still disagrees: characterised with the probe,
   not patched with a start.
 

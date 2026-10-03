@@ -18,7 +18,9 @@
 > the box is a maintainer edit nobody else can make.
 **Repo:** `jonathancrawford05/polaris-re`
 **Connectors:** GitHub
-**Plan:** `docs/PLAN_mgcv_parity_engine.md`
+**Plan:** `docs/PLAN_wood_outer_solver.md` (the ACTIVE epic, ADR-241); parent plan and
+anchors: `docs/PLAN_mgcv_parity_engine.md`
+**Created:** 2026-08-10, from maintainer direction plus the measurements in the parent PLAN §1.
 
 > **ACTIVE EPIC POINTER (maintainer, 2026-10-03, ADR-241) — READ THIS FIRST.**
 > The active epic is **`docs/PLAN_wood_outer_solver.md`** (continuation:
@@ -28,7 +30,6 @@
 > its §1-§2 before anything else: they record why the previous eleven slices
 > circled the outer search without fixing it, and the rule below
 > ("MECHANISM BEFORE SLICE") that stops it recurring.
-**Created:** 2026-08-10, from maintainer direction plus the measurements in that PLAN §1.
 
 ---
 

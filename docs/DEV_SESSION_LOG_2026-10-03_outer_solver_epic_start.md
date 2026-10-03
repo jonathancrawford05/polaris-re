@@ -33,9 +33,13 @@ start disagrees on the 3c draw (`eta` 0.2864). Mechanism unknown; ADR-239 called
 1. *The disagreements are separate basins (a barrier between our stop and `mgcv`'s point).*
    **REFUTED on 3c** (monotone descent, no barrier, gradient up to ~2/decade at the stop);
    **weak on L1** (0.158 rise on a 15.5 descent along a straight segment).
-2. *The search, not the start, is the defect.* **HELD (tier 1, then tier 3 — ADR-241):** the
-   first L-BFGS-B move is 7.0 decades (3c) and 11.8 decades (L1, two blocks onto the upper
-   bound) in ONE step. `mgcv` caps a step at ~2.17 decades.
+2. *The search, not the start, is the defect.* **HELD (tier 1 and tier 3 — ADR-241), as two
+   defects.** L1: the first L-BFGS-B step from the `initial.spg` seed is 11.8 decades and is
+   ACCEPTED (two blocks onto the upper bound). 3c: the first 7.0-decade trial is REJECTED (first
+   accepted step 1.47 decades), and the search stops on the `factr` function-reduction test with
+   the gradient still ~2/decade. Both cells exit on that test. (The first version of this entry
+   read the first TRIAL point as the move and attributed both to overshoot; PR #250's review
+   caught it, and the accepted-iterate trace corrected 3c.)
 3. ADR-239's "worse stationary point" wording for 3c: **REFUTED** — the stop is not
    stationary.
 
@@ -71,3 +75,16 @@ No row: this PR modifies nothing under `src/polaris_re/` (ADR-177 amendment 1).
 ## Follow-ups
 Harvested into `PRODUCT_DIRECTION_2026-07-24.md` (2026-10-03 section): the epic itself
 (1st-order, from parity slice 8) and a 2nd-order tier-3 re-read of `gam.control()$newton`.
+
+## PR #250 review response
+- **[P1] trial point vs accepted iterate — fixed by measurement, not by softening.** The probe
+  now records accepted iterates (wrapping `gam_reml_optimize.minimize` with a `callback`) and
+  SciPy's exit message. Result: the reviewer was right about 3c (trial rejected; the defect is
+  the stopping rule), and the L1 reading stands (trial accepted). ADR-241 finding 3, PLAN §1,
+  the ledger row, both CONTINUATIONs and slice 1's DoD (accepted steps capped AND a
+  gradient-based exit) are corrected.
+- **[P2] `n_at_lower`** — added, with a test.
+- **[P2] ROUTINE header** — the active-epic pointer moved below `**Created:**`; `**Plan:**`
+  now names the active epic and keeps the parity PLAN as the parent.
+- Merged `origin/main` (#249 + ADR-240 amendment 1): amendment 1 is now the record of the 3f
+  ruling; ADR-241 cites it rather than re-deciding it, and 7c alone is SUPERSEDED here.

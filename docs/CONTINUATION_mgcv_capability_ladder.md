@@ -652,8 +652,9 @@ Keep both starts opt-in (ADR-240 amendment 1). Slices 3e and 3f closed; default 
 
 Maintainer, reviewing PR #249: the ladder was spiralling on start strategies.
 Outer-solver slice 0 (`scripts/gam_outer_solver_landscape_probe.py`) showed
-both ADR-240 disagreements are the first L-BFGS-B step overshooting (7-12
-decades), not a bad start. 3e/3f were already closed by the maintainer's ruling
+both ADR-240 disagreements are outer-search defects, not a bad start (L1: an
+11.8-decade accepted first step; 3c: a non-stationary stop on the
+function-reduction test). 3e/3f were already closed by the maintainer's ruling
 (ADR-240 amendment 1, the entry above). **7c: SUPERSEDED** — this replaces the
 `NEXT: slice 7c` above.
 `NEXT` for this epic: none until `PLAN_wood_outer_solver.md` Slice 4 is DONE;

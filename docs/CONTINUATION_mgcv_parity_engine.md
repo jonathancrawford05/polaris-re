@@ -1939,9 +1939,10 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > `docs/PLAN_wood_outer_solver.md`.** Slice 8 sat `NEXT` here from 2026-09-14
 > while the active slot went to wiring and then the ladder, whose slices kept
 > registering start strategies for the very defect slice 8 fixes. Outer-solver
-> slice 0 measured the mechanism directly: on both ADR-240 disagreements the
-> first L-BFGS-B move spans 7-12 decades of `lambda`; the 3c draw has no
-> barrier between our stop and `mgcv`'s point at all. Slice 8's full scope and
+> slice 0 measured the mechanism directly: on L1 the first ACCEPTED L-BFGS-B
+> step spans 11.8 decades onto the plateau; on the 3c draw there is no barrier
+> between our stop and `mgcv`'s point, and the search stops non-stationary on
+> L-BFGS-B's function-reduction test. Slice 8's full scope and
 > DoD (Hessian, safeguarded Newton, §3.1 reparameterisation, deterministic
 > start, retire multistart, the far-phi re-run, the plateau re-measurement)
 > are carried into that PLAN's Slices 1-4. `NEXT` for this file: none of its
