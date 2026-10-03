@@ -56,6 +56,11 @@ def main(probe_dir: Path, out: Path | None) -> None:
         "mgcv's eta/coef/sp/edf) and mgcv's own free-sp REML fit compute eta and edf_total "
         "independently. Newton-specific columns are Polaris-only measurements.",
         "",
+        "*Caveat on the claim text below:* it names `select_lambdas_continuous` as the "
+        "smoothing-parameter search; in THIS report the search is `gam_reml_newton."
+        'newton_select_lambdas` (`outer="newton"`). The independence classification is '
+        "unchanged — the search is part of the Polaris producer either way.",
+        "",
         evidence_markdown(GAUSSIAN_FREE_SP_CLAIM),
         "",
         evidence_markdown(QUASIPOISSON_FREE_SP_CLAIM),
