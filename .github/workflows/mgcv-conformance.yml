@@ -209,6 +209,7 @@ on:
       - "scripts/gam_cr_re_ti_probe.R"
       - "scripts/gam_initial_sp_default_study.py"
       - "src/polaris_re/analytics/gam_initial_sp_default_conformance.py"
+      - "scripts/gam_outer_solver_landscape_probe.py"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -2964,6 +2965,19 @@ jobs:
           uv run python scripts/gam_initial_sp_default_study.py . gam_initial_sp_default_report.md
           if [ -f gam_initial_sp_default_report.md ]; then
             cat gam_initial_sp_default_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # OUTER-SOLVER epic slice 0 (ADR-241, docs/PLAN_wood_outer_solver.md) — is
+      # the start-dependence a barrier in the REML landscape, or the search
+      # stopping early? MEASUREMENT (own criterion): mgcv's sp is only the point
+      # of evaluation. Reported, never gated.
+      - name: REML landscape between Polaris's stop and mgcv's point (outer-solver slice 0)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python scripts/gam_outer_solver_landscape_probe.py . gam_outer_solver_landscape_report.md
+          if [ -f gam_outer_solver_landscape_report.md ]; then
+            cat gam_outer_solver_landscape_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Compare the factor-by basis vs smoothCon(s(x, by=fac, bs="cr")) (ladder L3 Stage A)
