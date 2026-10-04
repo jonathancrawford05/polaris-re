@@ -24565,3 +24565,56 @@ Not that the exact Hessian is correct beyond the five cases and the point of eva
 
 ### Consequences
 New: `gam_reml_hessian.py`, `gam_hessian_conformance.py`, `scripts/gam_hessian_probe.R`, `scripts/gam_hessian_compare.py`, 30 new tests across three files (one R-gated), two CI steps. `gam_newton_outer_check.py` now reports fits for all three searches. Follow-up (2nd-order, not a gap): level 4's new stack (ADR-202) still takes `mgcv`'s Hessian as a SHARED INPUT (`gam_uncertainty_conformance`); this module can supply an independent one.
+
+## ADR-244: Outer-solver slice 3 — the rounding noise was in the derivative path's penalty quadratic forms, not in a missing reparameterisation; the Appendix B transform buys nothing measurable in the canonical basis (MEASUREMENT (own criterion), tier 3)
+
+**Status:** Accepted, 2026-10-04. Code change: two arithmetic substitutions (below), no derived quantity changes. `outer="newton"` and the L-BFGS-B analytic-gradient path both inherit them; goldens untouched. PR title class: `harness(mgcv-parity)` — **no INDEPENDENT comparison is landed by this slice.** Every reading is Polaris against itself (BLAS threads, one-ulp perturbations of its own inputs, `float128` on its own expression); `mgcv`'s `sp` is used only as a point of evaluation.
+
+### Claim sentence (ADR-193) and why there is no `VerificationClaim`
+`gam_precision_floor_probe.py` computes the REML score, its analytic gradient and its exact Hessian from a Polaris penalized fit at a fixed `lambda`, and the same quantities from the same recipe with every `X` and/or `S` entry moved by one relative ulp (or under a different BLAS thread count, or evaluated in `float128`); compared on score, gradient, `eta` and the diagonal-scaled Hessian. **Left and right are the same producer on perturbed inputs** — a self-consistency measurement, not parity, and nothing here is gated. No `mgcv` quantity is an operand.
+
+### Mechanism class (ROUTINE step 10)
+Class (iv) — other (arithmetic precision of the derivative path). Not class (iii): the search is not the subject; this is the slice's own registered scope (PLAN Slice 3). No start strategy added.
+
+### Measurement — tier 3, CI run 37167311644, commit `6851cab`, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+N=7 `select=TRUE` fixture, `OPENBLAS_NUM_THREADS=1` except where stated. (Tier-1 readings from this session agree to every printed digit except at `mgcv`'s point, where the tier-1 and tier-3 payloads' `sp` differ — see the ledger.)
+
+**1. First task (PLAN Slice 3): the thread axis, re-measured on the exact-Hessian Newton search, BEFORE any reparameterisation.** Newton from `initial.spg`, one start, threads 1/2/4 and a repeat at 1:
+
+| threads | converged | fits | max d log10(sp) | max d eta | d edf_total | d score |
+|---:|---|---:|---:|---:|---:|---:|
+| 1 (and repeat) | True | 20 | 0 | 0 | 0 | 0 |
+| 2 | True | 20 | 2.4e-03 | 1.5e-07 | 7.9e-06 | 2.1e-06 |
+| 4 | True | 20 | 5.1e-03 | 2.8e-07 | 1.7e-05 | 4.5e-06 |
+
+Beside ADR-222 amendment 1 (multistart(9) + L-BFGS-B, same fixture): max d eta 0.356, d edf_total 10.002, d score up to 34.34 across threads. **The cross-thread axis passes by five orders on `eta` and six on `edf_total` with no reparameterisation.** The cross-SEED axis has no operand: Newton from `initial.spg` has no random component. This is the "redirect" the PLAN's first task allowed for: the thread-irreproducibility ADR-222 amendment 1 registered was a property of multistart-and-L-BFGS-B on the noisy gradient, and the exact-Hessian Newton search is not exposed to it on this fixture. One fixture; the protocol's four multistart seeds are not applicable.
+
+**2. Where the noise actually was.** One relative ulp on every design entry (`X` only) isolates EVALUATION noise, since a backward-stable evaluation cannot depend on how `X` was rounded:
+
+| point | d score | d gradient BEFORE | d gradient AFTER | d Hessian (scaled) BEFORE → AFTER* |
+|---|---:|---:|---:|---|
+| wide (spread 11) | 8.0e-13 | 6.50e-05 | **4.70e-08** | 3.9e-01 → 4.8e-04 |
+| `mgcv`'s point | 9.1e-13 | 9.43e-06 | **3.97e-09** | 5.2e-02 → 1.4e-05 |
+| Newton stop | 4.6e-13 | 6.93e-06 | **3.48e-09** | 1.9e-02 → 2.1e-06 |
+
+"Gradient BEFORE" is reconstructed exactly inside the probe (the pre-change term 1) and measured in the same run. *The Hessian BEFORE column is tier 1 (this session's scratch run at `0bb65dc`), reproducible by running the probe there; the AFTER column is tier 3. The score was already stable to ~1e-12; `beta` moved ~5e-15. The gradient's term 1, `lambda_j beta' S_j beta / 2`, contracted the FORMED block with `coef` and moved by 3e-5 under that 5e-15 change — exactly the cancellation ADR-222 amendment 2 found in the score's penalty term and ADR-223 removed there, **left in the gradient and the Hessian (`A_j beta`, `beta' A_j beta`)**. The score and its derivatives evaluated the same quadratic form two different ways.
+
+**3. The fix is two substitutions, no new derivation.** `reml_score_gradient[_profiled]` term 1 and `reml_score_hessian[_profiled]`'s `A_j beta` / `beta' A_j beta` now go through each block's own root (`lambda_j ||L_j' beta||^2`, `lambda_j L_j (L_j' beta)`), the form ADR-223 gave the score. Mutation-checked: `tests/test_analytics/test_gam_penalty_quadratic_forms.py` fails on the old arithmetic (gradient 2.6e-5 vs limit 2e-6; Hessian 1.9 vs 1e-4) and passes on the new; the derived gradient still equals a central difference of the score.
+
+**4. `beta' S beta` against `float128` — the ADR-222 amendment 2 comparison, corrected.** The sum-of-squares evaluation's error against its OWN `float128` value is **7.1e-15** (wide) and **2.8e-14** (`mgcv`'s point). What amendment 2 called its "accuracy" (1.8e-4, 3.6e-5) is the gap between two DEFINITIONS of truth — `float128` over the float64 blocks versus `float128` over the float64 block roots — which is 1.81e-4 and 3.57e-5, identical to it. Appendix B's stable `E` has the same 1.81e-4 against the formed-block truth. So amendment 2's "the sum-of-squares form is no more accurate" was a statement about the representation gap between `S_j` and `L_j L_j'` at `lambda ~ 1e11`, not about the evaluation; **no evaluation scheme can remove it**, and formed `S` (4.99e-05, 7.76e-06) only looks accurate because it uses the truth's own matrix. Slice 7h's `6.8e-05` and this slice's `4.99e-05` are different fits (different BLAS), not a regression.
+
+**5. What remains is the problem's own conditioning, and it is below the search's tolerance.** One ulp on `S`'s entries moves the score 1e-8..1e-7, `eta` ~1e-8, the gradient 4.6e-06 (wide) to 2.6e-05 (`mgcv`'s point) and the scaled Hessian ~0.1, with or without the substitutions. That is the problem's sensitivity to its penalty's representation at `lambda ~ 1e11` (an eps-relative change in `S` is a different model there), not evaluation noise; `mgcv` has the same sensitivity. Against the Newton gradient tolerance (N=7 fixture `5.25e-04`; L1 `1.663e-04`) it is 6-100x below.
+
+**6. Newton, tier 3, same run: verdicts and fit counts unchanged.** L1 eta 2.801e-06 / edf +0.000, 11 fits, gradient 9.723e-05 vs tolerance 1.663e-04; 3b 4.048e-05 / -0.001, 5 fits; 3c 1.120e-05 / -0.000, 8 fits; all stop on the gradient test, accepted steps ≤ 2.171 decades. L1's margin moved 0.47 → 0.58 (same iterate count, a different last iterate); not an improvement claimed.
+
+### Hypotheses refuted (ledger rows; all tier 1, labelled there)
+- **H1.** Carrying Appendix B's orthogonal transform `T` through the fit, with the numerically-null penalty coordinates set to exact zero, makes the pipeline invariant to a mathematically neutral rotation of the coordinates. **Half-true and useless as a gate:** it cut inner-IRLS failures under rotation from 4/6 to 0/6 at `mgcv`'s point, but a random rotation also perturbs `S`'s representation, which is the floor of finding 5; the rotation test conflates the two and is **not** an acceptance test. (Scratch patch to `gam_reml_appendix_b` exposing `T`; not shipped.)
+- **H2.** Jacobi (diagonal) equilibration of `H` before the Cholesky solve/log-det reduces the gradient's noise. **Refuted** — 6.5e-05 → 2.7e-05 (wide), no change elsewhere; the noise was never in the `H` solve (finding 2).
+- **H4.** Replacing each penalty block by its rank-truncated `L L'` before use removes the sensitivity to `S`'s representation. **Refuted** — unchanged to within a factor of 1.5 either way.
+- **H6.** The transform + structural zeroing, in the canonical basis, reduces the response to a one-ulp perturbation of `S`. **Refuted** — same order, both directions, at all three points.
+
+### Not claimed
+Not that Wood §3.1's reparameterisation is useless in general: it is **not needed on the three axes measured** (thread, ulp-on-`X`, ulp-on-`S`) on one fixture at spreads ≤ 12.9 decades. Not that the QR-augmented solve (Wood §3.2: factor `[sqrt(W) X; E]` rather than `X'WX + S`, so the factor's condition number is `sqrt(cond H)`) would not help — it was not tried; it is registered as slice 3b with a release condition. Not that `cond(H) ~ 3.5e11` is harmless: it is *measured* to not reach the gradient or score on these fixtures. Not a parity result of any kind. The seed axis was not re-measured (no random component).
+
+### Consequences
+`gam_reml_gradient.py`, `gam_reml_hessian.py` changed (arithmetic only); `scripts/gam_precision_floor_probe.py`, `tests/test_analytics/test_gam_penalty_quadratic_forms.py`, one non-gating CI step. PLAN Slice 3 closed with this characterisation; **slice 3b registered** (QR-augmented stable solve; release condition: a Slice 4 gauntlet case fails on gradient precision with `max |g|` within 2x of its tolerance). The N=7 gauntlet case (Slice 4, case 3) has a tier-1 pre-reading only (ledger): Newton from one start gives eta diff 5.7e-5 vs `mgcv`, edf diff 0.004; to be re-read at tier 3 in Slice 4, not here.
