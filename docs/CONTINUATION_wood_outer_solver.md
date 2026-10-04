@@ -20,7 +20,7 @@ Slice 1 (ADR-242): `fit_polaris_gam(outer="newton")` agrees with mgcv on gaussia
 | **3** | §3.1 reparameterisation through fit + derivatives; thread-axis study first | **DONE 2026-10-04 (ADR-244)** as a characterisation; transform not wired; derivative-path quadratic forms fixed; 3b (QR-augmented solve) registered, not released |
 | **4a** | gauntlet cases 1-3 | **DONE 2026-10-04 (ADR-245)** — tier 3, INDEPENDENT |
 | **4b** | case 2 blocking CI step; case 4 HGAM | **DONE 2026-10-04 (ADR-246)** — tier 3, INDEPENDENT |
-| **4c** | case 5 thread axis; `epsilon_rel` question; `log10(sp)` on `select=TRUE`; default flip | **NEXT** |
+| **4c** | gate exit-path unit test (first); case 5 thread axis; `epsilon_rel` question; `log10(sp)` on `select=TRUE`; default flip | **NEXT** |
 
 ## What the next session needs to know
 
@@ -74,3 +74,9 @@ Slice 1 (ADR-242): `fit_polaris_gam(outer="newton")` agrees with mgcv on gaussia
 - The gate has unit tests (missing/disagreeing/unconverged/error rows) but has never been seen failing in CI.
 - Slice 4c still owes: `log10(sp)` on `select=TRUE` before any "reliable" wording; `epsilon_rel` put to the maintainer; case 5 thread axis (seed axis has no operand for Newton).
 - Mid-session CI timing: a full `mgcv-conformance.yml` dispatch took ~7 minutes, not ~1; the "~1 minute" in the routine file is the R-reference job alone.
+
+## Slice 4c inputs from PR #255 review and maintainer decisions (2026-10-04)
+- **1st-order, do first: a unit test for the gate's exit path** (maintainer comment on PR #255). `gate_failures` is tested; the script's `--gate` branch is not. Monkeypatch `run_gauntlet` and `payloads_from_probe_dir` as imported by `scripts/gam_newton_gauntlet.py`; return a `quasipoisson fixed scale=6` row with `agrees=False`; assert `pytest.raises(SystemExit)` with code 1. Add the mirror case: a passing fixed-scale pair returns normally. Needs no R and no CI dispatch.
+- **`select=TRUE` N=7 is not stable to the printed digit across CI runs** (review P2-1). Same oracle `sha256:0d54c192…` and identical `src/`: run 37213172762 and ADR-245 read 5.671e-05 / +0.0038, the head run 37213760199 reads 5.674e-05 / +0.0039. Far inside ADR-221, but it is the fixture case 5 (thread axis) and the `log10(sp)` plateau reading will examine. "Unchanged at every printed digit" (ADR-246) holds for the other rows in the compared run, not as a general property.
+- Test-assertion amendments (row count 8 to 9; `outer` in the signature pin) APPROVED by the maintainer.
+- The `--gate` step re-fits all ten cases to gate two rows (review P2-2). Kept deliberately: simpler, and the gate stays independent of the `continue-on-error` report step. Persisting the report step's readings as JSON for the gate to read is the alternative if the cost matters.

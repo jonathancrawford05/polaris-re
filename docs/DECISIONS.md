@@ -24668,12 +24668,12 @@ The claim is its own object, not a string substitution of `PRODUCTION_MI_CLAIM_S
 | case | max abs eta diff | edf_total diff | fits | converged | agrees (ADR-221) |
 |---|---:|---:|---:|---|---|
 | **4-term HGAM s+s+ti+s (poisson, ADR-227)** | **5.212e-05** | **+0.0048** | **8** | True | True |
-| the nine ADR-245 rows | unchanged at every printed digit (2.801e-06 … 5.671e-05) | | | True | True ×9 |
+| the nine ADR-245 rows | unchanged at every printed digit in run 37213172762 (2.801e-06 … 5.671e-05); the later head run 37213760199 read `select=TRUE` at 5.674e-05 / +0.0039, so "every printed digit" is not a stability claim across runs | | | True | True ×9 |
 
 ADR-227's pinned configuration, `multistart=True, n_starts=9`, used 1326-1392 function evaluations on this recipe for `3.18e-05` / `-0.0027`. One Newton start meets the same gate in 8 fits. (Evaluation counts are not the same unit — Newton's fits carry an analytic gradient and Hessian — so this is a magnitude, not a ratio.) Tier 1 (R 4.3.3 / mgcv 1.9.1) read identically at every printed digit (ledger, labelled).
 
 ### Blocking gate (PLAN Slice 4 case 2)
-`scripts/gam_newton_gauntlet.py <dir> /dev/null --gate` exits 1 unless both `quasipoisson fixed scale` rows (2 and 6) converge and meet ADR-221; a dropped row, an error row, or a non-converged fit fails it. It is a separate step with no `continue-on-error`; the reporting step stays non-blocking. The gated set is `REQUIRED_CASE_PREFIXES`; widening it is a reviewable edit. Run 37213172762 passed it. Nothing else gates: the other nine rows are reported.
+`scripts/gam_newton_gauntlet.py <dir> /dev/null --gate` exits 1 unless both `quasipoisson fixed scale` rows (2 and 6) converge and meet ADR-221; a dropped row, an error row, or a non-converged fit fails it. It is a separate step with no `continue-on-error`; the reporting step stays non-blocking. It re-fits all ten cases to gate two rows (about double that step's cost): kept on purpose, because it is simpler and the gate stays independent of the `continue-on-error` report step; persisting the report step's readings for the gate to read is the alternative. The gated set is `REQUIRED_CASE_PREFIXES`; widening it is a reviewable edit. Run 37213172762 passed it. Nothing else gates: the other nine rows are reported.
 
 ### Not claimed
 - Not "reliable": ten rows, one fixture per structure, one data draw each, `eta`/`edf_total` only. The HGAM is one draw of one recipe.
