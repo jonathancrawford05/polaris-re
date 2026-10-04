@@ -1,7 +1,7 @@
 # Plan: the Wood-shaped outer solver — mgcv's smoothing-parameter search, not a better start
 
 > **STATUS: IN PROGRESS — ACTIVE EPIC (maintainer, 2026-10-03; ADR-241).**
-> Slice 0 (diagnosis) DONE (ADR-241). Slice 1 DONE (ADR-242, tier 3, run 37130685404). Slice 2 DONE (ADR-243, tier 3, run 37153229821). Slice 3 DONE as a CHARACTERISATION (ADR-244, tier 3, run 37167311644): the thread axis already passes on the exact-Hessian Newton search without a reparameterisation, and the rounding noise was the gradient/Hessian penalty quadratic forms (fixed, two substitutions), not a missing transform. **NEXT: Slice 4** (the gauntlet). Slice 3b (QR-augmented solve) is registered with a release condition.
+> Slice 0 (diagnosis) DONE (ADR-241). Slice 1 DONE (ADR-242, tier 3, run 37130685404). Slice 2 DONE (ADR-243, tier 3, run 37153229821). Slice 3 DONE as a CHARACTERISATION (ADR-244, tier 3, run 37167311644): the thread axis already passes on the exact-Hessian Newton search without a reparameterisation, and the rounding noise was the gradient/Hessian penalty quadratic forms (fixed, two substitutions), not a missing transform. **Slice 4a DONE (ADR-245, tier 3, run 37204039328): gauntlet cases 1-3 — one Newton start agrees on all nine rows. NEXT: Slice 4b** (cases 4-5, blocking fixed-scale step, the default flip). Slice 3b (QR-augmented solve) is registered with a release condition.
 > This epic takes the active slot from `PLAN_mgcv_capability_ladder.md`, which
 > yields; its remaining start-strategy slice (7c) is SUPERSEDED here (3e/3f
 > were closed by maintainer decision, ADR-240 amendment 1).
@@ -179,6 +179,8 @@ everywhere. It either confirms this slice or redirects it.
 Factor `[sqrt(W) X; E]` instead of forming `X'WX + S`, so the factor's condition number is `sqrt(cond H)` (~6e5, not 3.5e11) for the fit, `log|H|` and the `tr(H^-1 S_j)` terms. Needs a non-negative `W` (the observed weight can be negative for a non-canonical link), so the cloglog case needs a design decision first. **Release condition:** a Slice 4 gauntlet case fails on gradient precision with `max |g|` within 2x of its tolerance, or ADR-244's `S`-representation floor (gradient 2.6e-05 at `mgcv`'s point) comes within 10x of a tolerance. Until then it is not needed: the measured floor is 6-100x below the search's tolerance. Mechanism class (iv).
 
 ### Slice 4 — surface: one deterministic solver for every free-`sp` fit
+
+> **4a DONE 2026-10-04 (ADR-245)** — cases 1, 2 (comparison only), 3. **4b REGISTERED, NEXT:** case 2's CI step made blocking; case 4 (4-term HGAM); case 5 (reproducibility axes, thread only for Newton); the `epsilon_rel` / curvature-to-noise measurement put to the maintainer; THEN the default flip and `evidence_markdown` DoD table. Release condition: none external.
 
 Make the Newton solver (with `initial.spg`) `fit_polaris_gam`'s default;
 `multistart`, the two-start rule and the seeded-start flag stay only as

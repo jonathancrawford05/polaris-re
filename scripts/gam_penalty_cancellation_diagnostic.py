@@ -34,32 +34,45 @@ USAGE:  uv run python scripts/gam_penalty_cancellation_diagnostic.py probe7.json
 --------------------------------------------------------------------------------
 """
 
-import json, sys
+import json
+import sys
 from dataclasses import replace
+
 import numpy as np
 from threadpoolctl import threadpool_limits
+
 from polaris_re.analytics.gam_model import assemble_model_design, resolve_family
 from polaris_re.analytics.gam_multiterm_conformance import _multiterm_model_spec
 from polaris_re.analytics.gam_reml_optimize import penalized_fit_and_score
 
 payload = json.load(open(sys.argv[1]))
-model = replace(_multiterm_model_spec(
-    tuple(float(v) for v in payload["age_knots"]),
-    tuple(float(v) for v in payload["year_knots"])), select=True)
-data = {k: np.asarray(payload[k], dtype=np.float64)
-        for k in ("AttdAge", "PolYear", "StudyYear_C", "ExposCnt")}
+model = replace(
+    _multiterm_model_spec(
+        tuple(float(v) for v in payload["age_knots"]),
+        tuple(float(v) for v in payload["year_knots"]),
+    ),
+    select=True,
+)
+data = {
+    k: np.asarray(payload[k], dtype=np.float64)
+    for k in ("AttdAge", "PolYear", "StudyYear_C", "ExposCnt")
+}
 y = np.asarray(payload["y"], dtype=np.float64)
 design = assemble_model_design(model, data)
 family = resolve_family(model.family, model.link)
-blocks = tuple(design["penalty_blocks"]); x = design["x"]; w = data["ExposCnt"]
+blocks = tuple(design["penalty_blocks"])
+x = design["x"]
+w = data["ExposCnt"]
 mgcv_pt = np.log10(np.asarray(payload["sp"], dtype=np.float64))
 
 POINTS = {
-    "narrow (spread 2.0)": np.array([2.0,3.0,4.0,3.0,2.0,4.0,3.0]),
-    "wide (spread 11.0)":  np.array([11.0,0.0,10.0,5.0,3.0,2.0,1.0]),
-    "mgcv point (12.9)":   mgcv_pt,
+    "narrow (spread 2.0)": np.array([2.0, 3.0, 4.0, 3.0, 2.0, 4.0, 3.0]),
+    "wide (spread 11.0)": np.array([11.0, 0.0, 10.0, 5.0, 3.0, 2.0, 1.0]),
+    "mgcv point (12.9)": mgcv_pt,
 }
-print(f"{'point':<24}{'(a) d formed-S':>17}{'(b) d per-block':>18}{'(a) value':>14}{'largest term':>15}")
+print(
+    f"{'point':<24}{'(a) d formed-S':>17}{'(b) d per-block':>18}{'(a) value':>14}{'largest term':>15}"
+)
 for name, pt in POINTS.items():
     lam = 10.0**pt
     pen = np.zeros_like(blocks[0])
@@ -70,9 +83,11 @@ for name, pt in POINTS.items():
         with threadpool_limits(limits=th, user_api="blas"):
             coef, _ = penalized_fit_and_score(y, x, family, blocks, pt, weights=w)
             A.append(float(coef @ pen @ coef))
-            B.append(float(sum(l * float(coef @ b @ coef) for l, b in zip(lam, blocks, strict=True))))
-    dA = max(abs(A[i]-A[j]) for i in range(3) for j in range(i+1,3))
-    dB = max(abs(B[i]-B[j]) for i in range(3) for j in range(i+1,3))
+            B.append(
+                float(sum(l * float(coef @ b @ coef) for l, b in zip(lam, blocks, strict=True)))
+            )
+    dA = max(abs(A[i] - A[j]) for i in range(3) for j in range(i + 1, 3))
+    dB = max(abs(B[i] - B[j]) for i in range(3) for j in range(i + 1, 3))
     coef, _ = penalized_fit_and_score(y, x, family, blocks, pt, weights=w)
     largest = max(abs(l * float(coef @ b @ coef)) for l, b in zip(lam, blocks, strict=True))
     print(f"{name:<24}{dA:17.3e}{dB:18.3e}{A[0]:14.4f}{largest:15.3e}")

@@ -3,7 +3,8 @@
 **Plan:** `docs/PLAN_wood_outer_solver.md`
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md`
 **Created:** 2026-10-03, by the epic-start session (ADR-241).
-**Status:** **IN PROGRESS — ACTIVE EPIC. Slices 0-3 DONE. NEXT: Slice 4** (the gauntlet).
+**Status:** **IN PROGRESS — ACTIVE EPIC. Slices 0-3 and 4a DONE. NEXT: Slice 4b.**
+Slice 4a (ADR-245, tier 3 run 37204039328, `sha256:0d54c192…`): `feat(mgcv-parity)`, INDEPENDENT — one Newton start meets ADR-221 on all nine rows (six free-scale cells, fixed scale 2 and 6, `select=TRUE` N=7); `scripts/gam_newton_gauntlet.py`. Default NOT flipped; cases 4-5 not run.
 Slice 3 (ADR-244, tier 3 run 37167311644, `sha256:0d54c192…`): characterisation, `harness(mgcv-parity)` — nothing INDEPENDENT landed. Newton+exact Hessian is thread-reproducible with no reparameterisation (d eta 2.8e-07 vs 0.356 for multistart); the gradient's rounding noise (6.5e-05 at an 11-decade spread) was term 1 contracting the formed block, now a sum of squares (4.7e-08), same for the Hessian. Four transform hypotheses refuted.
 Slice 2 (ADR-243): exact Hessian equals `mgcv`'s `outer.info$hess` to <= 6e-8 (scaled) on five family/link cases, INDEPENDENT, tier 3 run 37153229821 (`sha256:0d54c192…`); Newton with it needs 11/5/8 fits vs 92/37/52 differenced vs 790/65/75 L-BFGS-B; L1 now reads identically at tier 1 and tier 3.
 Slice 1 (ADR-242): `fit_polaris_gam(outer="newton")` agrees with mgcv on gaussian L1, quasipoisson 3b and the 3c draw from one start, tier 3 run 37130685404 (`sha256:0d54c192…`), all stopping on the gradient test, accepted steps <= 2.171 decades. Caveat: L1's tier-3 gradient margin is 1.17e-4 vs 1.66e-4 and its tier-1 run stalled on the analytic gradient's precision floor (`cond(H) 3.6e11`) — Slice 3's territory.
@@ -16,7 +17,8 @@ Slice 1 (ADR-242): `fit_polaris_gam(outer="newton")` agrees with mgcv on gaussia
 | **1** | free-scale analytic gradient; safeguarded Newton (step cap, halving, PD Hessian, converged-direction drop, gradient-based convergence test); `initial.spg` start | **DONE 2026-10-03 (ADR-242)** — tier 3, INDEPENDENT; opt-in `outer="newton"` |
 | **2** | exact Hessian (Wood 2011 §3.4-3.5, App. D) | **DONE 2026-10-03 (ADR-243)** — `gam_reml_hessian.py`; INDEPENDENT vs `outer.info$hess`, tier 3; `newton_select_lambdas(hessian="exact")` default |
 | **3** | §3.1 reparameterisation through fit + derivatives; thread-axis study first | **DONE 2026-10-04 (ADR-244)** as a characterisation; transform not wired; derivative-path quadratic forms fixed; 3b (QR-augmented solve) registered, not released |
-| **4** | surface as `fit_polaris_gam`'s default; the gauntlet (PLAN §3 Slice 4) | **NEXT** |
+| **4a** | gauntlet cases 1-3 | **DONE 2026-10-04 (ADR-245)** — tier 3, INDEPENDENT |
+| **4b** | case 2 blocking CI step; case 4 HGAM; case 5 thread axis; `epsilon_rel` question; default flip | **NEXT** |
 
 ## What the next session needs to know
 
@@ -57,3 +59,9 @@ Slice 1 (ADR-242): `fit_polaris_gam(outer="newton")` agrees with mgcv on gaussia
 - **The 1.8e-4 `float128` "inaccuracy" of the sum-of-squares penalty (ADR-222 amendment 2) is a representation gap, not an evaluation error.** Do not re-open it.
 - Slice 4 case 3 has a tier-1-only pre-reading (ledger, 2026-10-04): one start reaches the 523.645 basin. Re-read at tier 3; do not cite the tier-1 number.
 - Slice 4 should cover the seed axis only for the diagnostics that still have a seed (multistart); Newton has none.
+
+## Added by slice 4a (2026-10-04)
+- New: `gam_newton_gauntlet_conformance.py` (`run_gauntlet`, `gauntlet_claims`, `require_gauntlet_parity_evidence`), `scripts/gam_newton_gauntlet.py`, one non-gating CI step. `outer=` now reaches every free-sp fit helper; the fixed-scale Newton branch is one fit per scale (no unit-gamma seed).
+- Case 3's earlier tier-1 pre-reading is superseded by the tier-3 row (eta 5.671e-05, edf +0.0038, 20 fits).
+- Slice 4b must also read the `log10(sp)` column on `select=TRUE` (two plateau blocks differed by 0.25-0.3 decades in the pre-reading) before any "reliable" wording; ADR-221 does not gate it.
+- No perf row: every touched `src/` file is a `*_conformance.py` outside the probe closure (ADR-177 amendment 2; `sys.modules` check returned `[]`).

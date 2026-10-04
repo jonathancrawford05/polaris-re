@@ -100,12 +100,14 @@ def terms(pt, threads):
     return float(pen_dev), float(logdet_h), float(logdet_s), float(logdet_h_rot)
 
 
-print(f"{'point':<28}{'d pen.dev':>13}{'d log|H|':>13}{'d log|S|+':>13}{'cond(H)':>12}{'rot gap':>13}")
+print(
+    f"{'point':<28}{'d pen.dev':>13}{'d log|H|':>13}{'d log|S|+':>13}{'cond(H)':>12}{'rot gap':>13}"
+)
 for name, pt in POINTS.items():
     vals = [terms(pt, th) for th in (1, 2, 4)]
-    d_pd = max(abs(a[0] - b[0]) for i, a in enumerate(vals) for b in vals[i + 1:])
-    d_h = max(abs(a[1] - b[1]) for i, a in enumerate(vals) for b in vals[i + 1:])
-    d_s = max(abs(a[2] - b[2]) for i, a in enumerate(vals) for b in vals[i + 1:])
+    d_pd = max(abs(a[0] - b[0]) for i, a in enumerate(vals) for b in vals[i + 1 :])
+    d_h = max(abs(a[1] - b[1]) for i, a in enumerate(vals) for b in vals[i + 1 :])
+    d_s = max(abs(a[2] - b[2]) for i, a in enumerate(vals) for b in vals[i + 1 :])
     rot = abs(vals[0][1] - vals[0][3])
     lambdas = 10.0**pt
     penalty = np.zeros_like(blocks[0])

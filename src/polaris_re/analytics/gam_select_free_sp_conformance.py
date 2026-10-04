@@ -35,7 +35,7 @@ threshold to ``eta``/``edf`` (ADR-219 amendment 1 decision 4) — see
 """
 
 from dataclasses import dataclass, replace
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import numpy as np
 
@@ -241,6 +241,7 @@ def fit_select_free_sp_case(
     n_starts: int = 9,
     analytic_gradient: bool = False,
     step_halving: bool = False,
+    outer: Literal["lbfgsb", "newton"] = "lbfgsb",
 ) -> PolarisGAMFit:
     """The independent Python producer: assemble the ``select=True`` design,
     select its own 7 lambdas, and fit — never reading ``mgcv``'s ``eta``/
@@ -289,6 +290,7 @@ def fit_select_free_sp_case(
         n_starts=n_starts,
         analytic_gradient=analytic_gradient,
         step_halving=step_halving,
+        outer=outer,
     )
     if len(fit.design["penalty_blocks"]) != _N_BLOCKS:
         raise PolarisValidationError(
