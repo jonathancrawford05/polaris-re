@@ -171,7 +171,7 @@ amendment 1's thread-axis study with the transform applied, BEFORE wiring it
 everywhere. It either confirms this slice or redirects it.
 
 **DoD (status).**
-- [x] `[machine]` both reproducibility axes re-measured on ADR-222 amendment 1's protocol, beside its readings — thread axis: ADR-244 finding 1 (tier 3, d eta 2.8e-07 vs 0.356). **Seed axis: NOT MET because it has no operand** — Newton from `initial.spg` has no random component.
+- [~] `[machine]` both reproducibility axes re-measured (THREAD AXIS ONLY — seed axis has no operand) on ADR-222 amendment 1's protocol, beside its readings — thread axis: ADR-244 finding 1 (tier 3, d eta 2.8e-07 vs 0.356). **Seed axis: NOT MET because it has no operand** — Newton from `initial.spg` has no random component.
 - [x] `[machine]` `beta' S beta` against `float128` at the 11-decade spread, beside slice 7h's `6.8e-05` — ADR-244 finding 4 (tier 3): evaluation error 7.1e-15; the 1.8e-4 is a representation gap between two definitions of truth.
 - Outcome: the transform was **not wired**. Four hypotheses refuted (ADR-244, ledger); the real defect (derivative path's formed quadratic forms) was fixed instead.
 

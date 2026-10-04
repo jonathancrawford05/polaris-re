@@ -98,6 +98,7 @@ def reml_score_gradient(
     offset: np.ndarray | None = None,
     weights: np.ndarray | None = None,
     gamma: float = 1.0,
+    penalty_sqrt_blocks: tuple[np.ndarray, ...] | None = None,
 ) -> np.ndarray:
     """``dV/drhoⱼ`` for :func:`~polaris_re.analytics.gam_reml.reml_score_general`,
     natural-log ``rho`` — all four terms of the module docstring's formula,
@@ -150,6 +151,7 @@ def reml_score_gradient(
         offset=offset,
         weights=weights,
         scale=gamma,
+        penalty_sqrt_blocks=penalty_sqrt_blocks,
     )
 
 
@@ -245,6 +247,7 @@ def reml_score_gradient_profiled(
     *,
     offset: np.ndarray | None = None,
     weights: np.ndarray | None = None,
+    penalty_sqrt_blocks: tuple[np.ndarray, ...] | None = None,
 ) -> np.ndarray:
     """``dV/drhoⱼ`` of the FREE-SCALE criterion
     (:func:`~polaris_re.analytics.gam_reml.reml_score_general`, ``dispersion_fixed=False``),
@@ -295,7 +298,11 @@ def reml_score_gradient_profiled(
 
     mu = family.link.linkinv(offset_vec + x @ coef)
     deviance = family.deviance(y, mu, weights_vec)
-    sqrt_blocks = penalty_block_square_roots(penalty_blocks)
+    sqrt_blocks = (
+        penalty_sqrt_blocks
+        if penalty_sqrt_blocks is not None
+        else penalty_block_square_roots(penalty_blocks)
+    )
     penalized_deviance = deviance + sum(
         lam * float(np.sum((root.T @ coef) ** 2))
         for lam, root in zip(lambdas, sqrt_blocks, strict=True)

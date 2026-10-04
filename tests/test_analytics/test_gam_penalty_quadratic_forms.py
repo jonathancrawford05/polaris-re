@@ -25,7 +25,7 @@ _LN10 = float(np.log(10.0))
 _EPS = float(np.finfo(np.float64).eps)
 
 
-def _dense_null_problem():
+def _dense_null_problem() -> tuple[np.ndarray, np.ndarray, tuple[np.ndarray, ...]]:
     rng = np.random.default_rng(20261004)
     n, p = 400, 24
     t = np.linspace(0.0, 1.0, n)

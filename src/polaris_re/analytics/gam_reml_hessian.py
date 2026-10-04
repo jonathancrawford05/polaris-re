@@ -328,6 +328,7 @@ def reml_score_hessian(
     offset: np.ndarray | None = None,
     weights: np.ndarray | None = None,
     gamma: float = 1.0,
+    penalty_sqrt_blocks: tuple[np.ndarray, ...] | None = None,
 ) -> np.ndarray:
     """``d²V/drho_j drho_k`` of the KNOWN-scale criterion
     (:func:`~polaris_re.analytics.gam_reml.reml_score_general`), natural-log
@@ -357,6 +358,7 @@ def reml_score_hessian(
         weights=weights,
         scale=gamma,
         profile_df=None,
+        penalty_sqrt_blocks=penalty_sqrt_blocks,
     )
 
 
@@ -370,6 +372,7 @@ def reml_score_hessian_profiled(
     *,
     offset: np.ndarray | None = None,
     weights: np.ndarray | None = None,
+    penalty_sqrt_blocks: tuple[np.ndarray, ...] | None = None,
 ) -> np.ndarray:
     """Hessian of the FREE-SCALE criterion (``phi`` profiled out) in natural-log
     ``rho``: the known-scale Hessian at ``s = phi_hat`` less the Schur term
@@ -388,7 +391,11 @@ def reml_score_hessian_profiled(
     lambdas = np.asarray(lambdas, dtype=np.float64)
     mu = family.link.linkinv(offset_vec + x @ coef)
     deviance = family.deviance(y, mu, weights_vec)
-    sqrt_blocks = penalty_block_square_roots(penalty_blocks)
+    sqrt_blocks = (
+        penalty_sqrt_blocks
+        if penalty_sqrt_blocks is not None
+        else penalty_block_square_roots(penalty_blocks)
+    )
     penalized_deviance = deviance + sum(
         lam * float(np.sum((root.T @ coef) ** 2))
         for lam, root in zip(lambdas, sqrt_blocks, strict=True)

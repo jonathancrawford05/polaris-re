@@ -4134,4 +4134,4 @@ Provenance: INDEPENDENT comparison (Polaris two-start fit vs `mgcv` `quasipoisso
 
 - **1st-order (promoted):** none new — Slice 4's gauntlet already owns the reliability claim; its case 3 now has a tier-1 pre-reading.
 - **2nd-order (NICE-TO-HAVE):** Slice 3b, QR-augmented solve (PLAN_wood_outer_solver), released only if a gauntlet case fails on gradient precision. The measured floor is currently 6-100x below the search tolerance.
-- **3rd-order (parked):** a tier-3 re-measurement of the Hessian BEFORE column (needs the pre-change commit run through CI); the production `experience_gam_penalized` module's quadratic forms were not audited for the same formed-contraction pattern (Anchor 7).
+- **3rd-order (parked):** a tier-3 re-measurement of the Hessian BEFORE column (needs the pre-change commit run through CI); (audit of `experience_gam_penalized` run in review round 1 and closed: formed `beta'S beta` error 2.4e-9 at its lambda bound — see the Slice 3 session log).

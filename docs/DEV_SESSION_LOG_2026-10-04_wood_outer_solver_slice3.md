@@ -1,7 +1,7 @@
 # Dev session log — 2026-10-04 — outer-solver slice 3 (rounding noise at an 11-decade spread)
 
 **Branch:** `claude/intelligent-hamilton-c64y8s`. **Routine:** `docs/ROUTINE_MGCV_PARITY.md` (active epic `PLAN_wood_outer_solver.md`). **PR title class:** `harness(mgcv-parity)` — NO INDEPENDENT comparison is landed; every reading is Polaris against itself.
-**Perf verdict (ADR-177):** row appended (touches non-conformance `src/` modules `gam_reml_gradient.py`, `gam_reml_hessian.py`).
+**Perf verdict (ADR-177):** row appended (touches non-conformance `src/` modules `gam_reml_gradient.py`, `gam_reml_hessian.py`); `perf_history` verdict: no structural creep (peak 33 -> 33 MiB, wall-time recent/baseline 0.74x).
 **Registered-prompt vs ROUTINE file:** the prompt box's CURRENT STATE says "the epic is at ADR-207" and "next unchecked slice of PLAN_mgcv_parity_engine"; the ROUTINE file's ACTIVE EPIC POINTER (ADR-241) makes `PLAN_wood_outer_solver.md` the plan and the epic is at ADR-243. The ROUTINE file wins as instructed; the box is stale (a maintainer edit).
 
 ## Baseline
@@ -33,8 +33,13 @@ Cross-thread (Newton, tier 3): d eta 2.8e-07, d edf 1.7e-05, 20 fits all converg
 - No ECHO or TRANSPORT column is reported as evidence.
 
 ## DoD (PLAN Slice 3, verbatim, with evidence)
-- [x] both reproducibility axes (seed, BLAS threads) re-measured on ADR-222 amendment 1's protocol, beside its readings — thread: ADR-244 finding 1. **Seed: NOT MET because no operand** (Newton has no random component).
+- [~] both reproducibility axes (seed, BLAS threads) re-measured — THREAD AXIS ONLY on ADR-222 amendment 1's protocol, beside its readings — thread: ADR-244 finding 1. **Seed: NOT MET because no operand** (Newton has no random component).
 - [x] `beta'S beta` against `float128` at the 11-decade spread, beside `6.8e-05` — ADR-244 finding 4.
 
 ## Open / follow-ups
 Slice 4 NEXT. Slice 3b registered (release condition in the PLAN). A mutation of the old arithmetic fails `test_gam_penalty_quadratic_forms.py`. Not audited: `experience_gam_penalized` for the same pattern (Anchor 7). Level 4 DISAGREES (standing). Mechanism class (iv); no start strategy added.
+
+## Review round 1 (PR #253, automated review: approve)
+- **[P1] production audit, RUN not parked (ROUTINE step 12, under an hour):** `experience_gam_penalized.reml_score` line 768 does contract the formed penalty with `coef`. Measured on the committed synthetic design (`d1`, 7x6) fitted by `penalized_irls_general`, error of the formed `beta'S beta` against `float128`: `4.4e-15` at log10 lambda (2,2), `4.6e-12` (5,5), `2.4e-09` (8,8 — the module's upper bound `LAMBDA_LOG10_BOUNDS = (-2, 8)`), `1.3e-09` (8,2), `5.5e-10` (2,8). Error scales with lambda; at the bound it is ~1e-9 on a score of order 1e2-1e3. **Harmless at the reachable spread** (the 11-decade regime sits outside the module's bounds, and its inner fit does not converge at 1e12). One design, own criterion, no R involved (tier not applicable). Not changed (Anchor 7); the PRODUCT_DIRECTION parked line is replaced by this measurement.
+- [P2] DoD marker for the seed axis -> `[~]` (PLAN, log, PR). [P2] perf creep verdict added above. [P2] roots threaded through the public gradient/Hessian functions and `newton_select_lambdas` (computed once per fit). [P2] test helper annotated.
+- Parked Polish (log home): Hessian BEFORE column at tier 3; none else.
