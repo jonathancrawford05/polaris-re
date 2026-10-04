@@ -20,7 +20,8 @@ and the reproducibility axes — are NOT here; see the ADR).
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from functools import partial
+from typing import cast
 
 from polaris_re.analytics.gam_by_factor_conformance import (
     compare_by_factor_free_sp_case,
@@ -48,6 +49,7 @@ from polaris_re.analytics.gam_quasipoisson_conformance import (
     fit_quasipoisson_free_sp_case,
 )
 from polaris_re.analytics.gam_quasipoisson_fixed_scale_conformance import (
+    RQuasiPoissonFixedScalePayload,
     compare_quasipoisson_fixed_scale_case,
     fit_quasipoisson_fixed_scale_case,
 )
@@ -56,6 +58,7 @@ from polaris_re.analytics.gam_select_free_sp_conformance import (
     compare_select_free_sp_case,
     fit_select_free_sp_case,
 )
+from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.verification import (
     ComparedQuantity,
     VerificationClaim,
@@ -86,25 +89,34 @@ class GauntletReading:
     error: str | None = None
 
 
-def _read(c: Any, name: str) -> Any:
+def _read(c: object, name: str) -> object:
+    """One field of a comparison: the compare functions return either a
+    TypedDict (fixed scale, Gaussian) or a dataclass."""
     return c[name] if isinstance(c, dict) else getattr(c, name)
 
 
-def _reading(case: str, fit: PolarisGAMFit, comparison: Any) -> GauntletReading:
+def _reading(case: str, fit: PolarisGAMFit, comparison: object) -> GauntletReading:
+    evidence = _read(comparison, "evidence")
+    if not isinstance(evidence, VerificationClaim):
+        raise PolarisValidationError(
+            f"gauntlet case {case!r}: its comparison carries no VerificationClaim "
+            f"(got {type(evidence).__name__}); a comparison without a declared claim "
+            "cannot be reported as evidence."
+        )
     return GauntletReading(
         case=case,
-        max_abs_eta_diff=float(_read(comparison, "max_abs_eta_diff")),
-        edf_total_diff=float(_read(comparison, "edf_total_diff")),
+        max_abs_eta_diff=float(_read(comparison, "max_abs_eta_diff")),  # type: ignore[arg-type]
+        edf_total_diff=float(_read(comparison, "edf_total_diff")),  # type: ignore[arg-type]
         n_function_evals=int(fit.n_function_evals),
         at_bound=bool(_read(comparison, "at_bound")),
         converged=bool(_read(comparison, "converged")),
         agrees=bool(_read(comparison, "agrees")),
-        evidence=_read(comparison, "evidence"),
+        evidence=evidence,
     )
 
 
 type _Fit = Callable[..., PolarisGAMFit]
-type _Compare = Callable[[PolarisGAMFit, Any], Any]
+type _Compare = Callable[..., object]
 
 _FREE_SCALE_CELLS: tuple[tuple[str, str, _Fit, _Compare], ...] = (
     (
@@ -146,7 +158,9 @@ _FREE_SCALE_CELLS: tuple[tuple[str, str, _Fit, _Compare], ...] = (
 )
 
 
-def payloads_from_probe_dir(load: Callable[[str], dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def payloads_from_probe_dir(
+    load: Callable[[str], dict[str, object]],
+) -> dict[str, dict[str, object]]:
     """The committed-recipe probe payloads, keyed as the gauntlet's cases are.
     ``load`` maps a probe file name to its parsed JSON."""
     return {
@@ -161,15 +175,13 @@ def payloads_from_probe_dir(load: Callable[[str], dict[str, Any]]) -> dict[str, 
     }
 
 
-def run_gauntlet(payloads: dict[str, dict[str, Any]]) -> list[GauntletReading]:
+def run_gauntlet(payloads: dict[str, dict[str, object]]) -> list[GauntletReading]:
     """Every case, ONE Newton start each. A case whose fit raises is reported as
     an ``error`` row (never swallowed, never dropped): an exception is a
     disagreement of the strongest kind and the table must show it."""
     readings: list[GauntletReading] = []
     for label, key, fit, compare in _FREE_SCALE_CELLS:
-        readings += _guarded(
-            label, lambda f=fit, c=compare, k=key, lb=label: [_one(lb, f, c, payloads[k])]
-        )
+        readings += _guarded(label, partial(_one_as_list, label, fit, compare, payloads, key))
     readings += _guarded("quasipoisson fixed scale", lambda: _fixed_scale(payloads["fixed_scale"]))
     select_label = "select=TRUE N=7 (cr+by+ti, 7 blocks)"
     readings += _guarded(
@@ -186,14 +198,23 @@ def run_gauntlet(payloads: dict[str, dict[str, Any]]) -> list[GauntletReading]:
     return readings
 
 
-def _one(label: str, fit: _Fit, compare: _Compare, payload: dict[str, Any]) -> GauntletReading:
+def _one_as_list(
+    label: str, fit: _Fit, compare: _Compare, payloads: dict[str, dict[str, object]], key: str
+) -> list[GauntletReading]:
+    # The payload lookup stays inside the guarded call: a missing payload is an
+    # error row, never a silently shorter table.
+    return [_one(label, fit, compare, payloads[key])]
+
+
+def _one(label: str, fit: _Fit, compare: _Compare, payload: dict[str, object]) -> GauntletReading:
     polaris_fit = fit(payload, outer="newton")
     return _reading(label, polaris_fit, compare(polaris_fit, payload))
 
 
-def _fixed_scale(payload: dict[str, Any]) -> list[GauntletReading]:
-    fits = fit_quasipoisson_fixed_scale_case(payload, outer="newton")
-    comparisons = compare_quasipoisson_fixed_scale_case(fits, payload)
+def _fixed_scale(payload: dict[str, object]) -> list[GauntletReading]:
+    typed = cast(RQuasiPoissonFixedScalePayload, payload)
+    fits = fit_quasipoisson_fixed_scale_case(typed, outer="newton")
+    comparisons = compare_quasipoisson_fixed_scale_case(fits, typed)
     return [
         _reading(f"quasipoisson fixed scale={c['scale']:g}", f, c)
         for f, c in zip(fits, comparisons, strict=True)

@@ -35,10 +35,10 @@ def main(probe_dir: Path, out: Path | None) -> None:
     all_agree = all(r.agrees for r in readings)
     lines = [
         "",
-        "### Outer-solver slice 4 — the gauntlet: one Newton start vs mgcv (INDEPENDENT)",
+        "### Outer-solver slice 4 — the gauntlet: one Newton start vs mgcv",
         "",
         "**Claim (ADR-193):** each case's Polaris producer takes a recipe that excludes "
-        "mgcv's eta/coef/sp/edf, runs ONE `outer=\"newton\"` start, and is compared with "
+        'mgcv\'s eta/coef/sp/edf, runs ONE `outer="newton"` start, and is compared with '
         "mgcv's own free-sp (or fixed-scale) REML fit on eta and edf_total under ADR-221. "
         "The search under test is Newton; the per-claim producer text below names the "
         "fit_polaris_gam call.",

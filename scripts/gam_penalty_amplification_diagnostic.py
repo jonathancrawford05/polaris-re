@@ -70,7 +70,7 @@ POINTS = {
 
 print(
     f"{'point':<26}{'d beta (abs)':>14}{'d deviance':>13}"
-    f"{'d b\'Sb':>13}{'|b\'Sb|':>13}{'||S||':>11}{'predicted':>12}"
+    f"{"d b'Sb":>13}{"|b'Sb|":>13}{'||S||':>11}{'predicted':>12}"
 )
 for name, pt in POINTS.items():
     lambdas = 10.0**pt
@@ -86,10 +86,10 @@ for name, pt in POINTS.items():
             quad = float(coef @ penalty @ coef)
         got.append((np.asarray(coef, float), dev, quad))
     d_beta = max(
-        float(np.max(np.abs(a[0] - b[0]))) for i, a in enumerate(got) for b in got[i + 1:]
+        float(np.max(np.abs(a[0] - b[0]))) for i, a in enumerate(got) for b in got[i + 1 :]
     )
-    d_dev = max(abs(a[1] - b[1]) for i, a in enumerate(got) for b in got[i + 1:])
-    d_quad = max(abs(a[2] - b[2]) for i, a in enumerate(got) for b in got[i + 1:])
+    d_dev = max(abs(a[1] - b[1]) for i, a in enumerate(got) for b in got[i + 1 :])
+    d_quad = max(abs(a[2] - b[2]) for i, a in enumerate(got) for b in got[i + 1 :])
     beta = got[0][0]
     norm_s = float(np.linalg.norm(penalty, 2))
     # First-order: d(b'Sb) ~ 2 |S b| . |d b|

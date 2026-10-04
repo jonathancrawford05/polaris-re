@@ -28,35 +28,48 @@ USAGE:  uv run python scripts/gam_penalty_float128_precision_diagnostic.py probe
 --------------------------------------------------------------------------------
 """
 
-import json, sys
+import json
+import sys
 from dataclasses import replace
+
 import numpy as np
 from threadpoolctl import threadpool_limits
+
 from polaris_re.analytics.gam_model import assemble_model_design, resolve_family
 from polaris_re.analytics.gam_multiterm_conformance import _multiterm_model_spec
 from polaris_re.analytics.gam_reml_optimize import penalized_fit_and_score
 
 payload = json.load(open(sys.argv[1]))
-model = replace(_multiterm_model_spec(
-    tuple(float(v) for v in payload["age_knots"]),
-    tuple(float(v) for v in payload["year_knots"])), select=True)
-data = {k: np.asarray(payload[k], dtype=np.float64)
-        for k in ("AttdAge","PolYear","StudyYear_C","ExposCnt")}
+model = replace(
+    _multiterm_model_spec(
+        tuple(float(v) for v in payload["age_knots"]),
+        tuple(float(v) for v in payload["year_knots"]),
+    ),
+    select=True,
+)
+data = {
+    k: np.asarray(payload[k], dtype=np.float64)
+    for k in ("AttdAge", "PolYear", "StudyYear_C", "ExposCnt")
+}
 y = np.asarray(payload["y"], dtype=np.float64)
 design = assemble_model_design(model, data)
 family = resolve_family(model.family, model.link)
-blocks = tuple(design["penalty_blocks"]); x = design["x"]; w = data["ExposCnt"]
+blocks = tuple(design["penalty_blocks"])
+x = design["x"]
+w = data["ExposCnt"]
 mgcv_pt = np.log10(np.asarray(payload["sp"], dtype=np.float64))
 
-for name, pt in (("narrow (spread 2.0)", np.array([2.,3.,4.,3.,2.,4.,3.])),
-                 ("wide (spread 11.0)",  np.array([11.,0.,10.,5.,3.,2.,1.])),
-                 ("mgcv point (12.9)",   mgcv_pt)):
+for name, pt in (
+    ("narrow (spread 2.0)", np.array([2.0, 3.0, 4.0, 3.0, 2.0, 4.0, 3.0])),
+    ("wide (spread 11.0)", np.array([11.0, 0.0, 10.0, 5.0, 3.0, 2.0, 1.0])),
+    ("mgcv point (12.9)", mgcv_pt),
+):
     lam = 10.0**pt
     S = np.zeros_like(blocks[0])
-    for l,b in zip(lam, blocks, strict=True):
-        S = S + l*b
+    for l, b in zip(lam, blocks, strict=True):
+        S = S + l * b
     with threadpool_limits(limits=1, user_api="blas"):
-        beta,_ = penalized_fit_and_score(y, x, family, blocks, pt, weights=w)
+        beta, _ = penalized_fit_and_score(y, x, family, blocks, pt, weights=w)
     beta = np.array(beta, dtype=np.float64, copy=True)
 
     v64 = float(beta @ S @ beta)
@@ -71,8 +84,10 @@ for name, pt in (("narrow (spread 2.0)", np.array([2.,3.,4.,3.,2.,4.,3.])),
     print(f"{name}")
     print(f"   b'Sb float64   = {v64:.10f}")
     print(f"   b'Sb float128  = {v128:.10f}")
-    print(f"   ABS ERROR      = {abs(v64-v128):.3e}   <- float64 evaluation error")
+    print(f"   ABS ERROR      = {abs(v64 - v128):.3e}   <- float64 evaluation error")
     print(f"   forming S@b: |S||b| intermediates {intermediate:.3e} -> |S@b| {result_mag:.3e}")
     print(f"   cancellation   = {loss:.2e}x  ({np.log10(loss):.1f} digits lost)")
-    print(f"   predicted err ~ eps * |S||b| * ||beta|| = {2.2e-16*intermediate*np.linalg.norm(beta):.3e}")
+    print(
+        f"   predicted err ~ eps * |S||b| * ||beta|| = {2.2e-16 * intermediate * np.linalg.norm(beta):.3e}"
+    )
     print()

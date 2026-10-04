@@ -90,7 +90,8 @@ def _evaluate(y, x, family, blocks, weights, point):
     roots = penalty_block_square_roots(blocks)
     legacy = grad + np.array(
         [
-            lam[j] * (float(coef @ blocks[j] @ coef) - float(np.sum((roots[j].T @ coef) ** 2)))
+            lam[j]
+            * (float(coef @ blocks[j] @ coef) - float(np.sum((roots[j].T @ coef) ** 2)))
             / 2.0
             for j in range(len(blocks))
         ]

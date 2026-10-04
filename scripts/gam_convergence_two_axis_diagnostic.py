@@ -68,20 +68,40 @@ w = data["ExposCnt"]
 
 PRODUCTION_SEED = 20260830
 SEEDS = [
-    20260830, 20260901, 20260902, 20260905, 20260906,
-    20260907, 20260908, 20260909, 20260910, 20260911,
+    20260830,
+    20260901,
+    20260902,
+    20260905,
+    20260906,
+    20260907,
+    20260908,
+    20260909,
+    20260910,
+    20260911,
 ]
 
 
 def multi(seed: int, threads: int):
     with threadpool_limits(limits=threads, user_api="blas"):
         ms = select_lambdas_continuous_multistart(
-            y, x, family, blocks, weights=w, bounds=PRODUCTION_LOG10_BOUNDS,
-            n_starts=9, seed=seed, analytic_gradient=True, max_gtol_restarts=4,
+            y,
+            x,
+            family,
+            blocks,
+            weights=w,
+            bounds=PRODUCTION_LOG10_BOUNDS,
+            n_starts=9,
+            seed=seed,
+            analytic_gradient=True,
+            max_gtol_restarts=4,
         )
     b = ms.best
-    return x @ np.asarray(b.coef, dtype=np.float64), float(b.edf_total), \
-        np.asarray(b.log_lambda, dtype=np.float64), float(b.reml_score)
+    return (
+        x @ np.asarray(b.coef, dtype=np.float64),
+        float(b.edf_total),
+        np.asarray(b.log_lambda, dtype=np.float64),
+        float(b.reml_score),
+    )
 
 
 def single_fd(threads: int):
@@ -89,16 +109,22 @@ def single_fd(threads: int):
         s = select_lambdas_continuous(
             y, x, family, blocks, weights=w, bounds=PRODUCTION_LOG10_BOUNDS
         )
-    return x @ np.asarray(s.coef, dtype=np.float64), float(s.edf_total), \
-        np.asarray(s.log_lambda, dtype=np.float64), float(s.reml_score)
+    return (
+        x @ np.asarray(s.coef, dtype=np.float64),
+        float(s.edf_total),
+        np.asarray(s.log_lambda, dtype=np.float64),
+        float(s.reml_score),
+    )
 
 
 def spreads(label, etas, edfs, sps, n_attempted):
     if len(etas) < 2:
         print(f"\n  {label}: fewer than two fits — no spread", flush=True)
         return
+
     def pm(v, fn):
         return max(fn(v[i], v[j]) for i in range(len(v)) for j in range(i + 1, len(v)))
+
     e = pm(etas, lambda a, b: float(np.max(np.abs(a - b))))
     s = pm(sps, lambda a, b: float(np.max(np.abs(a - b))))
     d = pm(edfs, lambda a, b: abs(a - b))
@@ -108,8 +134,12 @@ def spreads(label, etas, edfs, sps, n_attempted):
     print(f"  max |d log10(sp)| : {s:12.6f}   <- machinery", flush=True)
     print(f"  max |d eta|       : {e:12.6e}   <- surface   (gate 2e-2)", flush=True)
     print(f"  max |d edf_total| : {d:12.6f}   <- surface   (gate 1.0)", flush=True)
-    print(f"  margin on eta: {2e-2 / e:.1f}x   margin on edf: {1.0 / d:.1f}x" if ok
-          else "  OUTSIDE the gate", flush=True)
+    print(
+        f"  margin on eta: {2e-2 / e:.1f}x   margin on edf: {1.0 / d:.1f}x"
+        if ok
+        else "  OUTSIDE the gate",
+        flush=True,
+    )
     print(f"  -> {'REPRODUCIBLE' if ok else 'NOT reproducible'}", flush=True)
 
 
@@ -124,7 +154,9 @@ for sd in SEEDS:
     except Exception as exc:
         print(f"{sd:>10}   FAILED — {type(exc).__name__}: {str(exc)[:60]}", flush=True)
         continue
-    A[0].append(eta); A[1].append(edf); A[2].append(sp)
+    A[0].append(eta)
+    A[1].append(edf)
+    A[2].append(sp)
     print(f"{sd:>10}{edf:12.4f}{sc:15.6f}   [{', '.join(f'{v:6.2f}' for v in sp)}]", flush=True)
 spreads("AXIS A: multistart(9) across 10 seeds", A[0], A[1], A[2], len(SEEDS))
 
@@ -139,7 +171,9 @@ for th in (1, 2, 4):
     except Exception as exc:
         print(f"{th:>10}   FAILED — {type(exc).__name__}: {str(exc)[:60]}", flush=True)
         continue
-    B[0].append(eta); B[1].append(edf); B[2].append(sp)
+    B[0].append(eta)
+    B[1].append(edf)
+    B[2].append(sp)
     print(f"{th:>10}{edf:12.4f}{sc:15.6f}   [{', '.join(f'{v:6.2f}' for v in sp)}]", flush=True)
 spreads("AXIS B: multistart(9) across thread counts", B[0], B[1], B[2], 3)
 
@@ -154,6 +188,8 @@ for th in (1, 2, 4):
     except Exception as exc:
         print(f"{th:>10}   FAILED — {type(exc).__name__}: {str(exc)[:60]}", flush=True)
         continue
-    C[0].append(eta); C[1].append(edf); C[2].append(sp)
+    C[0].append(eta)
+    C[1].append(edf)
+    C[2].append(sp)
     print(f"{th:>10}{edf:12.4f}{sc:15.6f}   [{', '.join(f'{v:6.2f}' for v in sp)}]", flush=True)
 spreads("AXIS B': single-start FD across thread counts", C[0], C[1], C[2], 3)
