@@ -168,3 +168,116 @@ def test_hgam_newton_claim_declares_only_the_two_columns_it_compares() -> None:
         for q in PRODUCTION_MI_NEWTON_CLAIM.quantities
     )
     assert "multistart=True" not in PRODUCTION_MI_NEWTON_CLAIM.claim
+
+
+# --- the script's --gate exit path (PR #255 review; ADR-246) ----------------
+
+
+def _load_gauntlet_script():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "gam_newton_gauntlet.py"
+    spec = importlib.util.spec_from_file_location("gam_newton_gauntlet_script", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _patched_script(monkeypatch: pytest.MonkeyPatch, rows: list[GauntletReading]) -> object:
+    script = _load_gauntlet_script()
+    monkeypatch.setattr(script, "payloads_from_probe_dir", lambda _read: {})
+    monkeypatch.setattr(script, "run_gauntlet", lambda _payloads: rows)
+    monkeypatch.setattr(script, "require_gauntlet_parity_evidence", lambda _rows: None)
+    monkeypatch.setattr(script, "gauntlet_claims", lambda _rows: [])
+    return script
+
+
+def test_gate_flag_exits_one_when_a_fixed_scale_row_disagrees(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    rows = [
+        _row("quasipoisson fixed scale=2"),
+        _row("quasipoisson fixed scale=6", agrees=False),
+    ]
+    script = _patched_script(monkeypatch, rows)
+    with pytest.raises(SystemExit) as excinfo:
+        script.main(tmp_path, None, gate=True)  # type: ignore[attr-defined]
+    assert excinfo.value.code == 1
+
+
+def test_gate_flag_returns_normally_when_both_fixed_scale_rows_agree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    rows = [_row("quasipoisson fixed scale=2"), _row("quasipoisson fixed scale=6")]
+    script = _patched_script(monkeypatch, rows)
+    script.main(tmp_path, None, gate=True)  # type: ignore[attr-defined]
+
+
+def test_without_the_gate_flag_a_disagreement_is_reported_not_fatal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    rows = [
+        _row("quasipoisson fixed scale=2", agrees=False),
+        _row("quasipoisson fixed scale=6"),
+    ]
+    script = _patched_script(monkeypatch, rows)
+    script.main(tmp_path, None, gate=False)  # type: ignore[attr-defined]
+
+
+# --- case 5, the thread axis (ADR-247) --------------------------------------
+
+
+def test_thread_axis_covers_every_newton_case_and_enters_each_thread_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import contextlib
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from polaris_re.analytics import gam_newton_gauntlet_conformance as g
+
+    entered: list[int] = []
+
+    @contextlib.contextmanager
+    def limit(n: int):
+        entered.append(n)
+        yield
+
+    calls = {"n": 0}
+
+    def fake_fits(_label, _payloads):
+        calls["n"] += 1
+        bump = 1e-9 * (calls["n"] % 3)  # differs across calls, so the diff is real
+        return [
+            SimpleNamespace(
+                eta=np.array([1.0 + bump, 2.0]),
+                log_lambda=np.array([0.5, 1.0 + bump]),
+                edf_total=3.0 + bump,
+                converged=True,
+                n_function_evals=7,
+            )
+        ]
+
+    monkeypatch.setattr(g, "_newton_fits_for_case", fake_fits)
+    rows = g.run_thread_axis({}, limit, threads=(1, 2, 4, 1))
+    assert [r.case for r in rows] == list(g.THREAD_AXIS_CASES)
+    assert entered[:4] == [1, 2, 4, 1]
+    assert all(r.error is None and r.all_converged for r in rows)
+    assert all(r.n_function_evals == (7, 7, 7, 7) for r in rows)
+    assert any(r.max_abs_eta_diff > 0.0 for r in rows)
+
+
+def test_thread_axis_reports_a_raising_case_instead_of_dropping_it() -> None:
+    import contextlib
+
+    from polaris_re.analytics.gam_newton_gauntlet_conformance import (
+        THREAD_AXIS_CASES,
+        run_thread_axis,
+    )
+
+    rows = run_thread_axis({}, lambda _n: contextlib.nullcontext())  # no payloads: KeyError
+    assert len(rows) == len(THREAD_AXIS_CASES)
+    assert all(r.error for r in rows)

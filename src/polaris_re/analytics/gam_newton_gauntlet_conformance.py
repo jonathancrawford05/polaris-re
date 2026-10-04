@@ -15,10 +15,14 @@ hand, and :func:`require_gauntlet_parity_evidence` gates the word "parity" on
 every quantity being INDEPENDENT.
 
 Cases carried from the PLAN's gauntlet: 1-3 (ADR-245) and 4, the 4-term HGAM
-(ADR-246). Case 5 (the reproducibility axes) is NOT here; see the ADR.
+(ADR-246). Case 5 (the reproducibility axes, ADR-247) is :func:`run_thread_axis`:
+Polaris against ITSELF across BLAS thread counts. It has no ``mgcv`` side, so it
+carries no ``VerificationClaim`` and is never parity evidence — a reproducibility
+MEASUREMENT (own criterion). The seed axis has no operand for Newton.
 """
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, replace
 from functools import partial
 from typing import cast
@@ -74,11 +78,13 @@ from polaris_re.core.verification import (
 __all__ = [
     "REQUIRED_CASE_PREFIXES",
     "GauntletReading",
+    "ThreadAxisReading",
     "gate_failures",
     "gauntlet_claims",
     "payloads_from_probe_dir",
     "require_gauntlet_parity_evidence",
     "run_gauntlet",
+    "run_thread_axis",
 ]
 
 
@@ -309,3 +315,95 @@ def require_gauntlet_parity_evidence(
     claim must be INDEPENDENT (ADR-193). Raises otherwise."""
     quantities = [q for claim in gauntlet_claims(readings) for q in claim.quantities]
     return require_parity_evidence(quantities, claim="outer-solver gauntlet (ADR-245)")
+
+
+@dataclass(frozen=True)
+class ThreadAxisReading:
+    """One case's Newton fit repeated across BLAS thread counts, each compared
+    with the FIRST thread count's fit. Polaris against itself: no ``mgcv`` side."""
+
+    case: str
+    threads: tuple[int, ...]
+    max_abs_eta_diff: float
+    max_abs_log10_sp_diff: float
+    max_abs_edf_total_diff: float
+    all_converged: bool
+    n_function_evals: tuple[int, ...]
+    error: str | None = None
+
+
+def _newton_fits_for_case(
+    label: str, payloads: dict[str, dict[str, object]]
+) -> list[PolarisGAMFit]:
+    """The case's Newton fit(s) at the current BLAS thread count (fixed scale
+    yields one fit per supplied scale; every other case yields one)."""
+    for name, key, fit, _compare in _FREE_SCALE_CELLS:
+        if name == label:
+            return [fit(payloads[key], outer="newton")]
+    if label == "quasipoisson fixed scale":
+        typed = cast(RQuasiPoissonFixedScalePayload, payloads["fixed_scale"])
+        return list(fit_quasipoisson_fixed_scale_case(typed, outer="newton"))
+    if label == "select=TRUE N=7":
+        return [fit_select_free_sp_case(payloads["select_n7"], outer="newton")]  # type: ignore[arg-type]
+    if label == "4-term HGAM":
+        typed_mi = cast(RProductionMIPayload, payloads["production_mi"])
+        return [fit_production_mi_case(typed_mi, multistart=False, outer="newton")]
+    raise PolarisValidationError(f"unknown thread-axis case {label!r}")
+
+
+THREAD_AXIS_CASES: tuple[str, ...] = (
+    *[c[0] for c in _FREE_SCALE_CELLS],
+    "quasipoisson fixed scale",
+    "select=TRUE N=7",
+    "4-term HGAM",
+)
+
+
+def run_thread_axis(
+    payloads: dict[str, dict[str, object]],
+    limit_threads: Callable[[int], AbstractContextManager[object]],
+    threads: tuple[int, ...] = (1, 2, 4, 1),
+) -> list[ThreadAxisReading]:
+    """Gauntlet case 5, thread axis (ADR-222 amendment 1's protocol, run on the
+    Newton search): each case is fit once per entry of ``threads`` under
+    ``limit_threads(n)`` and compared with the first. A raising case is an error
+    row, never dropped. ``PolarisGAMFit.log_lambda`` is already ``log10``."""
+    out: list[ThreadAxisReading] = []
+    for label in THREAD_AXIS_CASES:
+        try:
+            runs: list[list[PolarisGAMFit]] = []
+            for n in threads:
+                with limit_threads(n):
+                    runs.append(_newton_fits_for_case(label, payloads))
+            ref = runs[0]
+            d_eta = d_sp = d_edf = 0.0
+            for run in runs[1:]:
+                for a, b in zip(ref, run, strict=True):
+                    d_eta = max(d_eta, float(abs(a.eta - b.eta).max()))
+                    d_sp = max(d_sp, float(abs(a.log_lambda - b.log_lambda).max()))
+                    d_edf = max(d_edf, abs(a.edf_total - b.edf_total))
+            out.append(
+                ThreadAxisReading(
+                    case=label,
+                    threads=threads,
+                    max_abs_eta_diff=d_eta,
+                    max_abs_log10_sp_diff=d_sp,
+                    max_abs_edf_total_diff=d_edf,
+                    all_converged=all(f.converged for run in runs for f in run),
+                    n_function_evals=tuple(sum(f.n_function_evals for f in run) for run in runs),
+                )
+            )
+        except Exception as exc:  # reported in the table, never swallowed
+            out.append(
+                ThreadAxisReading(
+                    case=label,
+                    threads=threads,
+                    max_abs_eta_diff=float("nan"),
+                    max_abs_log10_sp_diff=float("nan"),
+                    max_abs_edf_total_diff=float("nan"),
+                    all_converged=False,
+                    n_function_evals=(),
+                    error=repr(exc),
+                )
+            )
+    return out
