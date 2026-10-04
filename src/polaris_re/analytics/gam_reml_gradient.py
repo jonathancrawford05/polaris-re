@@ -98,6 +98,7 @@ def reml_score_gradient(
     offset: np.ndarray | None = None,
     weights: np.ndarray | None = None,
     gamma: float = 1.0,
+    penalty_sqrt_blocks: tuple[np.ndarray, ...] | None = None,
 ) -> np.ndarray:
     """``dV/drhoⱼ`` for :func:`~polaris_re.analytics.gam_reml.reml_score_general`,
     natural-log ``rho`` — all four terms of the module docstring's formula,
@@ -150,6 +151,7 @@ def reml_score_gradient(
         offset=offset,
         weights=weights,
         scale=gamma,
+        penalty_sqrt_blocks=penalty_sqrt_blocks,
     )
 
 
@@ -164,6 +166,7 @@ def _gradient_at_scale(
     offset: np.ndarray | None,
     weights: np.ndarray | None,
     scale: float,
+    penalty_sqrt_blocks: tuple[np.ndarray, ...] | None = None,
 ) -> np.ndarray:
     """The four-term gradient with the penalized deviance divided by ``scale``.
 
@@ -193,6 +196,11 @@ def _gradient_at_scale(
     )
 
     dlogdet_s = dlogdet_s_plus_drho(penalty_blocks, lambdas)
+    sqrt_blocks = (
+        penalty_sqrt_blocks
+        if penalty_sqrt_blocks is not None
+        else penalty_block_square_roots(penalty_blocks)
+    )
 
     # Term 3 — dW/drho, exact (not the alpha=1 Fisher approximation):
     # d_eta_d_rho needs the SAME observed weights as H itself (Wood Appendix C
@@ -210,7 +218,15 @@ def _gradient_at_scale(
         # Term 1 — envelope theorem: at beta_hat, d(Dp)/dbeta = 0, so the
         # indirect term through d(beta_hat)/drho vanishes and only the
         # direct dependence of beta_hat^T @ S @ beta_hat on rho_j survives.
-        term1 = lam_j * float(coef @ block @ coef) / (2.0 * scale)
+        #
+        # Outer-solver Slice 3 (ADR-244): beta' S_j beta as a SUM OF SQUARES over
+        # the block's own root, exactly as the score's penalty term has been
+        # since ADR-223. The formed `coef @ block @ coef` carries ~1e-5 of
+        # absolute error at a 1e11 `lambda_j` (a 5e-15 change in `coef` moved
+        # this term by 3e-5), which was the WHOLE of the gradient's rounding
+        # noise at an 11-decade spread — the score and its gradient must not
+        # evaluate the same quadratic form two different ways.
+        term1 = lam_j * float(np.sum((sqrt_blocks[j].T @ coef) ** 2)) / (2.0 * scale)
         # Term 2 — the direct-penalty part of d(log|H|)/drho_j.
         term2 = 0.5 * lam_j * float(np.sum(h_inv * block))
         # Term 3 — the weight-matrix part of d(log|H|)/drho_j.
@@ -231,6 +247,7 @@ def reml_score_gradient_profiled(
     *,
     offset: np.ndarray | None = None,
     weights: np.ndarray | None = None,
+    penalty_sqrt_blocks: tuple[np.ndarray, ...] | None = None,
 ) -> np.ndarray:
     """``dV/drhoⱼ`` of the FREE-SCALE criterion
     (:func:`~polaris_re.analytics.gam_reml.reml_score_general`, ``dispersion_fixed=False``),
@@ -281,7 +298,11 @@ def reml_score_gradient_profiled(
 
     mu = family.link.linkinv(offset_vec + x @ coef)
     deviance = family.deviance(y, mu, weights_vec)
-    sqrt_blocks = penalty_block_square_roots(penalty_blocks)
+    sqrt_blocks = (
+        penalty_sqrt_blocks
+        if penalty_sqrt_blocks is not None
+        else penalty_block_square_roots(penalty_blocks)
+    )
     penalized_deviance = deviance + sum(
         lam * float(np.sum((root.T @ coef) ** 2))
         for lam, root in zip(lambdas, sqrt_blocks, strict=True)
@@ -302,4 +323,5 @@ def reml_score_gradient_profiled(
         offset=offset,
         weights=weights,
         scale=penalized_deviance / residual_df,
+        penalty_sqrt_blocks=sqrt_blocks,
     )

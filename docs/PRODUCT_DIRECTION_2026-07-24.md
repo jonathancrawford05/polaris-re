@@ -4127,3 +4127,11 @@ Provenance: INDEPENDENT comparison (Polaris two-start fit vs `mgcv` `quasipoisso
 - **IMPORTANT (epic, active): `PLAN_wood_outer_solver.md` Slice 3** (§3.1 reparameterisation; thread-axis study first, re-measured on the exact-Hessian search). Source: ADR-243 finding 3 (1st-order — the `cond(H) ~ 1e11` precision floor is unchanged though L1 is now cross-environment reproducible).
 - 2nd-order NICE-TO-HAVE: use `gam_reml_hessian.reml_score_hessian` as level 4's own rho-Hessian so `gam_uncertainty_conformance` stops taking `mgcv`'s `outer.info$hess` as a SHARED INPUT (the disclosure in `VC_CLAIM`). Source: ADR-243 (2nd-order — follow-up of an independent Hessian now existing).
 - 3rd-order parked: a second tier-3 sample of L1 on the exact-Hessian search to re-measure run-to-run reproducibility (Slice 1's was not reproducible); fold into Slice 3's thread/seed-axis study.
+
+---
+
+## Addendum 2026-10-04 — outer-solver slice 3 follow-ups (ADR-244)
+
+- **1st-order (promoted):** none new — Slice 4's gauntlet already owns the reliability claim; its case 3 now has a tier-1 pre-reading.
+- **2nd-order (NICE-TO-HAVE):** Slice 3b, QR-augmented solve (PLAN_wood_outer_solver), released only if a gauntlet case fails on gradient precision. The measured floor is currently 6-100x below the search tolerance.
+- **3rd-order (parked):** a tier-3 re-measurement of the Hessian BEFORE column (needs the pre-change commit run through CI); (audit of `experience_gam_penalized` run in review round 1 and closed: formed `beta'S beta` error 2.4e-9 at its lambda bound — see the Slice 3 session log).

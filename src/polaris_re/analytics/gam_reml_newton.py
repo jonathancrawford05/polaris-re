@@ -231,10 +231,19 @@ def newton_select_lambdas(
                     offset=offset,
                     weights=weights,
                     gamma=gamma,
+                    penalty_sqrt_blocks=sqrt_blocks,
                 )
             else:
                 grad = reml_score_gradient_profiled(
-                    y, x, family, coef, penalty_blocks, lambdas, offset=offset, weights=weights
+                    y,
+                    x,
+                    family,
+                    coef,
+                    penalty_blocks,
+                    lambdas,
+                    offset=offset,
+                    weights=weights,
+                    penalty_sqrt_blocks=sqrt_blocks,
                 )
         except (PolarisComputationError, np.linalg.LinAlgError):
             tally["rejected"] += 1
@@ -261,10 +270,19 @@ def newton_select_lambdas(
                     offset=offset,
                     weights=weights,
                     gamma=gamma,
+                    penalty_sqrt_blocks=sqrt_blocks,
                 )
             else:
                 full = reml_score_hessian_profiled(
-                    y, x, family, coef, penalty_blocks, lambdas, offset=offset, weights=weights
+                    y,
+                    x,
+                    family,
+                    coef,
+                    penalty_blocks,
+                    lambdas,
+                    offset=offset,
+                    weights=weights,
+                    penalty_sqrt_blocks=sqrt_blocks,
                 )
         except (PolarisComputationError, np.linalg.LinAlgError):
             return None
