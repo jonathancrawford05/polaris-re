@@ -235,6 +235,7 @@ def _hessian_at_scale(
     weights: np.ndarray | None,
     scale: float,
     profile_df: float | None,
+    penalty_sqrt_blocks: tuple[np.ndarray, ...] | None = None,
 ) -> np.ndarray:
     """The Hessian with the penalized deviance divided by ``scale``; when
     ``profile_df`` (``n - Mp``) is given, the free-scale Schur correction."""
@@ -258,7 +259,20 @@ def _hessian_at_scale(
     )
     _w0, w1, w2 = d2w_deta2_observed(family, y, eta, weights)
 
-    a_beta = np.stack([a_j @ coef for a_j in a_mats], axis=1)  # (p, M)
+    sqrt_blocks = (
+        penalty_sqrt_blocks
+        if penalty_sqrt_blocks is not None
+        else penalty_block_square_roots(penalty_blocks)
+    )
+    # Outer-solver Slice 3 (ADR-244): A_j beta and beta' A_j beta through each
+    # block's own root — L_j (L_j' beta) and ||L_j' beta||^2 — never by
+    # contracting the formed matrix with `coef`, for the reason the gradient's
+    # term 1 and the score's penalty term (ADR-223) already give: at a 1e11
+    # `lambda_j` the formed contraction carries ~1e-5 of absolute error.
+    a_beta = np.stack(
+        [lam * (root @ (root.T @ coef)) for lam, root in zip(lambdas, sqrt_blocks, strict=True)],
+        axis=1,
+    )  # (p, M)
     b_first = -(h_inv @ a_beta)  # (p, M): b_j = -H^-1 A_j beta
     u_first = x @ b_first  # (n, M)
     # H_j = A_j + X' diag(w' u_j) X
@@ -267,7 +281,13 @@ def _hessian_at_scale(
     p_mats = [h_inv @ h_first[j] for j in range(m)]
 
     d2_logdet_s = d2log_det_s_plus_drho2(penalty_blocks, lambdas)
-    q = np.array([float(coef @ a_j @ coef) for a_j in a_mats], dtype=np.float64)
+    q = np.array(
+        [
+            lam * float(np.sum((root.T @ coef) ** 2))
+            for lam, root in zip(lambdas, sqrt_blocks, strict=True)
+        ],
+        dtype=np.float64,
+    )
 
     out = np.zeros((m, m), dtype=np.float64)
     for j in range(m):
@@ -390,6 +410,7 @@ def reml_score_hessian_profiled(
         weights=weights,
         scale=penalized_deviance / residual_df,
         profile_df=residual_df,
+        penalty_sqrt_blocks=sqrt_blocks,
     )
 
 

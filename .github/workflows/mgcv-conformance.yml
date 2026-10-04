@@ -221,6 +221,8 @@ on:
       - "src/polaris_re/analytics/gam_hessian_conformance.py"
       - "scripts/gam_hessian_probe.R"
       - "scripts/gam_hessian_compare.py"
+      # OUTER-SOLVER EPIC slice 3 (ADR-244) — the rounding-noise floor probe.
+      - "scripts/gam_precision_floor_probe.py"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -3031,6 +3033,22 @@ jobs:
             cat gam_hessian_report.md >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No gam_hessian_probe.json — the R probe above did not produce one."
+          fi
+
+      # OUTER-SOLVER EPIC slice 3 (ADR-244). DIAGNOSTIC, gates nothing, and NOT a
+      # parity comparison: Polaris against itself (BLAS threads, one-ulp
+      # perturbations of its own inputs, float128 on its own expression) on the
+      # select=TRUE N=7 fixture. mgcv's sp is only a point of evaluation.
+      - name: Rounding-noise floor and thread axis at an 11-decade spread (outer-solver slice 3)
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f gam_select_multiterm_free_sp_probe.json ]; then
+            uv run python scripts/gam_precision_floor_probe.py \
+              gam_select_multiterm_free_sp_probe.json gam_precision_floor_report.md
+            cat gam_precision_floor_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_select_multiterm_free_sp_probe.json — the R probe did not produce one."
           fi
 
       - name: Compare the factor-by basis vs smoothCon(s(x, by=fac, bs="cr")) (ladder L3 Stage A)
