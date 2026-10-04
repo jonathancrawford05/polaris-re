@@ -141,3 +141,34 @@ def test_newton_variant_names_the_newton_search_and_keeps_provenance() -> None:
     assert [q.provenance for q in variant.quantities] == [
         q.provenance for q in GAUSSIAN_FREE_SP_CLAIM.quantities
     ]
+
+
+@pytest.mark.parametrize("family_name", ["gaussian", "quasipoisson"])
+def test_exact_hessian_reaches_the_differenced_hessians_point_for_fewer_fits(
+    family_name: str,
+) -> None:
+    """Slice 2 (ADR-243): the exact Hessian replaces the differenced one. Same
+    start, same criterion: the same stopping point (to the gradient tolerance's
+    resolution) and strictly fewer penalized fits, since the exact Hessian
+    costs none beyond the iterate's own."""
+    y, x, family, blocks = _problem(family_name)
+    x0 = np.array([3.0, 3.0])
+    exact = newton_select_lambdas(y, x, family, blocks, x0=x0)
+    differenced = newton_select_lambdas(y, x, family, blocks, x0=x0, hessian="difference")
+    assert exact.converged
+    assert differenced.converged
+    np.testing.assert_allclose(exact.reml_score, differenced.reml_score, atol=1e-6)
+    assert exact.n_function_evals < differenced.n_function_evals
+
+
+def test_newton_rejects_an_unknown_hessian_mode() -> None:
+    y, x, family, blocks = _problem("gaussian")
+    with pytest.raises(PolarisValidationError, match="hessian must be"):
+        newton_select_lambdas(
+            y,
+            x,
+            family,
+            blocks,
+            x0=np.array([3.0, 3.0]),
+            hessian="bogus",  # type: ignore[arg-type]
+        )

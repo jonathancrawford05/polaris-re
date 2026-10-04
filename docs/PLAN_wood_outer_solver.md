@@ -1,7 +1,7 @@
 # Plan: the Wood-shaped outer solver — mgcv's smoothing-parameter search, not a better start
 
 > **STATUS: IN PROGRESS — ACTIVE EPIC (maintainer, 2026-10-03; ADR-241).**
-> Slice 0 (diagnosis) DONE (ADR-241). Slice 1 DONE (ADR-242, tier 3, run 37130685404). **NEXT: Slice 2** (exact Hessian) — read ADR-242 finding 2 first: Slice 3 decides whether `converged` is BLAS-reproducible on L1.
+> Slice 0 (diagnosis) DONE (ADR-241). Slice 1 DONE (ADR-242, tier 3, run 37130685404). Slice 2 DONE (ADR-243, tier 3, run 37153229821). **NEXT: Slice 3** (§3.1 reparameterisation; thread-axis study first) — read ADR-243 finding 3: L1 is now cross-environment reproducible on the exact Hessian, but `cond(H) ~ 1e11` is untouched.
 > This epic takes the active slot from `PLAN_mgcv_capability_ladder.md`, which
 > yields; its remaining start-strategy slice (7c) is SUPERSEDED here (3e/3f
 > were closed by maintainer decision, ADR-240 amendment 1).
@@ -147,17 +147,17 @@ multistart.
 - `[judgement]` If either cell still disagrees: characterised with the probe,
   not patched with a start.
 
-### Slice 2 — the exact Hessian (Wood 2011 §3.4-3.5, Appendix D)
+### Slice 2 — the exact Hessian (Wood 2011 §3.4-3.5, Appendix D) — ✅ DONE 2026-10-03 (ADR-243)
 
 `gam_derivatives` already computes `d beta/d rho` and `dw/drho`; the Hessian
 needs the second-order terms. Derived from the paper, never transcribed from
 `mgcv`. Replaces Slice 1's differenced Hessian.
 
-**DoD.** `[machine]` analytic Hessian equals a central difference of the
-analytic gradient on all three family/link combinations, before composition
-(slice 7d's discipline one order up). `[machine]` Slice 1's two cells re-run at
-tier 3, readings unchanged in verdict. `[machine]` function evaluations per fit
-reported beside L-BFGS-B's.
+**DoD (status).**
+- [x] `[machine]` analytic Hessian equals a central difference of the analytic gradient on all three family/link combinations (five were run), before composition — `tests/test_analytics/test_gam_reml_hessian.py::test_hessian_matches_a_central_difference_of_the_analytic_gradient`.
+- [x] `[machine]` Slice 1's cells re-run at tier 3, readings unchanged in verdict — ADR-243, run 37153229821.
+- [x] `[machine]` function evaluations per fit reported beside L-BFGS-B's — ADR-243 table (exact 11/5/8, differenced 92/37/52, L-BFGS-B 790/65/75).
+- Beyond the DoD: an INDEPENDENT comparison against `mgcv`'s own `outer.info$hess`, five cases, tier 3 (ADR-243 finding 1).
 
 ### Slice 3 — Wood §3.1 reparameterisation through the fit and the derivatives
 
