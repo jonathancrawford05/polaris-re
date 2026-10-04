@@ -24618,3 +24618,38 @@ Not that Wood §3.1's reparameterisation is useless in general: it is **not need
 
 ### Consequences
 `gam_reml_gradient.py`, `gam_reml_hessian.py` changed (arithmetic only); `scripts/gam_precision_floor_probe.py`, `tests/test_analytics/test_gam_penalty_quadratic_forms.py`, one non-gating CI step. PLAN Slice 3 closed with this characterisation; **slice 3b registered** (QR-augmented stable solve; release condition: a Slice 4 gauntlet case fails on gradient precision with `max |g|` within 2x of its tolerance). The N=7 gauntlet case (Slice 4, case 3) has a tier-1 pre-reading only (ledger): Newton from one start gives eta diff 5.7e-5 vs `mgcv`, edf diff 0.004; to be re-read at tier 3 in Slice 4, not here.
+
+
+## ADR-245: Outer-solver slice 4a — the gauntlet, cases 1-3: ONE Newton start meets ADR-221 against `mgcv` on all nine free-`sp` rows (INDEPENDENT, tier 3)
+
+**Status:** Accepted, 2026-10-04. PR title class: **`feat(mgcv-parity)`** — the comparisons are INDEPENDENT. The default is NOT flipped and PLAN Slice 4 is NOT done: cases 4-5 and the surfacing step remain (slice 4b, registered below). Code: `outer=` passed through the L3/L4/L6, fixed-scale and `select=TRUE` fit helpers (default `"lbfgsb"`, every existing caller unchanged); new `gam_newton_gauntlet_conformance.py`, `scripts/gam_newton_gauntlet.py`, one non-gating CI step. Goldens untouched.
+
+### Claim sentence (ADR-193)
+`fit_polaris_gam(outer="newton")` computes the free-`sp` (or fixed-scale) REML selection and fit from a recipe-only design with ONE `initial.spg` start; `mgcv` computes it via `gam(method="REML")`; compared on `eta` and `edf_total` under ADR-221 (plus `log10(sp)` and per-term `edf`, declared, reported, not gated). Each case re-runs an existing fit/compare pair whose producer signature takes the recipe only (the mechanical test passes on each); this module adds no comparison and no tolerance. Headline derived by `evidence_markdown` from each comparison's own claim (via `newton_variant`); `require_parity_evidence` gates the word on every quantity being INDEPENDENT. Per-column: every quantity INDEPENDENT; nothing ECHO or TRANSPORT.
+
+### Mechanism class (ROUTINE step 10)
+Not a new gap. Class (iii) is what this epic closes; no start strategy added. The fixed-scale Newton path deliberately drops ADR-237's unit-gamma seed and best-of-two: the gauntlet's rule is one start.
+
+### Measurement — tier 3, CI run 37204039328, commit `51a88ce`, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+| case | max abs eta diff | edf_total diff | fits | converged | agrees (ADR-221) |
+|---|---:|---:|---:|---|---|
+| gaussian L1 | 2.801e-06 | +0.0003 | 11 | True | True |
+| gaussian L3 (factor-by) | 5.887e-07 | +0.0000 | 10 | True | True |
+| gaussian L4 (parametric) | 5.031e-08 | +0.0000 | 5 | True | True |
+| gaussian L6 (cr+re+ti) | 1.074e-06 | -0.0000 | 7 | True | True |
+| quasipoisson 3b | 4.048e-05 | -0.0008 | 5 | True | True |
+| quasipoisson 3c | 1.120e-05 | -0.0002 | 8 | True | True |
+| quasipoisson fixed scale=2 | 1.162e-05 | -0.0004 | 8 | True | True |
+| quasipoisson fixed scale=6 (ADR-236's far-phi case) | 1.473e-05 | -0.0002 | 9 | True | True |
+| `select=TRUE` N=7 | 5.671e-05 | +0.0038 | 20 | True | True |
+
+The ADR-221 gate is `eta < 2e-2`, `|edf_total diff| < 1.0`; the worst margin is `select=TRUE` at 3.5e2x on `eta`. Tier 1 (R 4.3.3 / mgcv 1.9.1) read identically at every printed digit (ledger, labelled).
+
+### Not claimed
+- Not that the solver is "reliable": nine rows, one fixture per structure, one data draw each, `eta`/`edf_total` only. On `select=TRUE` the earlier pre-reading found two blocks 0.25-0.3 decades from `mgcv`'s `sp` on a plateau; `log10(sp)` is not the gate (ADR-221) and was not re-inspected here.
+- Cases 4 (4-term HGAM, ADR-227) and 5 (reproducibility axes) were not run. The thread axis was measured in ADR-244 on `select=TRUE` only; the seed axis has no operand for Newton.
+- The fixed-scale CI step was NOT made blocking (PLAN Slice 4 case 2): that is a reviewable CI edit and is carried to slice 4b.
+- Level 4 of the ten-cell suite still DISAGREES (standing, ADR-207 decision 3).
+
+### Consequences
+Slice 4b registered (PLAN): the remaining DoD items and the default flip. Release condition: none external; it is the next slice.
