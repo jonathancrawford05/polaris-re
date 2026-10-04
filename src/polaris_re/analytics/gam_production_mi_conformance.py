@@ -91,7 +91,7 @@ smoothing parameters (3 against 5), so it is undefined between them.
 """
 
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import numpy as np
 
@@ -115,6 +115,8 @@ from polaris_re.core.verification import (
 __all__ = [
     "PRODUCTION_MI_CLAIM_SENTENCE",
     "PRODUCTION_MI_MODEL_CLAIM",
+    "PRODUCTION_MI_NEWTON_CLAIM",
+    "PRODUCTION_MI_NEWTON_CLAIM_SENTENCE",
     "ProductionMICaseComparison",
     "RInternalFormComparison",
     "RProductionMIFit",
@@ -309,6 +311,53 @@ tolerances explicitly rather than leaving "agrees" undefined. **No unqualified
 "mgcv parity" claim is made anywhere by this sentence**, and nothing here
 touches conformance level 4's standing disagreement (ADR-190)."""
 
+
+PRODUCTION_MI_NEWTON_CLAIM_SENTENCE = (
+    "polaris_re's PolarisGAM (gam_model.fit_polaris_gam, outer='newton', ONE "
+    "initial.spg start, no multistart) assembles the same four-term penalized "
+    "ANOVA-shaped HGAM — s(attained_age) + s(calendar_year) + "
+    "ti(attained_age, calendar_year) + s(duration_years), poisson(link='log') "
+    "with offset(log(exposure*q_base)) — through assemble_model_design from "
+    "the shared recipe (never mgcv's eta, coef, sp or edf), then selects all 5 "
+    "log10(lambda) by gam_reml_newton.newton_select_lambdas on "
+    "gam_reml.reml_score_general. mgcv computes the same form natively via "
+    "gam(family=poisson(link='log'), offset=log_offset, knots=<the same "
+    "vectors>, method='REML') with free sp (scripts/gam_production_mi_probe.R). "
+    "Compared on eta at the training design and edf_total, against ADR-221's "
+    "committed criterion (max_abs_eta_diff < 2e-2 and abs(edf_total_diff) < "
+    "1.0). The te() axis and the R-internal columns of "
+    "PRODUCTION_MI_MODEL_CLAIM are NOT part of this claim. log10(sp) is not "
+    "gated and coefficients are never compared (PLAN Anchor 2)."
+)
+"""Outer-solver slice 4b (ADR-246), **written before the code**: the claim for
+gauntlet case 4. Deliberately NOT a string-substitution of
+:data:`PRODUCTION_MI_CLAIM_SENTENCE`, which also describes the ``te`` axis and
+the R-internal columns; publishing those under a Newton headline would list
+columns this comparison never computes."""
+
+PRODUCTION_MI_NEWTON_CLAIM = VerificationClaim(
+    claim=PRODUCTION_MI_NEWTON_CLAIM_SENTENCE,
+    quantities=(
+        ComparedQuantity(
+            quantity="eta (Polaris Newton s+s+ti vs mgcv s+s+ti)",
+            left_producer=(
+                "gam_model.fit_polaris_gam(outer='newton') at its own Newton-selected "
+                "log_lambda (5 blocks), design from assemble_model_design"
+            ),
+            right_producer=(
+                "mgcv gam(s(attained_age)+s(calendar_year)+ti(attained_age,calendar_year)"
+                "+s(duration_years), family=poisson(log), method='REML'), predict(type='link')"
+            ),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="edf_total (Polaris Newton s+s+ti vs mgcv s+s+ti)",
+            left_producer="PolarisGAMFit.edf_total at the Newton-selected log_lambda",
+            right_producer="mgcv's own sum(m$edf) at its free-sp REML fit of the same form",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+    ),
+)
 
 # The three mgcv-vs-mgcv quantities below carry ``REFERENCE_INTERNAL``: two real,
 # genuinely independent producers, but BOTH of them are the reference and this
@@ -513,6 +562,7 @@ def fit_production_mi_case(
     multistart: bool = True,
     n_starts: int = 9,
     analytic_gradient: bool = False,
+    outer: Literal["lbfgsb", "newton"] = "lbfgsb",
 ) -> PolarisGAMFit:
     """The independent Python producer: assemble the re-expressed design from
     the shared recipe, select its own 5 lambdas, and fit.
@@ -540,6 +590,10 @@ def fit_production_mi_case(
             the count ADR-226 measured).
         analytic_gradient: passed through (PLAN parity slice 7d). Default
             ``False``.
+        outer: which outer search selects the smoothing parameters. ``"newton"``
+            (outer-solver slice 4b, ADR-246) is ONE ``initial.spg`` start and
+            is mutually exclusive with ``multistart``, so the caller passes
+            ``multistart=False`` with it; ``"lbfgsb"`` is the pinned default.
 
     Raises:
         PolarisValidationError: if the assembled design does not carry the
@@ -566,6 +620,7 @@ def fit_production_mi_case(
         multistart=multistart,
         n_starts=n_starts,
         analytic_gradient=analytic_gradient,
+        outer=outer,
     )
     if len(fit.design["penalty_blocks"]) != _N_PENALTY_BLOCKS:
         raise PolarisValidationError(

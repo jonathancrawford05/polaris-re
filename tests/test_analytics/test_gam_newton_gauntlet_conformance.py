@@ -11,12 +11,18 @@ from polaris_re.analytics.gam_by_factor_conformance import fit_by_factor_free_sp
 from polaris_re.analytics.gam_cr_re_ti_conformance import fit_cr_re_ti_free_sp_case
 from polaris_re.analytics.gam_gaussian_conformance import fit_gaussian_free_sp_case
 from polaris_re.analytics.gam_newton_gauntlet_conformance import (
+    REQUIRED_CASE_PREFIXES,
     GauntletReading,
+    gate_failures,
     gauntlet_claims,
     require_gauntlet_parity_evidence,
     run_gauntlet,
 )
 from polaris_re.analytics.gam_parametric_conformance import fit_parametric_free_sp_case
+from polaris_re.analytics.gam_production_mi_conformance import (
+    PRODUCTION_MI_NEWTON_CLAIM,
+    fit_production_mi_case,
+)
 from polaris_re.analytics.gam_quasipoisson_conformance import fit_quasipoisson_free_sp_case
 from polaris_re.analytics.gam_select_free_sp_conformance import fit_select_free_sp_case
 from polaris_re.core.exceptions import PolarisValidationError
@@ -65,7 +71,7 @@ def test_fixed_scale_newton_is_one_start_per_scale(monkeypatch: pytest.MonkeyPat
 
 def test_a_case_that_raises_is_reported_not_dropped() -> None:
     readings = run_gauntlet({})  # every payload lookup fails
-    assert len(readings) == 8  # six free-scale cells + fixed scale + select
+    assert len(readings) == 9  # six free-scale cells + fixed scale + select + HGAM
     assert all(r.error is not None and not r.agrees for r in readings)
 
 
@@ -98,3 +104,67 @@ def test_gate_passes_on_independent_and_refuses_a_harness_claim() -> None:
 def test_claims_are_deduplicated_by_text() -> None:
     c = _claim(ComparisonProvenance.INDEPENDENT)
     assert len(gauntlet_claims([_reading(c), _reading(c)])) == 1
+
+
+def _row(case: str, *, agrees: bool = True, converged: bool = True) -> GauntletReading:
+    return GauntletReading(
+        case=case,
+        max_abs_eta_diff=0.0,
+        edf_total_diff=0.0,
+        n_function_evals=1,
+        at_bound=False,
+        converged=converged,
+        agrees=agrees,
+        evidence=None,
+    )
+
+
+def test_gate_passes_only_on_both_fixed_scale_rows_agreeing() -> None:
+    ok = [_row("quasipoisson fixed scale=2"), _row("quasipoisson fixed scale=6"), _row("other")]
+    assert gate_failures(ok) == []
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [_row("quasipoisson fixed scale=2")],  # a dropped scale never passes by omission
+        [],
+        [_row("quasipoisson fixed scale=2"), _row("quasipoisson fixed scale=6", agrees=False)],
+        [_row("quasipoisson fixed scale=2"), _row("quasipoisson fixed scale=6", converged=False)],
+    ],
+)
+def test_gate_fails_on_missing_disagreeing_or_unconverged_rows(rows: list[GauntletReading]) -> None:
+    assert gate_failures(rows)
+
+
+def test_gate_surfaces_an_error_row_as_a_failure() -> None:
+    errored = run_gauntlet({})
+    assert any("error=" in f for f in gate_failures(errored))
+
+
+def test_gate_does_not_block_on_other_cases() -> None:
+    rows = [
+        _row("quasipoisson fixed scale=2"),
+        _row("quasipoisson fixed scale=6"),
+        _row("select=TRUE N=7", agrees=False),
+    ]
+    assert gate_failures(rows) == []
+    assert REQUIRED_CASE_PREFIXES == ("quasipoisson fixed scale",)
+
+
+def test_hgam_producer_signature_takes_the_recipe_only_and_defaults_to_lbfgsb() -> None:
+    params = inspect.signature(fit_production_mi_case).parameters
+    assert params["outer"].default == "lbfgsb"
+    assert not {"eta", "coef", "sp", "edf", "r_fit", "anova", "te"} & set(params)
+
+
+def test_hgam_newton_claim_declares_only_the_two_columns_it_compares() -> None:
+    assert [q.quantity.split(" ")[0] for q in PRODUCTION_MI_NEWTON_CLAIM.quantities] == [
+        "eta",
+        "edf_total",
+    ]
+    assert all(
+        q.provenance is ComparisonProvenance.INDEPENDENT
+        for q in PRODUCTION_MI_NEWTON_CLAIM.quantities
+    )
+    assert "multistart=True" not in PRODUCTION_MI_NEWTON_CLAIM.claim

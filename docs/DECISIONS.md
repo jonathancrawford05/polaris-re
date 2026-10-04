@@ -24653,3 +24653,33 @@ The ADR-221 gate is `eta < 2e-2`, `|edf_total diff| < 1.0`; the worst margin is 
 
 ### Consequences
 Slice 4b registered (PLAN): the remaining DoD items and the default flip. Release condition: none external; it is the next slice.
+
+
+## ADR-246: Outer-solver slice 4b — gauntlet case 4: ONE Newton start reproduces `mgcv` on ADR-227's 4-term HGAM in 8 fits (INDEPENDENT, tier 3); the fixed-scale rows are now a blocking CI gate
+
+**Status:** Accepted, 2026-10-04. PR title class: **`feat(mgcv-parity)`** — the new comparison is INDEPENDENT. PLAN Slice 4 is NOT done: case 5, the `epsilon_rel` question and the default flip remain (slice 4c, registered below). Code: `outer=` on `fit_production_mi_case`; `PRODUCTION_MI_NEWTON_CLAIM`; gauntlet case 4; `gate_failures` / `REQUIRED_CASE_PREFIXES`; `scripts/gam_newton_gauntlet.py --gate`; one blocking CI step. Goldens untouched; no tolerance changed.
+
+### Claim sentence (ADR-193), written before the code
+`fit_polaris_gam(outer="newton")`, ONE `initial.spg` start, assembles ADR-227's four-term ANOVA HGAM (`s(attained_age)+s(calendar_year)+ti(attained_age,calendar_year)+s(duration_years)`, `poisson(log)`, offset) from the shared recipe and selects all 5 `log10(lambda)` by `newton_select_lambdas`; `mgcv` computes it via `gam(..., method="REML")` with free `sp`; compared on `eta` and `edf_total` under ADR-221. Mechanical test: `fit_production_mi_case(r_case: RProductionMIRecipe, ...)` has no `te`/`anova` key (the pinned signature test still holds; `outer` is a search control, added to the pin). Both columns INDEPENDENT; nothing ECHO or TRANSPORT.
+
+The claim is its own object, not a string substitution of `PRODUCTION_MI_CLAIM_SENTENCE`: that sentence also describes the `te()` axis and R-internal columns, and `newton_variant`'s replacement would have produced `...newton_select_lambdas (...)_multistart`. The Newton claim declares only the two columns this comparison computes.
+
+### Measurement — tier 3, CI run 37213172762, commit `a7fca15`, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+| case | max abs eta diff | edf_total diff | fits | converged | agrees (ADR-221) |
+|---|---:|---:|---:|---|---|
+| **4-term HGAM s+s+ti+s (poisson, ADR-227)** | **5.212e-05** | **+0.0048** | **8** | True | True |
+| the nine ADR-245 rows | unchanged at every printed digit in run 37213172762 (2.801e-06 … 5.671e-05); the later head run 37213760199 read `select=TRUE` at 5.674e-05 / +0.0039, so "every printed digit" is not a stability claim across runs | | | True | True ×9 |
+
+ADR-227's pinned configuration, `multistart=True, n_starts=9`, used 1326-1392 function evaluations on this recipe for `3.18e-05` / `-0.0027`. One Newton start meets the same gate in 8 fits. (Evaluation counts are not the same unit — Newton's fits carry an analytic gradient and Hessian — so this is a magnitude, not a ratio.) Tier 1 (R 4.3.3 / mgcv 1.9.1) read identically at every printed digit (ledger, labelled).
+
+### Blocking gate (PLAN Slice 4 case 2)
+`scripts/gam_newton_gauntlet.py <dir> /dev/null --gate` exits 1 unless both `quasipoisson fixed scale` rows (2 and 6) converge and meet ADR-221; a dropped row, an error row, or a non-converged fit fails it. It is a separate step with no `continue-on-error`; the reporting step stays non-blocking. It re-fits all ten cases to gate two rows (about double that step's cost): kept on purpose, because it is simpler and the gate stays independent of the `continue-on-error` report step; persisting the report step's readings for the gate to read is the alternative. The gated set is `REQUIRED_CASE_PREFIXES`; widening it is a reviewable edit. Run 37213172762 passed it. Nothing else gates: the other nine rows are reported.
+
+### Not claimed
+- Not "reliable": ten rows, one fixture per structure, one data draw each, `eta`/`edf_total` only. The HGAM is one draw of one recipe.
+- `te()` axis and the R-internal columns of ADR-227 were not re-run under Newton.
+- Case 5 (reproducibility axes), the `epsilon_rel` question, the default flip, and `log10(sp)` on `select=TRUE` are not done.
+- Level 4 of the ten-cell suite still DISAGREES (standing, ADR-207 decision 3).
+
+### Consequences
+Slice 4c registered (PLAN): case 5 (thread axis only for Newton), `epsilon_rel` put to the maintainer, `log10(sp)` read on `select=TRUE`, then the default flip. Release condition: none external.

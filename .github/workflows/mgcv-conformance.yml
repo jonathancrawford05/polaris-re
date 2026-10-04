@@ -3035,6 +3035,15 @@ jobs:
             cat gam_newton_gauntlet_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # OUTER-SOLVER EPIC slice 4b (ADR-246): REQUIRED GATE — PLAN Slice 4 case 2,
+      # the 2026-10-01 maintainer decision. Quasipoisson fixed scale (2 and 6,
+      # ADR-236's far-phi case) on the Newton search must meet ADR-221. The
+      # tuple of gated rows is gam_newton_gauntlet_conformance.REQUIRED_CASE_PREFIXES.
+      - name: Gate the Newton fixed-scale rows (outer-solver slice 4b)
+        if: always()
+        run: |
+          uv run python scripts/gam_newton_gauntlet.py . /dev/null --gate
+
       # OUTER-SOLVER EPIC slice 2 (ADR-243). DIAGNOSTIC, gates nothing: Polaris's
       # exact REML Hessian (producer sees the recipe only) against mgcv's own
       # outer.info$hess. The headline is derived from the declared claim.
