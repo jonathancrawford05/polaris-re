@@ -6,7 +6,7 @@
 **Predecessors:** ADR-189 + amendment 1 (the conformance suite and its first run),
 ADR-185 through ADR-188 (the penalized fitter this epic reuses).
 **Status:** **IN PROGRESS. Slice 8 PROMOTED 2026-10-03 to its own ACTIVE epic,
-`docs/PLAN_wood_outer_solver.md` (ADR-241) — that file now owns it.** (History:
+`docs/PLAN_wood_outer_solver.md` (ADR-241) — that file now owns it.** **Update 2026-10-04: outer-solver slices 0-3 DONE (ADR-241..244); NEXT is outer-solver Slice 4 — see `docs/CONTINUATION_wood_outer_solver.md`.** (History:
 yielded the slot to `PLAN_gam_production_wiring.md` slice 1 on 2026-09-14, then
 the ladder held it; see the banners at the end of this file.)
 — slice 1 is **DONE (raw path only)** (2026-08-15b); slice

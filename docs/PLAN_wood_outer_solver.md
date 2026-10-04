@@ -1,7 +1,7 @@
 # Plan: the Wood-shaped outer solver — mgcv's smoothing-parameter search, not a better start
 
 > **STATUS: IN PROGRESS — ACTIVE EPIC (maintainer, 2026-10-03; ADR-241).**
-> Slice 0 (diagnosis) DONE (ADR-241). Slice 1 DONE (ADR-242, tier 3, run 37130685404). Slice 2 DONE (ADR-243, tier 3, run 37153229821). **NEXT: Slice 3** (§3.1 reparameterisation; thread-axis study first) — read ADR-243 finding 3: L1 is now cross-environment reproducible on the exact Hessian, but `cond(H) ~ 1e11` is untouched.
+> Slice 0 (diagnosis) DONE (ADR-241). Slice 1 DONE (ADR-242, tier 3, run 37130685404). Slice 2 DONE (ADR-243, tier 3, run 37153229821). Slice 3 DONE as a CHARACTERISATION (ADR-244, tier 3, run 37167311644): the thread axis already passes on the exact-Hessian Newton search without a reparameterisation, and the rounding noise was the gradient/Hessian penalty quadratic forms (fixed, two substitutions), not a missing transform. **NEXT: Slice 4** (the gauntlet). Slice 3b (QR-augmented solve) is registered with a release condition.
 > This epic takes the active slot from `PLAN_mgcv_capability_ladder.md`, which
 > yields; its remaining start-strategy slice (7c) is SUPERSEDED here (3e/3f
 > were closed by maintainer decision, ADR-240 amendment 1).
@@ -159,7 +159,7 @@ needs the second-order terms. Derived from the paper, never transcribed from
 - [x] `[machine]` function evaluations per fit reported beside L-BFGS-B's — ADR-243 table (exact 11/5/8, differenced 92/37/52, L-BFGS-B 790/65/75).
 - Beyond the DoD: an INDEPENDENT comparison against `mgcv`'s own `outer.info$hess`, five cases, tier 3 (ADR-243 finding 1).
 
-### Slice 3 — Wood §3.1 reparameterisation through the fit and the derivatives
+### Slice 3 — Wood §3.1 reparameterisation through the fit and the derivatives — ✅ DONE 2026-10-04 as a characterisation (ADR-244)
 
 `gam_reml_appendix_b` builds the transform and the stable root `E`, wired today
 to `log|S|+` only. Carry it through `beta_hat`, `log|X'WX+S|` and every
@@ -170,10 +170,13 @@ spreads, which is exactly where §1's plateau sits.
 amendment 1's thread-axis study with the transform applied, BEFORE wiring it
 everywhere. It either confirms this slice or redirects it.
 
-**DoD.** `[machine]` both reproducibility axes (seed, BLAS threads) re-measured
-on ADR-222 amendment 1's protocol, beside its readings. `[machine]`
-`beta' S beta` accuracy against `float128` at the 11-decade spread, beside
-slice 7h's `6.8e-05`.
+**DoD (status).**
+- [x] `[machine]` both reproducibility axes re-measured on ADR-222 amendment 1's protocol, beside its readings — thread axis: ADR-244 finding 1 (tier 3, d eta 2.8e-07 vs 0.356). **Seed axis: NOT MET because it has no operand** — Newton from `initial.spg` has no random component.
+- [x] `[machine]` `beta' S beta` against `float128` at the 11-decade spread, beside slice 7h's `6.8e-05` — ADR-244 finding 4 (tier 3): evaluation error 7.1e-15; the 1.8e-4 is a representation gap between two definitions of truth.
+- Outcome: the transform was **not wired**. Four hypotheses refuted (ADR-244, ledger); the real defect (derivative path's formed quadratic forms) was fixed instead.
+
+### Slice 3b — QR-augmented stable solve (Wood 2011 §3.2) — REGISTERED, not started
+Factor `[sqrt(W) X; E]` instead of forming `X'WX + S`, so the factor's condition number is `sqrt(cond H)` (~6e5, not 3.5e11) for the fit, `log|H|` and the `tr(H^-1 S_j)` terms. Needs a non-negative `W` (the observed weight can be negative for a non-canonical link), so the cloglog case needs a design decision first. **Release condition:** a Slice 4 gauntlet case fails on gradient precision with `max |g|` within 2x of its tolerance, or ADR-244's `S`-representation floor (gradient 2.6e-05 at `mgcv`'s point) comes within 10x of a tolerance. Until then it is not needed: the measured floor is 6-100x below the search's tolerance. Mechanism class (iv).
 
 ### Slice 4 — surface: one deterministic solver for every free-`sp` fit
 
@@ -187,7 +190,7 @@ diagnostics.
 2. quasipoisson fixed `scale=6` (ADR-236) — **and** that CI step made
    blocking, per the 2026-10-01 maintainer decision carried from slice 8;
 3. the `select=TRUE` N=7 fixture: reach the `523.645` basin (ADR-226), not on
-   3 of 10 seeds but by construction;
+   3 of 10 seeds but by construction. (Slice 3 left a tier-1-only pre-reading: one start, eta diff 5.7e-05, edf diff 0.004 vs `mgcv`, 20 fits — to be re-read at tier 3 here.);
 4. wiring slice 1's 4-term HGAM (ADR-227);
 5. both reproducibility axes pass (ADR-222 amendment 1's protocol).
 
