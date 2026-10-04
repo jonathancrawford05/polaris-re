@@ -14,12 +14,12 @@ published table's headline is derived (``evidence_markdown``), never written by
 hand, and :func:`require_gauntlet_parity_evidence` gates the word "parity" on
 every quantity being INDEPENDENT.
 
-Cases carried from the PLAN's gauntlet (cases 4 and 5 — the 4-term HGAM wiring
-and the reproducibility axes — are NOT here; see the ADR).
+Cases carried from the PLAN's gauntlet: 1-3 (ADR-245) and 4, the 4-term HGAM
+(ADR-246). Case 5 (the reproducibility axes) is NOT here; see the ADR.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from typing import cast
 
@@ -44,6 +44,12 @@ from polaris_re.analytics.gam_parametric_conformance import (
     compare_parametric_free_sp_case,
     fit_parametric_free_sp_case,
 )
+from polaris_re.analytics.gam_production_mi_conformance import (
+    PRODUCTION_MI_NEWTON_CLAIM,
+    RProductionMIPayload,
+    compare_production_mi_case,
+    fit_production_mi_case,
+)
 from polaris_re.analytics.gam_quasipoisson_conformance import (
     compare_quasipoisson_free_sp_case,
     fit_quasipoisson_free_sp_case,
@@ -66,7 +72,9 @@ from polaris_re.core.verification import (
 )
 
 __all__ = [
+    "REQUIRED_CASE_PREFIXES",
     "GauntletReading",
+    "gate_failures",
     "gauntlet_claims",
     "payloads_from_probe_dir",
     "require_gauntlet_parity_evidence",
@@ -172,6 +180,7 @@ def payloads_from_probe_dir(
         "quasipoisson_3c": dispersion_draw_payload(load("gam_dispersion_two_stage_probe.json")),
         "fixed_scale": load("gam_quasipoisson_fixed_scale_probe.json"),
         "select_n7": load("gam_select_multiterm_free_sp_probe.json"),
+        "production_mi": load("gam_production_mi_probe.json"),
     }
 
 
@@ -195,7 +204,20 @@ def run_gauntlet(payloads: dict[str, dict[str, object]]) -> list[GauntletReading
             )
         ],
     )
+    hgam_label = "4-term HGAM s+s+ti+s (poisson, ADR-227)"
+    readings += _guarded(hgam_label, lambda: [_hgam(hgam_label, payloads["production_mi"])])
     return readings
+
+
+def _hgam(label: str, payload: dict[str, object]) -> GauntletReading:
+    """Case 4: ADR-227's four-term HGAM, ``anova`` axis only. ``multistart=False``
+    because ``outer="newton"`` is its own single start. The reading carries
+    :data:`PRODUCTION_MI_NEWTON_CLAIM` (the two columns this comparison computes),
+    not the comparison's own ``te``/R-internal claim."""
+    typed = cast(RProductionMIPayload, payload)
+    fit = fit_production_mi_case(typed, multistart=False, outer="newton")
+    comparison = compare_production_mi_case(fit, typed, target="anova")
+    return replace(_reading(label, fit, comparison), evidence=PRODUCTION_MI_NEWTON_CLAIM)
 
 
 def _one_as_list(
@@ -238,6 +260,36 @@ def _guarded(label: str, run: Callable[[], list[GauntletReading]]) -> list[Gaunt
                 error=repr(exc),
             )
         ]
+
+
+REQUIRED_CASE_PREFIXES: tuple[str, ...] = ("quasipoisson fixed scale",)
+"""The gauntlet rows a CI step BLOCKS on (PLAN Slice 4 case 2, the 2026-10-01
+maintainer decision carried from parity slice 8: quasipoisson fixed ``scale``,
+ADR-236's far-phi case, made a blocking check on the Newton search). Widening
+this tuple is a reviewable edit; narrowing it is the move the epic has refused
+twice. Every other case is reported, not gated."""
+
+_REQUIRED_MIN_ROWS = 2  # scale = 2 and scale = 6
+
+
+def gate_failures(
+    readings: list[GauntletReading],
+    required_prefixes: tuple[str, ...] = REQUIRED_CASE_PREFIXES,
+) -> list[str]:
+    """Why the blocking gate fails, empty when it passes. A required case with
+    too few rows (a dropped scale), an error row, a non-converged fit or an
+    ADR-221 disagreement each fail it; a missing row never passes by omission."""
+    failures: list[str] = []
+    for prefix in required_prefixes:
+        rows = [r for r in readings if r.case.startswith(prefix)]
+        if len(rows) < _REQUIRED_MIN_ROWS:
+            failures.append(f"{prefix!r}: {len(rows)} row(s), expected >= {_REQUIRED_MIN_ROWS}")
+        failures += [
+            f"{r.case}: error={r.error}" if r.error else f"{r.case}: ADR-221 disagreement"
+            for r in rows
+            if not (r.agrees and r.converged)
+        ]
+    return failures
 
 
 def gauntlet_claims(readings: list[GauntletReading]) -> list[VerificationClaim]:

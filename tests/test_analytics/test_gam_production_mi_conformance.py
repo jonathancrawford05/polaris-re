@@ -185,7 +185,9 @@ def test_fit_production_mi_case_signature_takes_no_r_fit_output() -> None:
     producing function cannot read either of ``mgcv``'s fits even if a caller
     hands it the wider payload."""
     params = set(inspect.signature(fit_production_mi_case).parameters)
-    assert params == {"r_case", "multistart", "n_starts", "analytic_gradient"}
+    # outer= (ADR-246) is a search control, not an mgcv output: the pin still excludes
+    # every R-side fit key, which is the mechanical test.
+    assert params == {"r_case", "multistart", "n_starts", "analytic_gradient", "outer"}
 
     hints = typing.get_type_hints(fit_production_mi_case)
     assert hints["r_case"] is RProductionMIRecipe
