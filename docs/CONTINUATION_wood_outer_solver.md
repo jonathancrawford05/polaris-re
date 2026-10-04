@@ -3,7 +3,8 @@
 **Plan:** `docs/PLAN_wood_outer_solver.md`
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md`
 **Created:** 2026-10-03, by the epic-start session (ADR-241).
-**Status:** **IN PROGRESS — ACTIVE EPIC. Slices 0-3 and 4a DONE. NEXT: Slice 4b.**
+**Status:** **IN PROGRESS — ACTIVE EPIC. Slices 0-3, 4a and 4b DONE. NEXT: Slice 4c.**
+Slice 4b (ADR-246, tier 3 run 37213172762, `sha256:0d54c192…`): `feat(mgcv-parity)`, INDEPENDENT — case 4, ADR-227's 4-term HGAM, one Newton start: eta 5.212e-05, edf_total +0.0048, 8 fits, agrees; the nine 4a rows unchanged. The quasipoisson fixed-scale rows are now a blocking CI step (`--gate`). Default NOT flipped; case 5 not run.
 Slice 4a (ADR-245, tier 3 run 37204039328, `sha256:0d54c192…`): `feat(mgcv-parity)`, INDEPENDENT — one Newton start meets ADR-221 on all nine rows (six free-scale cells, fixed scale 2 and 6, `select=TRUE` N=7); `scripts/gam_newton_gauntlet.py`. Default NOT flipped; cases 4-5 not run.
 Slice 3 (ADR-244, tier 3 run 37167311644, `sha256:0d54c192…`): characterisation, `harness(mgcv-parity)` — nothing INDEPENDENT landed. Newton+exact Hessian is thread-reproducible with no reparameterisation (d eta 2.8e-07 vs 0.356 for multistart); the gradient's rounding noise (6.5e-05 at an 11-decade spread) was term 1 contracting the formed block, now a sum of squares (4.7e-08), same for the Hessian. Four transform hypotheses refuted.
 Slice 2 (ADR-243): exact Hessian equals `mgcv`'s `outer.info$hess` to <= 6e-8 (scaled) on five family/link cases, INDEPENDENT, tier 3 run 37153229821 (`sha256:0d54c192…`); Newton with it needs 11/5/8 fits vs 92/37/52 differenced vs 790/65/75 L-BFGS-B; L1 now reads identically at tier 1 and tier 3.
@@ -18,7 +19,8 @@ Slice 1 (ADR-242): `fit_polaris_gam(outer="newton")` agrees with mgcv on gaussia
 | **2** | exact Hessian (Wood 2011 §3.4-3.5, App. D) | **DONE 2026-10-03 (ADR-243)** — `gam_reml_hessian.py`; INDEPENDENT vs `outer.info$hess`, tier 3; `newton_select_lambdas(hessian="exact")` default |
 | **3** | §3.1 reparameterisation through fit + derivatives; thread-axis study first | **DONE 2026-10-04 (ADR-244)** as a characterisation; transform not wired; derivative-path quadratic forms fixed; 3b (QR-augmented solve) registered, not released |
 | **4a** | gauntlet cases 1-3 | **DONE 2026-10-04 (ADR-245)** — tier 3, INDEPENDENT |
-| **4b** | case 2 blocking CI step; case 4 HGAM; case 5 thread axis; `epsilon_rel` question; default flip | **NEXT** |
+| **4b** | case 2 blocking CI step; case 4 HGAM | **DONE 2026-10-04 (ADR-246)** — tier 3, INDEPENDENT |
+| **4c** | case 5 thread axis; `epsilon_rel` question; `log10(sp)` on `select=TRUE`; default flip | **NEXT** |
 
 ## What the next session needs to know
 
@@ -65,3 +67,10 @@ Slice 1 (ADR-242): `fit_polaris_gam(outer="newton")` agrees with mgcv on gaussia
 - Case 3's earlier tier-1 pre-reading is superseded by the tier-3 row (eta 5.671e-05, edf +0.0038, 20 fits).
 - Slice 4b must also read the `log10(sp)` column on `select=TRUE` (two plateau blocks differed by 0.25-0.3 decades in the pre-reading) before any "reliable" wording; ADR-221 does not gate it.
 - No perf row: every touched `src/` file is a `*_conformance.py` outside the probe closure (ADR-177 amendment 2; `sys.modules` check returned `[]`).
+
+## Added by slice 4b (2026-10-04)
+- New: `outer=` on `fit_production_mi_case` (pass `multistart=False` with it); `PRODUCTION_MI_NEWTON_CLAIM` (its own claim, two columns — do NOT run `newton_variant` over the multistart claim, its replacement garbles the text); `gate_failures`, `REQUIRED_CASE_PREFIXES`; `gam_newton_gauntlet.py --gate`; one blocking CI step. No perf row (`sys.modules` closure check returned `[]`).
+- The gate is separate from the report step on purpose: the report step is `continue-on-error`, which would swallow the exit code. Widening `REQUIRED_CASE_PREFIXES` is the reviewable edit if the maintainer wants more rows blocking.
+- The gate has unit tests (missing/disagreeing/unconverged/error rows) but has never been seen failing in CI.
+- Slice 4c still owes: `log10(sp)` on `select=TRUE` before any "reliable" wording; `epsilon_rel` put to the maintainer; case 5 thread axis (seed axis has no operand for Newton).
+- Mid-session CI timing: a full `mgcv-conformance.yml` dispatch took ~7 minutes, not ~1; the "~1 minute" in the routine file is the R-reference job alone.
