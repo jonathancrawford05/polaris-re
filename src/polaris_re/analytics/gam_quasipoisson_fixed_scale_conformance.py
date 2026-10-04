@@ -33,7 +33,7 @@ input to Polaris's scorer, so nothing it returns is parity evidence.
 """
 
 from dataclasses import replace
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import numpy as np
 
@@ -235,6 +235,7 @@ def fit_quasipoisson_fixed_scale_case(
     *,
     multistart: bool = False,
     unit_gamma_seed: bool = True,
+    outer: Literal["lbfgsb", "newton"] = "lbfgsb",
 ) -> PolarisFixedScaleFits:
     """The independent Python producer: for each supplied ``phi``, assemble,
     select own lambda under the known-scale criterion with ``gamma = phi``, fit.
@@ -247,6 +248,13 @@ def fit_quasipoisson_fixed_scale_case(
     7's cold-start-only behaviour (ADR-236's recorded far-``phi`` disagreement).
     """
     model, data, y = _model_and_data(r_case)
+    if outer == "newton":
+        # Outer-solver epic Slice 4: ONE start (initial.spg), no unit-gamma seed,
+        # no best-of-two -- the gauntlet's own rule.
+        return [
+            fit_polaris_gam(model, data, y, gamma=float(phi), outer="newton")
+            for phi in r_case["scales"]
+        ]
     if not unit_gamma_seed:
         return [
             fit_polaris_gam(model, data, y, gamma=float(phi), multistart=multistart)

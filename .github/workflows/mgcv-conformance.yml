@@ -215,6 +215,9 @@ on:
       - "src/polaris_re/analytics/gam_reml_newton.py"
       - "src/polaris_re/analytics/gam_reml_gradient.py"
       - "scripts/gam_newton_outer_check.py"
+      # OUTER-SOLVER EPIC slice 4 (ADR-245) — the gauntlet.
+      - "src/polaris_re/analytics/gam_newton_gauntlet_conformance.py"
+      - "scripts/gam_newton_gauntlet.py"
       # OUTER-SOLVER EPIC slice 2 (ADR-243) — the exact Hessian, its mgcv
       # comparison module, and the probe that exports mgcv's outer Hessian.
       - "src/polaris_re/analytics/gam_reml_hessian.py"
@@ -3017,6 +3020,19 @@ jobs:
           uv run python scripts/gam_newton_outer_check.py . gam_newton_outer_report.md
           if [ -f gam_newton_outer_report.md ]; then
             cat gam_newton_outer_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # OUTER-SOLVER EPIC slice 4 (ADR-245). DIAGNOSTIC, gates nothing: the
+      # gauntlet — ONE Newton start on the six free-scale cells, quasipoisson
+      # fixed scale 2 and 6, and the select=TRUE N=7 fixture, under ADR-221.
+      # Headline derived from each comparison's declared claim.
+      - name: Newton gauntlet — one start vs mgcv on every free-sp case (outer-solver slice 4)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python scripts/gam_newton_gauntlet.py . gam_newton_gauntlet_report.md
+          if [ -f gam_newton_gauntlet_report.md ]; then
+            cat gam_newton_gauntlet_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # OUTER-SOLVER EPIC slice 2 (ADR-243). DIAGNOSTIC, gates nothing: Polaris's

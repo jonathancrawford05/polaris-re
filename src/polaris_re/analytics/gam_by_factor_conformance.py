@@ -48,7 +48,7 @@ agreements; this module's own test suite carries the same strip/perturb pair.
 """
 
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import numpy as np
 
@@ -425,7 +425,11 @@ the R probe's own free-sp reference reads a reference-term `log10(sp)` near
 
 
 def fit_by_factor_free_sp_case(
-    r_case: RByFactorFreeSpRecipe, *, multistart: bool = False, initial_sp_start: bool = False
+    r_case: RByFactorFreeSpRecipe,
+    *,
+    multistart: bool = False,
+    initial_sp_start: bool = False,
+    outer: Literal["lbfgsb", "newton"] = "lbfgsb",
 ) -> PolarisGAMFit:
     """The independent Python producer: assemble the design, select its own
     lambda, and fit — never reading ``mgcv``'s ``eta``/``coef``/``sp``/``edf``
@@ -455,6 +459,7 @@ def fit_by_factor_free_sp_case(
         bounds=_FREE_SP_BOUNDS,
         multistart=multistart,
         initial_sp_start=initial_sp_start,
+        outer=outer,
     )
 
 

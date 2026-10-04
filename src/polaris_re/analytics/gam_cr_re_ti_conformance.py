@@ -38,7 +38,7 @@ raises, not a compared quantity.
 """
 
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import numpy as np
 
@@ -403,7 +403,11 @@ CR_RE_TI_FREE_SP_CLAIM = VerificationClaim(
 
 
 def fit_cr_re_ti_free_sp_case(
-    r_case: RCrReTiFreeSpRecipe, *, multistart: bool = False, initial_sp_start: bool = False
+    r_case: RCrReTiFreeSpRecipe,
+    *,
+    multistart: bool = False,
+    initial_sp_start: bool = False,
+    outer: Literal["lbfgsb", "newton"] = "lbfgsb",
 ) -> PolarisGAMFit:
     """The independent Python producer for the free-``sp`` regime — never
     reads ``mgcv``'s ``eta``/``coef``/``mgcv_sp``/``edf`` (the recipe type has
@@ -416,6 +420,7 @@ def fit_cr_re_ti_free_sp_case(
         bounds=_FREE_SP_BOUNDS,
         multistart=multistart,
         initial_sp_start=initial_sp_start,
+        outer=outer,
     )
 
 

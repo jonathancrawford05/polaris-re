@@ -49,7 +49,7 @@ pair.
 """
 
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import numpy as np
 
@@ -439,7 +439,11 @@ _FREE_SP_BOUNDS = (-2.0, 12.0)
 
 
 def fit_parametric_free_sp_case(
-    r_case: RParametricFreeSpRecipe, *, multistart: bool = False, initial_sp_start: bool = False
+    r_case: RParametricFreeSpRecipe,
+    *,
+    multistart: bool = False,
+    initial_sp_start: bool = False,
+    outer: Literal["lbfgsb", "newton"] = "lbfgsb",
 ) -> PolarisGAMFit:
     """The independent Python producer: assemble the design, select the
     smooth's own lambda, and fit — never reading ``mgcv``'s
@@ -466,6 +470,7 @@ def fit_parametric_free_sp_case(
         bounds=_FREE_SP_BOUNDS,
         multistart=multistart,
         initial_sp_start=initial_sp_start,
+        outer=outer,
     )
 
 
