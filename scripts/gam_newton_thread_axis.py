@@ -13,9 +13,11 @@ MEASUREMENT (own criterion). The seed axis has no operand: Newton from
 
 import json
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
-from threadpoolctl import threadpool_limits
+from threadpoolctl import threadpool_info, threadpool_limits
 
 from polaris_re.analytics.gam_newton_gauntlet_conformance import (
     payloads_from_probe_dir,
@@ -24,9 +26,21 @@ from polaris_re.analytics.gam_newton_gauntlet_conformance import (
 
 
 def main(probe_dir: Path, out: Path | None) -> None:
+    effective: dict[int, set[int]] = {}
+
+    @contextmanager
+    def limit(n: int) -> Iterator[None]:
+        # Record the BLAS thread counts actually in force (PR #256 review P2-1): a
+        # requested limit does not mean a multithreaded path was exercised.
+        with threadpool_limits(limits=n, user_api="blas"):
+            effective.setdefault(n, set()).update(
+                int(i["num_threads"]) for i in threadpool_info() if i["user_api"] == "blas"
+            )
+            yield
+
     readings = run_thread_axis(
         payloads_from_probe_dir(lambda name: json.loads((probe_dir / name).read_text())),
-        lambda n: threadpool_limits(limits=n, user_api="blas"),
+        limit,
     )
     lines = [
         "",
@@ -45,6 +59,13 @@ def main(probe_dir: Path, out: Path | None) -> None:
             f"| {r.error or ''} |"
             for r in readings
         ],
+        "",
+        "BLAS threads in force per requested limit (from `threadpool_info()`): "
+        + ", ".join(f"{k} -> {sorted(v)}" for k, v in sorted(effective.items()))
+        + ". OpenBLAS runs small operations single-threaded whatever the limit, so rows at "
+        "~1e-13 may never have taken a multithreaded path: they show that path was not "
+        "exercised, not that the fit is reproducible there. The informative rows are the "
+        "ones with a nonzero movement (gaussian L1, `select=TRUE`).",
         "",
         "ADR-222 amendment 1 beside it (multistart(9) + L-BFGS-B, select=TRUE N=7, "
         "cross-thread): max d eta 0.356, d edf_total 10.002.",

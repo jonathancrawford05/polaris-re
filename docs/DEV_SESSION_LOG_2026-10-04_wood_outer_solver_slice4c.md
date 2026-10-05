@@ -4,7 +4,7 @@
 **Registered-prompt vs ROUTINE file:** the box says the epic is at ADR-207 and to take the parity PLAN's next slice; the ROUTINE file's ACTIVE EPIC POINTER (ADR-241) names `PLAN_wood_outer_solver.md`, now at ADR-246. ROUTINE file wins; the box is stale (maintainer edit).
 
 ## Baseline
-`uv run pytest tests/ -m "not slow"` (R installed): the run was stopped at the first failure (`-x`): `test_loaded_ilec_feeds_tensor_mi_surface`, FileNotFoundError for `data/mortality_tables/soa_vbt_2015_male_smoker.csv` — the standing generated-table failure class (pymort source unavailable). 590 passed before it. After the change: `tests/test_analytics/test_gam_newton_gauntlet_conformance.py` 25 passed (+5 new); `tests/qa/` 85 passed, 9 skipped, goldens untouched.
+Corrected after PR #256 review P1-1 (the first run was a `-x` run that stopped at the first failure and is not a baseline). Full `uv run pytest tests/ -m "not slow"`, R installed, mortality tables NOT generated (pymort unavailable here): **3910 passed, 22 skipped, 5 failed** — the same 5 standing failures as slices 3 and 4a (`test_loaded_ilec_feeds_tensor_mi_surface` and four `test_synthetic_block.py::TestCalibratedPremiums`, all missing generated mortality CSVs). The reviewer's environment, with the tables present, read 4044 / 38 / 0. `tests/qa/`: 85 passed, 9 skipped, goldens untouched.
 
 ## Oracle Version
 Tier 1: R 4.3.3 / mgcv 1.9.1 (apt after `apt-get update`), `OPENBLAS_NUM_THREADS=1`. Tier 2 unavailable (docker binary, no daemon check beyond `docker info` header). Tier 3: run 37232079212 on `7258f0f`, R 4.6.1 / mgcv 1.9.4, `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`. The job succeeded; step output was read from the job log (the run-level log endpoint is blocked by the proxy).
@@ -35,3 +35,6 @@ Case 5 thread axis: measured on all nine cases (ADR-247). Seed axis: no operand.
 
 ## Open / follow-ups
 Slice 4c continues: the INDEPENDENT `log10(sp)` comparison on `select=TRUE` (the thread axis shows it is the least stable column, 7.3e-04), `epsilon_rel` to the maintainer, then the default flip. Mechanism class (iii) is already owned by this epic; no new slice registered.
+
+## PR #256 review response
+P1-1 baseline corrected above. P2-1: the script now records `threadpool_info()` per requested limit (1->[1], 2->[2], 4->[4] locally) and the report carries the caveat that ~1e-13 rows may never have taken a multithreaded path; the informative rows are L1 and `select=TRUE`. P2-2: `threadpoolctl>=3.1` added to the `ml` extra and dev group (uv.lock updated). P2-3: `THREAD_AXIS_CASES` added to `__all__`. Review items (a)/(b) are maintainer decisions: `epsilon_rel` is still un-asked; the remainder of slice 4c is the `log10(sp)` reading and the flip.

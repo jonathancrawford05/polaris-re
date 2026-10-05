@@ -1590,6 +1590,7 @@ ml = [
     { name = "joblib" },
     { name = "scikit-learn" },
     { name = "statsmodels" },
+    { name = "threadpoolctl" },
     { name = "xgboost" },
 ]
 tables = [
@@ -1618,6 +1619,7 @@ dev = [
     { name = "ruff" },
     { name = "scikit-learn" },
     { name = "streamlit" },
+    { name = "threadpoolctl" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "xgboost" },
 ]
@@ -1654,6 +1656,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.13" },
     { name = "statsmodels", marker = "extra == 'ml'", specifier = ">=0.14" },
     { name = "streamlit", marker = "extra == 'dashboard'", specifier = ">=1.35" },
+    { name = "threadpoolctl", marker = "extra == 'ml'", specifier = ">=3.1" },
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.30" },
     { name = "xgboost", marker = "extra == 'ml'", specifier = ">=2.1" },
@@ -1677,6 +1680,7 @@ dev = [
     { name = "ruff", specifier = ">=0.5" },
     { name = "scikit-learn", specifier = ">=1.5" },
     { name = "streamlit", specifier = ">=1.35" },
+    { name = "threadpoolctl", specifier = ">=3.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
     { name = "xgboost", specifier = ">=2.1" },
 ]

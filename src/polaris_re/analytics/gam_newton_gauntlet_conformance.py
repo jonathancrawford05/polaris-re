@@ -77,6 +77,7 @@ from polaris_re.core.verification import (
 
 __all__ = [
     "REQUIRED_CASE_PREFIXES",
+    "THREAD_AXIS_CASES",
     "GauntletReading",
     "ThreadAxisReading",
     "gate_failures",

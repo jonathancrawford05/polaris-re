@@ -24716,3 +24716,6 @@ The worst `eta` movement across thread counts is 3.6e-08, about seven orders bel
 - `epsilon_rel` / curvature-to-noise question: not put to the maintainer this session; still owed.
 - The default is not flipped.
 - The gate's exit path now has unit tests (exit 1 on a disagreeing fixed-scale row, normal return when both agree, report-only without `--gate`); it has still never been seen failing in CI.
+
+### ADR-247 amendment 1 (PR #256 review)
+The ~1e-13 rows (L6, 3b, 3c, fixed scale, HGAM) are not evidence of thread reproducibility: OpenBLAS may run those small operations single-threaded whatever the limit, so they may never have taken a multithreaded path. Only L1 (~2e-08) and `select=TRUE` (~4e-08) are informative. The script now records the BLAS thread counts in force per requested limit. `threadpoolctl` is a declared dependency (`ml` extra and dev group).
