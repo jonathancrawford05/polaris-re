@@ -7,6 +7,11 @@
 > below — this reopening only appends.** Slices 6-7 are registered below and
 > this is this epic's own next work — **not a queue-empty state.**
 
+> **RESEQUENCED 2026-10-05 (maintainer; `ROUTINE_MGCV_PARITY.md`, SLICE 4
+> CLOSURE RULE).** This epic resumes after `docs/PLAN_gam_parity_preview.md`,
+> not directly after the outer-solver epic's Slice 4. The "resume after that
+> epic's Slice 4" wording below is superseded by this line.
+
 > **YIELDED 2026-10-03 (maintainer; ADR-241).** Ladder slices 3b-3e kept
 > meeting one mechanism — the outer search, not the start — and registering
 > start strategies for it (3d seeded start, 3e default-start study, 3f
