@@ -1,6 +1,8 @@
 # Plan: the Wood-shaped outer solver — mgcv's smoothing-parameter search, not a better start
 
-> **STATUS: IN PROGRESS — ACTIVE EPIC (maintainer, 2026-10-03; ADR-241).**
+> **STATUS: DONE 2026-10-06 (ADR-248).** Slice 4 closed in one PR under `ROUTINE_MGCV_PARITY.md`'s SLICE 4 CLOSURE RULE: `fit_polaris_gam` now defaults to `outer="newton"`; `eps_rel` measured and ratified at `mgcv`'s `conv.tol` (1e-6); the `select=TRUE` `log10(sp)` reading recorded (INDEPENDENT, reported). The ACTIVE EPIC is now `PLAN_gam_parity_preview.md`. Slice 3b stays registered with its release condition. History below is unchanged.
+>
+> *(Previous status: IN PROGRESS — ACTIVE EPIC (maintainer, 2026-10-03; ADR-241).)*
 > Slice 0 (diagnosis) DONE (ADR-241). Slice 1 DONE (ADR-242, tier 3, run 37130685404). Slice 2 DONE (ADR-243, tier 3, run 37153229821). Slice 3 DONE as a CHARACTERISATION (ADR-244, tier 3, run 37167311644): the thread axis already passes on the exact-Hessian Newton search without a reparameterisation, and the rounding noise was the gradient/Hessian penalty quadratic forms (fixed, two substitutions), not a missing transform. **Slice 4a DONE (ADR-245, tier 3, run 37204039328): gauntlet cases 1-3 — one Newton start agrees on all nine rows. **Slice 4b DONE (ADR-246, tier 3, run 37213172762): case 4 (4-term HGAM, 8 fits) INDEPENDENT; fixed-scale rows now a blocking CI gate. **4c part 1 DONE (ADR-247, tier 3, run 37232079212; thread axis only, own criterion).** NEXT: Slice 4c remainder** ( `epsilon_rel` to the maintainer, `log10(sp)` on `select=TRUE`, the default flip). Slice 3b (QR-augmented solve) is registered with a release condition.
 > This epic takes the active slot from `PLAN_mgcv_capability_ladder.md`, which
 > yields; its remaining start-strategy slice (7c) is SUPERSEDED here (3e/3f
@@ -178,7 +180,10 @@ everywhere. It either confirms this slice or redirects it.
 ### Slice 3b — QR-augmented stable solve (Wood 2011 §3.2) — REGISTERED, not started
 Factor `[sqrt(W) X; E]` instead of forming `X'WX + S`, so the factor's condition number is `sqrt(cond H)` (~6e5, not 3.5e11) for the fit, `log|H|` and the `tr(H^-1 S_j)` terms. Needs a non-negative `W` (the observed weight can be negative for a non-canonical link), so the cloglog case needs a design decision first. **Release condition:** a Slice 4 gauntlet case fails on gradient precision with `max |g|` within 2x of its tolerance, or ADR-244's `S`-representation floor (gradient 2.6e-05 at `mgcv`'s point) comes within 10x of a tolerance. Until then it is not needed: the measured floor is 6-100x below the search's tolerance. Mechanism class (iv).
 
-### Slice 4 — surface: one deterministic solver for every free-`sp` fit
+### Slice 4 — surface: one deterministic solver for every free-`sp` fit — ✅ DONE 2026-10-06 (ADR-245..248)
+
+> **4c remainder DONE 2026-10-06 (ADR-248)** — `eps_rel` measured (plateau at the Newton stop: 6.95e-07 / 7.60e-07 relative on N=4 / N=7, every direction step-stable) and ratified at 1e-6; the curvature-to-noise rule is the step-stability scan (no constant); `log10(sp)` per block on `select=TRUE` read against `mgcv` at tier 3 (reported, not gated); **default flipped to `outer="newton"`**; the gauntlet table (one script, `evidence_markdown()` headline) carries the `log10(sp)` column.
+>
 
 > **4b DONE 2026-10-04 (ADR-246)** — case 4 (HGAM) and the blocking fixed-scale gate. **4c REGISTERED, NEXT:** case 5 (reproducibility axes; thread only for Newton); the `epsilon_rel` / curvature-to-noise measurement put to the maintainer; `log10(sp)` read on `select=TRUE`; THEN the default flip and the `evidence_markdown` DoD table. Release condition: none external.
 >
@@ -214,7 +219,8 @@ an unqualified "reliable".
   separate maintainer decision).
 - `bam`/`discrete=TRUE`/fREML.
 - New bases or rungs (ladder L6-L11, slice 6b `select=TRUE` on `cr+re+ti`) —
-  they resume after Slice 4, on a solver that no longer needs a per-cell start
+  they resume after `PLAN_gam_parity_preview.md` (resequenced 2026-10-05, ROUTINE
+  SLICE 4 CLOSURE RULE item 5), on a solver that no longer needs a per-cell start
   strategy.
 - Any tolerance change. ADR-221's gate is the gate.
 

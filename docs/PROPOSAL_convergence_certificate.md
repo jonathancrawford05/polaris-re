@@ -275,6 +275,25 @@ and report unresolvability rather than widening — is written up separately as
 `docs/PATTERN_resolvable_tolerances.md` (PROPOSED), which records the **three**
 independent instances in this epic that produced it.
 
+### MAINTAINER DECISION, 2026-10-06: both numbers CLOSED (ADR-248)
+
+The measurement this section was waiting on ran (`scripts/gam_convergence_certificate_plateau.py`,
+on the post-7h criterion, at the Newton search's own stopping point, on the N=4
+control and the N=7 `select=TRUE` structure). ADR-248 has the table. Summary:
+
+- **`ε_rel = 1e-6`, ratified** — `mgcv`'s own `gam.control()$newton$conv.tol`, in the
+  same form (`‖P g|ᵢd‖∞ / (1 + |score|)`, natural-log `rho`). The provisional `1e-8`
+  is **withdrawn**: every Newton-converged fit reads ~7e-7, so `1e-8` would certify
+  none of the points `mgcv`'s own rule accepts, and tightening past the oracle does
+  not move the selection toward `mgcv`'s (it stops under the same rule).
+- **Curvature-to-noise: no constant.** "Identified" means resolved by the
+  step-stability scan (`derive_floor_from_step_stability`, `unstable_ratio = 4`).
+  On the post-7h criterion that scan resolves **every** direction on both fixtures
+  (smallest curvature ~4e-4, `ε_f` ~1e-12). The "2 of 7 flat" calibration anchor
+  above is **retired**: it was measured at `ε_f ~5e-5`, where `ε_f/h²` swamps a 4e-4
+  curvature, so it described the defect slice 7h fixed, not the problem.
+- The certificate object itself is still unbuilt; nothing waits on it.
+
 ## 7. Verification provenance (ADR-193)
 
 This document publishes **no comparison**. The figures it cites (`2.040e-04`,

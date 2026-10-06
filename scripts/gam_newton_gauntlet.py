@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 from polaris_re.analytics.gam_newton_gauntlet_conformance import (
+    GauntletReading,
     gate_failures,
     gauntlet_claims,
     payloads_from_probe_dir,
@@ -27,6 +28,25 @@ from polaris_re.analytics.gam_newton_gauntlet_conformance import (
     run_gauntlet,
 )
 from polaris_re.core.verification import evidence_markdown
+
+
+def _fmt(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.3f}"
+
+
+def _per_block_lines(readings: list[GauntletReading]) -> list[str]:
+    """``log10(sp)`` per block on ``select=TRUE`` (ADR-248): INDEPENDENT, declared on
+    the case's own claim, reported and NOT gated (ADR-221 gates eta/edf_total)."""
+    lines: list[str] = []
+    for r in readings:
+        if r.case.startswith("select=TRUE") and r.log10_sp_diff_per_block is not None:
+            lines += [
+                f"**{r.case} — log10(sp) per block, Polaris minus mgcv (reported, not "
+                "gated):** "
+                + ", ".join(f"b{i}: {d:+.3f}" for i, d in enumerate(r.log10_sp_diff_per_block)),
+                "",
+            ]
+    return lines
 
 
 def main(probe_dir: Path, out: Path | None, gate: bool = False) -> None:
@@ -50,16 +70,18 @@ def main(probe_dir: Path, out: Path | None, gate: bool = False) -> None:
         + ("ALL CASES AGREE (ADR-221)" if all_agree else "DISAGREEMENT — see rows")
         + "**",
         "",
-        "| case | max abs eta diff | edf_total diff | fits | converged | at bound "
-        "| agrees (ADR-221) | error |",
-        "|---|---:|---:|---:|---|---|---|---|",
+        "| case | max abs eta diff | edf_total diff | max abs log10(sp) diff (reported) "
+        "| fits | converged | at bound | agrees (ADR-221) | error |",
+        "|---|---:|---:|---:|---:|---|---|---|---|",
         *[
             f"| {r.case} | {r.max_abs_eta_diff:.3e} | {r.edf_total_diff:+.4f} "
+            f"| {_fmt(r.max_abs_log10_sp_diff)} "
             f"| {r.n_function_evals} | {r.converged} | {r.at_bound} | {r.agrees} "
             f"| {r.error or ''} |"
             for r in readings
         ],
         "",
+        *_per_block_lines(readings),
     ]
     report = "\n".join(lines)
     print(report)

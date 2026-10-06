@@ -18,18 +18,67 @@
 > the box is a maintainer edit nobody else can make.
 **Repo:** `jonathancrawford05/polaris-re`
 **Connectors:** GitHub
-**Plan:** `docs/PLAN_wood_outer_solver.md` (the ACTIVE epic, ADR-241); parent plan and
-anchors: `docs/PLAN_mgcv_parity_engine.md`
+**Plan:** `docs/PLAN_gam_parity_preview.md` (the ACTIVE epic from 2026-10-06, ADR-248);
+parent plan and anchors: `docs/PLAN_mgcv_parity_engine.md`
 **Created:** 2026-08-10, from maintainer direction plus the measurements in the parent PLAN §1.
 
-> **ACTIVE EPIC POINTER (maintainer, 2026-10-03, ADR-241) — READ THIS FIRST.**
-> The active epic is **`docs/PLAN_wood_outer_solver.md`** (continuation:
-> `docs/CONTINUATION_wood_outer_solver.md`). "The PLAN's next unchecked slice"
-> in this file means **that** plan's next slice until its Slice 4 is DONE. The
-> capability ladder and the parity engine's other slices wait behind it. Read
-> its §1-§2 before anything else: they record why the previous eleven slices
-> circled the outer search without fixing it, and the rule below
-> ("MECHANISM BEFORE SLICE") that stops it recurring.
+> **ACTIVE EPIC POINTER (maintainer, 2026-10-06, ADR-248) — READ THIS FIRST.**
+> The active epic is **`docs/PLAN_gam_parity_preview.md`**. Its first session is
+> the EPIC START: write its ADR and `docs/CONTINUATION_gam_parity_preview.md`
+> (status IN PROGRESS), then take Slice P1. "The PLAN's next unchecked slice" in
+> this file means **that** plan's next slice. Read its §2 (definition of done)
+> and §4 (the rules that keep it from spiralling) before anything else — they
+> bind this routine as firmly as the nevers below. The capability ladder
+> (6b, L6-L11) waits behind it.
+>
+> *Previous pointer (2026-10-03, ADR-241): `docs/PLAN_wood_outer_solver.md` —
+> DONE 2026-10-06 (ADR-248). Its §1-§2 still record why eleven slices circled
+> the outer search, and the rule below ("MECHANISM BEFORE SLICE") still applies:
+> a gap whose mechanism is the outer search is a limitation to record (preview
+> §4 rule 3) or Slice 3b's release condition — never a new start strategy.*
+
+> **SLICE 4 CLOSURE RULE (maintainer, 2026-10-05) — EXECUTED 2026-10-06 (ADR-248);
+> kept as the record of how the epic closed. Items 1-5 are done; item 5's
+> sequencing is now the pointer above.**
+> Slice 4 has been split into 4a, 4b and 4c part 1, and the same three items
+> have been carried, "not run this session", through every part. That is the
+> pattern ADR-241 was written to stop. So:
+>
+> 1. **The remainder of Slice 4 is ONE session and ONE PR, with no further
+>    split.** Its scope is exactly:
+>    (a) re-measure the restricted projected-gradient plateau on the post-7h
+>        criterion (`PROPOSAL_convergence_certificate.md` §6, item 2) and **put
+>        the `ε_rel` / curvature-to-noise question to the maintainer in that
+>        PR's body and in the CONTINUATION under "Maintainer questions", with a
+>        recommended value**. Do not wait for the answer;
+>    (b) the INDEPENDENT `log10(sp)` reading vs `mgcv` on `select=TRUE` N=7,
+>        reported under ADR-221 (which does not gate `log10(sp)`), per block;
+>    (c) **flip `fit_polaris_gam`'s default to `outer="newton"`**. Multistart,
+>        the two-start rule, `initial_sp_start` and `outer="lbfgsb"` remain as
+>        opt-in diagnostics. A test that pins L-BFGS-B behaviour gets
+>        `outer="lbfgsb"` passed explicitly — that kwarg addition is
+>        pre-approved; changing any tolerance or expected value is not;
+>    (d) the `[machine]` DoD gauntlet table from one script via
+>        `evidence_markdown()`, and the `[judgement]` reliability wording.
+> 2. **`ε_rel` does not gate the flip.** It calibrates the convergence
+>    *certificate* (reporting whether a fit is certified stationary on the
+>    identified subspace); the flip rests on gauntlet cases 1-4 meeting ADR-221
+>    from one start (ADR-245/246) and case 5's thread axis (ADR-247), which
+>    are in hand. If the maintainer wants `ε_rel` to gate the flip after all,
+>    they say so on that PR. The certificate stays the PROPOSAL's
+>    own follow-up.
+> 3. **Outcomes are pre-decided.** If (b) shows plateau blocks off `mgcv`'s
+>    `sp` while `eta`/`edf` agree, record it as a known limitation
+>    (`eta`-insensitive plateau) in the ADR and `MGCV_FEATURE_COVERAGE.md`; do
+>    **not** open a solver slice. Slice 3b runs only on its registered release
+>    condition. No start strategy, no tolerance change.
+> 4. **If the session cannot finish (a)-(d)**, it opens the PR as WIP and the
+>    next session completes the SAME scope. It does not register 4d/4e.
+> 5. **When Slice 4 is DONE the outer-solver epic is DONE**, and the active
+>    epic becomes **`docs/PLAN_gam_parity_preview.md`** (the next session
+>    starts it: ADR + CONTINUATION). The capability ladder (6b, L6-L11) resumes
+>    **after** that epic, not after Slice 4 — its order then follows what
+>    preview users ask for.
 
 ---
 
