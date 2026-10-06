@@ -281,3 +281,66 @@ def test_thread_axis_reports_a_raising_case_instead_of_dropping_it() -> None:
     rows = run_thread_axis({}, lambda _n: contextlib.nullcontext())  # no payloads: KeyError
     assert len(rows) == len(THREAD_AXIS_CASES)
     assert all(r.error for r in rows)
+
+
+# --- ADR-248: log10(sp) is reported (never gated) per block -----------------
+
+
+def test_reading_carries_log10_sp_from_a_typeddict_or_a_dataclass_comparison() -> None:
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from polaris_re.analytics import gam_newton_gauntlet_conformance as g
+
+    claim = _claim(ComparisonProvenance.INDEPENDENT)
+    fit = SimpleNamespace(n_function_evals=3, log_lambda=np.array([1.0, 2.0]))
+    common = {
+        "max_abs_eta_diff": 1e-5,
+        "edf_total_diff": 0.0,
+        "at_bound": False,
+        "converged": True,
+        "agrees": True,
+        "evidence": claim,
+    }
+    as_dict = g._reading("c", fit, {**common, "max_abs_log10_sp_diff": 0.25})  # type: ignore[arg-type]
+    as_obj = g._reading("c", fit, SimpleNamespace(**common, max_abs_log10_sp_diff=0.5))  # type: ignore[arg-type]
+    absent = g._reading("c", fit, SimpleNamespace(**common))  # type: ignore[arg-type]
+    assert as_dict.max_abs_log10_sp_diff == 0.25
+    assert as_obj.max_abs_log10_sp_diff == 0.5
+    assert absent.max_abs_log10_sp_diff is None  # not declared -> not reported
+
+
+def test_per_block_sp_diff_is_polaris_minus_mgcv_and_none_when_unusable() -> None:
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from polaris_re.analytics import gam_newton_gauntlet_conformance as g
+
+    fit = SimpleNamespace(log_lambda=np.array([3.0, 1.0]))
+    diff = g._per_block_sp_diff(fit, {"sp": [100.0, 100.0]})  # type: ignore[arg-type]
+    assert diff is not None
+    np.testing.assert_allclose(diff, (1.0, -1.0))
+    other_key = g._per_block_sp_diff(fit, {"mgcv_sp": [1000.0, 10.0]})  # type: ignore[arg-type]
+    assert other_key is not None
+    np.testing.assert_allclose(other_key, (0.0, 0.0))
+    assert g._per_block_sp_diff(fit, {"sp": [1.0]}) is None  # type: ignore[arg-type]
+    assert g._per_block_sp_diff(fit, {}) is None  # type: ignore[arg-type]
+
+
+def test_script_reports_the_select_true_per_block_line(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from dataclasses import replace
+
+    row = replace(
+        _row("select=TRUE N=7 (cr+by+ti, 7 blocks)"),
+        max_abs_log10_sp_diff=0.3,
+        log10_sp_diff_per_block=(0.3, -0.01),
+    )
+    script = _patched_script(monkeypatch, [row, _row("gaussian L1 (cr+by+ti)")])
+    script.main(tmp_path, None, gate=False)  # type: ignore[attr-defined]
+    out = capsys.readouterr().out
+    assert "b0: +0.300, b1: -0.010" in out
+    assert "| n/a |" in out  # a row whose comparison declares no log10(sp)

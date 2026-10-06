@@ -430,7 +430,9 @@ def fit_re_free_sp_case(r_case: RReFreeSpRecipe, *, multistart: bool = False) ->
         "GroupFac": np.asarray(r_case["group"], dtype=np.int64),
     }
     y = np.asarray(r_case["y"], dtype=np.float64)
-    return fit_polaris_gam(model, data, y, bounds=_FREE_SP_BOUNDS, multistart=multistart)
+    return fit_polaris_gam(
+        model, data, y, bounds=_FREE_SP_BOUNDS, multistart=multistart, outer="lbfgsb"
+    )
 
 
 @dataclass(frozen=True)

@@ -313,7 +313,7 @@ def fit_dispersion_two_stage_case(r_case: RDispersionRecipe) -> PolarisTwoStageF
     joint_single_start = fit_quasipoisson_free_sp_case(r_case)
     joint = fit_quasipoisson_free_sp_case(r_case, multistart=True)
     joint_initial_start = fit_quasipoisson_free_sp_case(r_case, initial_sp_start=True)
-    stage1 = fit_polaris_gam(model, data, y, gamma=1.0)
+    stage1 = fit_polaris_gam(model, data, y, gamma=1.0, outer="lbfgsb")
     phi = float(stage1.dispersion.pearson)
     stage2 = _fit_best_of_cold_and_unit_gamma_seed(model, data, y, phi, stage1, False)
     return PolarisTwoStageFits(

@@ -223,10 +223,10 @@ def _fit_best_of_cold_and_unit_gamma_seed(
     fitted value. ``multistart=True`` replaces the cold candidate with the
     best-of-9 search; the seeded candidate is added to it, never substituted.
     """
-    cold = fit_polaris_gam(model, data, y, gamma=phi, multistart=multistart)
+    cold = fit_polaris_gam(model, data, y, gamma=phi, multistart=multistart, outer="lbfgsb")
     if np.isclose(phi, 1.0, rtol=1e-12, atol=0.0):
         return cold
-    seeded = fit_polaris_gam(model, data, y, gamma=phi, x0=unit_fit.log_lambda)
+    seeded = fit_polaris_gam(model, data, y, gamma=phi, x0=unit_fit.log_lambda, outer="lbfgsb")
     return seeded if seeded.reml_score < cold.reml_score else cold
 
 
@@ -257,10 +257,10 @@ def fit_quasipoisson_fixed_scale_case(
         ]
     if not unit_gamma_seed:
         return [
-            fit_polaris_gam(model, data, y, gamma=float(phi), multistart=multistart)
+            fit_polaris_gam(model, data, y, gamma=float(phi), multistart=multistart, outer="lbfgsb")
             for phi in r_case["scales"]
         ]
-    unit_fit = fit_polaris_gam(model, data, y, gamma=1.0)
+    unit_fit = fit_polaris_gam(model, data, y, gamma=1.0, outer="lbfgsb")
     return [
         _fit_best_of_cold_and_unit_gamma_seed(model, data, y, float(phi), unit_fit, multistart)
         for phi in r_case["scales"]

@@ -18,20 +18,28 @@
 > the box is a maintainer edit nobody else can make.
 **Repo:** `jonathancrawford05/polaris-re`
 **Connectors:** GitHub
-**Plan:** `docs/PLAN_wood_outer_solver.md` (the ACTIVE epic, ADR-241); parent plan and
-anchors: `docs/PLAN_mgcv_parity_engine.md`
+**Plan:** `docs/PLAN_gam_parity_preview.md` (the ACTIVE epic from 2026-10-06, ADR-248);
+parent plan and anchors: `docs/PLAN_mgcv_parity_engine.md`
 **Created:** 2026-08-10, from maintainer direction plus the measurements in the parent PLAN §1.
 
-> **ACTIVE EPIC POINTER (maintainer, 2026-10-03, ADR-241) — READ THIS FIRST.**
-> The active epic is **`docs/PLAN_wood_outer_solver.md`** (continuation:
-> `docs/CONTINUATION_wood_outer_solver.md`). "The PLAN's next unchecked slice"
-> in this file means **that** plan's next slice until its Slice 4 is DONE. The
-> capability ladder and the parity engine's other slices wait behind it. Read
-> its §1-§2 before anything else: they record why the previous eleven slices
-> circled the outer search without fixing it, and the rule below
-> ("MECHANISM BEFORE SLICE") that stops it recurring.
+> **ACTIVE EPIC POINTER (maintainer, 2026-10-06, ADR-248) — READ THIS FIRST.**
+> The active epic is **`docs/PLAN_gam_parity_preview.md`**. Its first session is
+> the EPIC START: write its ADR and `docs/CONTINUATION_gam_parity_preview.md`
+> (status IN PROGRESS), then take Slice P1. "The PLAN's next unchecked slice" in
+> this file means **that** plan's next slice. Read its §2 (definition of done)
+> and §4 (the rules that keep it from spiralling) before anything else — they
+> bind this routine as firmly as the nevers below. The capability ladder
+> (6b, L6-L11) waits behind it.
+>
+> *Previous pointer (2026-10-03, ADR-241): `docs/PLAN_wood_outer_solver.md` —
+> DONE 2026-10-06 (ADR-248). Its §1-§2 still record why eleven slices circled
+> the outer search, and the rule below ("MECHANISM BEFORE SLICE") still applies:
+> a gap whose mechanism is the outer search is a limitation to record (preview
+> §4 rule 3) or Slice 3b's release condition — never a new start strategy.*
 
-> **SLICE 4 CLOSURE RULE (maintainer, 2026-10-05) — in force from merge.**
+> **SLICE 4 CLOSURE RULE (maintainer, 2026-10-05) — EXECUTED 2026-10-06 (ADR-248);
+> kept as the record of how the epic closed. Items 1-5 are done; item 5's
+> sequencing is now the pointer above.**
 > Slice 4 has been split into 4a, 4b and 4c part 1, and the same three items
 > have been carried, "not run this session", through every part. That is the
 > pattern ADR-241 was written to stop. So:

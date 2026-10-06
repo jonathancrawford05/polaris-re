@@ -182,7 +182,9 @@ def fit_free_sp_case(r_case: RFreeSpRecipe, *, step_halving: bool = False) -> Po
         "ExposCnt": np.asarray(r_case["ExposCnt"], dtype=np.float64),
     }
     y = np.asarray(r_case["y"], dtype=np.float64)
-    return fit_polaris_gam(model, data, y, bounds=_SEARCH_BOUNDS, step_halving=step_halving)
+    return fit_polaris_gam(
+        model, data, y, bounds=_SEARCH_BOUNDS, step_halving=step_halving, outer="lbfgsb"
+    )
 
 
 @dataclass(frozen=True)

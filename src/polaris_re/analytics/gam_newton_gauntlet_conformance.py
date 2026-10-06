@@ -27,6 +27,8 @@ from dataclasses import dataclass, replace
 from functools import partial
 from typing import cast
 
+import numpy as np
+
 from polaris_re.analytics.gam_by_factor_conformance import (
     compare_by_factor_free_sp_case,
     fit_by_factor_free_sp_case,
@@ -102,6 +104,14 @@ class GauntletReading:
     agrees: bool
     evidence: VerificationClaim | None
     error: str | None = None
+    max_abs_log10_sp_diff: float | None = None
+    """``log10(sp)`` against ``mgcv``'s own selection, max over blocks — declared
+    INDEPENDENT on the case's claim and REPORTED, never gated (ADR-221 gates
+    ``eta``/``edf_total`` only). ``None`` where the comparison does not compute
+    it (the 4-term HGAM's claim declares two columns, not this one)."""
+    log10_sp_diff_per_block: tuple[float, ...] | None = None
+    """The same, per penalty block (Polaris minus ``mgcv``), where the payload
+    carries ``mgcv``'s ``sp`` — read for ``select=TRUE``'s plateau blocks (ADR-248)."""
 
 
 def _read(c: object, name: str) -> object:
@@ -118,8 +128,18 @@ def _reading(case: str, fit: PolarisGAMFit, comparison: object) -> GauntletReadi
             f"(got {type(evidence).__name__}); a comparison without a declared claim "
             "cannot be reported as evidence."
         )
+    has_sp = (
+        "max_abs_log10_sp_diff" in comparison
+        if isinstance(comparison, dict)
+        else hasattr(comparison, "max_abs_log10_sp_diff")
+    )
     return GauntletReading(
         case=case,
+        max_abs_log10_sp_diff=(
+            float(_read(comparison, "max_abs_log10_sp_diff"))  # type: ignore[arg-type]
+            if has_sp
+            else None
+        ),
         max_abs_eta_diff=float(_read(comparison, "max_abs_eta_diff")),  # type: ignore[arg-type]
         edf_total_diff=float(_read(comparison, "edf_total_diff")),  # type: ignore[arg-type]
         n_function_evals=int(fit.n_function_evals),
@@ -237,7 +257,22 @@ def _one_as_list(
 
 def _one(label: str, fit: _Fit, compare: _Compare, payload: dict[str, object]) -> GauntletReading:
     polaris_fit = fit(payload, outer="newton")
-    return _reading(label, polaris_fit, compare(polaris_fit, payload))
+    reading = _reading(label, polaris_fit, compare(polaris_fit, payload))
+    return replace(reading, log10_sp_diff_per_block=_per_block_sp_diff(polaris_fit, payload))
+
+
+def _per_block_sp_diff(fit: PolarisGAMFit, payload: dict[str, object]) -> tuple[float, ...] | None:
+    """Polaris's selected ``log10(sp)`` minus ``mgcv``'s, per block, when the
+    payload carries ``mgcv``'s ``sp`` with one entry per Polaris block. The
+    comparison itself already reads the same two operands for its max; this
+    keeps the per-block split it reduces away."""
+    raw = payload.get("sp", payload.get("mgcv_sp"))
+    if not isinstance(raw, list | tuple):
+        return None
+    r_log_sp = np.log10(np.atleast_1d(np.asarray(raw, dtype=np.float64)))
+    if r_log_sp.shape != fit.log_lambda.shape:
+        return None
+    return tuple(float(v) for v in fit.log_lambda - r_log_sp)
 
 
 def _fixed_scale(payload: dict[str, object]) -> list[GauntletReading]:

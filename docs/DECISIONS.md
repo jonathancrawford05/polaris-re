@@ -24719,3 +24719,59 @@ The worst `eta` movement across thread counts is 3.6e-08, about seven orders bel
 
 ### ADR-247 amendment 1 (PR #256 review)
 The ~1e-13 rows (L6, 3b, 3c, fixed scale, HGAM) are not evidence of thread reproducibility: OpenBLAS may run those small operations single-threaded whatever the limit, so they may never have taken a multithreaded path. Only L1 (~2e-08) and `select=TRUE` (~4e-08) are informative. The script now records the BLAS thread counts in force per requested limit. `threadpoolctl` is a declared dependency (`ml` extra and dev group).
+
+
+## ADR-248: Outer-solver Slice 4 closed — `eps_rel` measured and ratified at `mgcv`'s `conv.tol` (1e-6); `fit_polaris_gam` defaults to the Newton search; the epic is DONE
+
+**Status:** Accepted, 2026-10-06 (maintainer instruction, 2026-10-06: *"Let's get e_rel measured and closed and make Newton the default"*; ratified by merging this PR). Executes `ROUTINE_MGCV_PARITY.md`'s SLICE 4 CLOSURE RULE in one PR. PR title class: **`feat(mgcv-parity)`**: the `log10(sp)` reading against `mgcv` on `select=TRUE` is INDEPENDENT; the plateau measurement is MEASUREMENT (own criterion). Closes `PLAN_wood_outer_solver.md` Slice 4 and with it the epic. Goldens untouched (no pricing path calls `fit_polaris_gam`, Anchor 7).
+
+### Claim sentences (ADR-193), written first
+1. *Plateau (MEASUREMENT, own criterion):* "Polaris evaluates its own REML criterion, gradient and exact Hessian at the point its own search selected, on two committed R draws with `mgcv`'s outputs stripped." No `mgcv` value is read; no second producer; no `VerificationClaim`.
+2. *`log10(sp)` on `select=TRUE` (INDEPENDENT):* "`fit_polaris_gam(outer="newton")` selects `log10(sp)` per block from the recipe only (one `initial.spg` start); `mgcv` selects its own via `gam(method="REML", select=TRUE)`; compared per block, reported, not gated." Already declared INDEPENDENT on `SELECT_FREE_SP_MODEL_CLAIM` (ADR-221 amendment 3); this ADR adds the per-block split to the gauntlet report, not a new comparison or tolerance.
+
+### (a) The plateau measurement `PROPOSAL_convergence_certificate.md` §6 left owed
+`scripts/gam_convergence_certificate_plateau.py`, local (`threadpool_limits(1)` for the fit; `eps_f` over BLAS threads 1/2/4 twice), on the N=4 control (`tests/fixtures/gam_reml_optimize_near_flat_direction.json`) and the `select=TRUE` N=7 structure (`tests/fixtures/gam_fit_select7_penalty_spread.json`). Units: natural-log `rho`, the units of `mgcv`'s `conv.tol` and of the Newton stopping test.
+
+| case | search | converged | fits | `eps_f` | identified (step-stability) | min identified curvature | rel. projected gradient | rel. restricted gradient | remaining Newton step (decades) | remaining decrement |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| N=4 | Newton | True | 15 | 1.4e-12 | 4 of 4 | 4.68e-04 | 6.95e-07 | 6.95e-07 | 0.396 | 1.9e-04 |
+| N=4 | L-BFGS-B | True | 165 | 5.8e-12 | 4 of 4 | 7.87e-05 | 6.58e-06 | 6.58e-06 | 0.423 | 7.8e-05 |
+| N=7 | Newton | True | 20 | 1.1e-12 | 7 of 7 | 3.74e-04 | 7.60e-07 | 7.60e-07 | 0.464 | 4.1e-04 |
+| N=7 | L-BFGS-B | **False** | 352 | 5.7e-12 | 6 of 7 | 1.20e-04 | 8.15e-06 | 8.15e-06 | n/a (indefinite) | n/a |
+
+Reading:
+- **`eps_f` is ~1e-12**, confirming ADR-223's post-7h `~6.8e-13` order on both structures.
+- **No direction is flat at the Newton point.** The step-stability scan (ADR-219's discriminator, `derive_floor_from_step_stability`) resolves every direction. The smallest curvatures (~4e-4, blocks 1 and 3 on N=7, block 2 on N=4) sit ~8 orders above `eps_f`, and their second differences are stable to 4% over the 8x step range. So restriction to the identified subspace changes nothing here: restricted = unrestricted.
+- **Slice 7c's "2 of 7 flat" was a pre-7h reading.** At `eps_f ~5e-5` the noise term `eps_f/h^2` at `h = 0.025` is ~0.08, which swamps a 4e-4 curvature. At ~1e-12 it is ~2e-9, which does not. The PROPOSAL's calibration anchor ("reproduce 2 of 7") is therefore **retired**, not met: it was a property of the defect slice 7h fixed.
+- **The Newton stopping point sits just inside `mgcv`'s own tolerance:** 6.95e-07 and 7.60e-07 against `conv.tol = 1e-6`. On the low-curvature directions the remaining Newton step is 0.40-0.46 decades, worth only 2-4e-4 of score (and, on N=7, 5.7e-05 of `eta`, measured by taking the step). That is the `log10(sp)` slack ADR-245 saw on `select=TRUE`: real curvature, too shallow for a 1e-6 relative gradient test to pin `sp` tighter.
+
+### Decision 1 — `eps_rel = 1e-6`, ratified (supersedes the provisional 1e-8)
+The certificate's stationarity tolerance is **`||P g|_id||_inf / (1 + |score|) <= 1e-6`** in natural-log `rho`. That is exactly `mgcv`'s `gam.control()$newton$conv.tol` and the Newton search's own stopping test.
+- **Why not 1e-8.** Every Newton-converged fit above reads 7e-7. A 1e-8 tolerance certifies none of them, while `mgcv`'s own rule accepts the same points. It would demand more stationarity than the oracle, without making the selection any closer to `mgcv`'s: `mgcv` stops under the same 1e-6 rule, somewhere else along the same shallow valley.
+- **Not chosen from taste.** The value is the oracle's own, and the measurement shows the noise floor (`eps_f/(1+|score|) ~ 2e-15`) is nine orders below it, so the test never chases noise.
+
+### Decision 2 — the curvature-to-noise rule is the step-stability scan, not a constant
+A direction is **identified** iff `derive_floor_from_step_stability` resolves it: its diagonal second difference does not grow by more than 4x over the 8x step range (`unstable_ratio = 4`, ADR-219). No separate ratio is ratified. The PROPOSAL's warning against deriving it from `eps_f` stands, and the calibration anchor it named is retired (above). Measured margin today: smallest identified curvature / `eps_f` ~3e8.
+
+### Decision 3 — `fit_polaris_gam(outer=...)` defaults to `"newton"`
+- **What changed.** `gam_model.py`'s default `outer` is now `"newton"`. `outer="lbfgsb"` and its options (`x0`, `multistart`, `analytic_gradient`, `max_gtol_restarts`, `initial_sp_start`, `gtol`) remain as an opt-in DIAGNOSTIC path.
+- **Recorded claims keep their search.** Every recorded L-BFGS-B conformance call now passes `outer="lbfgsb"` explicitly: 7 calls across 4 `*_conformance.py` modules. The per-cell `fit_*_case` helpers keep their own `outer="lbfgsb"` default (pinned by test). So no recorded claim changes what it measures; the gauntlet (ADR-245..247) is the evidence for the new default.
+- **Tests.** Three wiring tests that pin L-BFGS-B behaviour gained `outer="lbfgsb"` (the kwarg addition the closure rule pre-approved; no assertion, tolerance or expected value changed). Three new tests pin the default: signature, default == explicit Newton exactly, and L-BFGS-B-only options raising under the default.
+- **Measured basis.** One start meets ADR-221 on all ten gauntlet rows, tier 3 (ADR-245/246); BLAS-thread reproducible (ADR-247). `eps_rel` does not gate it (closure rule item 2).
+
+### (b) `log10(sp)` per block on `select=TRUE` vs `mgcv` — INDEPENDENT, reported, tier 3
+**PENDING** — filled from this PR's own tier-3 run before it leaves draft.
+
+### Maintainer decisions recorded with this ADR (2026-10-06) for `PLAN_gam_parity_preview.md`
+- **The public entry point is `polaris_re.gam`.** It will be a thin, typed facade package; diagnostics stay on `fit_polaris_gam`.
+- **A bare `s(x)` is refused** until rung L7 (`bs="tp"`) is verified. It is then accepted and mapped to `tp`, because `mgcv`'s default is what the oracle defines; it is never silently mapped to `cr`.
+
+### Not claimed
+- Not that `sp` is pinned on low-curvature directions. Under a 1e-6 relative gradient test, ours or `mgcv`'s, it is resolved to roughly half a decade there. `log10(sp)` stays reported, never gated, on such directions (ADR-221).
+- The certificate itself (verdict object, second-order report) is not built. This ADR fixes its two numbers; building it is the PROPOSAL's follow-up, not a precondition for anything.
+- The plateau was measured on two fixtures, one draw each, locally; the CI step re-records it on the pinned runner.
+
+### Consequences
+- **The outer-solver epic is DONE.** Slice 3b stays registered with its release condition, which P4's target-size fit may trigger.
+- **The ACTIVE EPIC becomes `PLAN_gam_parity_preview.md`.** The next session writes its ADR and CONTINUATION.
+- **The capability ladder resumes after the preview,** not after this slice.

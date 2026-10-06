@@ -1,11 +1,17 @@
 # Plan: the GAM parity preview — make the verified engine usable by someone outside this repo
 
-> **STATUS: DRAFT, FOR MAINTAINER APPROVAL (2026-10-05).** Not active. It becomes
-> the ACTIVE EPIC only when (a) the maintainer merges it, and (b)
-> `PLAN_wood_outer_solver.md` Slice 4 is DONE (see `ROUTINE_MGCV_PARITY.md`,
-> "SLICE 4 CLOSURE RULE"). The epic-start session writes its ADR and
-> `docs/CONTINUATION_gam_parity_preview.md`; this file does not take an ADR
-> number, so it cannot collide with an open PR's.
+> **STATUS: APPROVED — ACTIVE EPIC from 2026-10-06 (maintainer; ADR-248).** Its
+> precondition, `PLAN_wood_outer_solver.md` Slice 4, is DONE (ADR-248):
+> `fit_polaris_gam` defaults to the deterministic Newton search. **NEXT: the
+> epic-start session** writes this epic's ADR and
+> `docs/CONTINUATION_gam_parity_preview.md` (status IN PROGRESS), then takes
+> Slice P1.
+>
+> **Maintainer decisions already taken (2026-10-06, recorded in ADR-248):**
+> (1) the public entry point is **`polaris_re.gam`** (P3); (2) a bare `s(x)` is
+> **refused until rung L7 (`bs="tp"`) is verified**, then accepted as `tp`,
+> because `mgcv`'s own default is what the oracle defines (P3). Neither is
+> re-opened by a session.
 
 **Source:** maintainer question, 2026-10-04: *"I am hoping that we will soon have
 a suitable parity engine to expose to potential users — what is outstanding?"*
@@ -38,7 +44,7 @@ What *is* ready, and is the preview's scope: `cr` (incl. numeric and factor
 `by`), `ti`, `re`, the parametric block, `select=TRUE`; `gaussian(identity)`,
 `poisson(log)`, `quasipoisson(log)` (estimated **and** fixed scale),
 `binomial(logit|cloglog)`; weights and offset; one deterministic Newton REML
-search (after Wood Slice 4). All tier 3, INDEPENDENT.
+search — `fit_polaris_gam`'s default since ADR-248. All tier 3, INDEPENDENT.
 
 ## 2. The preview's definition of done (the epic's acceptance test)
 
@@ -110,6 +116,10 @@ fed by the exact REML Hessian the Newton search already computes
 
 ### Slice P3 — the public entry point and the formula front end
 
+Package location decided (maintainer, 2026-10-06): **`polaris_re.gam`**, a new
+subpackage with its own `__init__.py`/`__all__`, depending on `analytics/`, never
+the reverse.
+
 `polaris_re.gam.gam(formula: str, data: pl.DataFrame, family: str, *, weights=None,
 offset=None, select=False, scale=None) -> PolarisGAMFit` — a thin, typed facade
 (`__all__`, docstrings, no solver knobs; diagnostics stay on `fit_polaris_gam`).
@@ -120,7 +130,10 @@ offset=None, select=False, scale=None) -> PolarisGAMFit` — a thin, typed facad
   `PolarisValidationError` naming the construct and the coverage row
   (e.g. *"`bs='tp'` (mgcv's default for a bare `s(x)`) is not supported —
   MGCV_FEATURE_COVERAGE.md §2.1 L7; write `bs='cr'`"*). **A bare `s(x)` is
-  refused, never silently mapped to `cr`.**
+  refused, never silently mapped to `cr`** (maintainer, 2026-10-06). When L7
+  (`tp`) is verified against `mgcv`, a bare `s(x)` becomes `tp` — the default is
+  whatever `mgcv`'s own is, because the oracle defines it — and its refusal test
+  is replaced by a parity test in that rung's slice.
 - Factor coding reproduces R's: levels sorted as R's `factor()` sorts them
   (collation is locale-dependent — pin the oracle image's locale and state it),
   first level as reference (`contr.treatment`). A test pins
@@ -135,7 +148,8 @@ offset=None, select=False, scale=None) -> PolarisGAMFit` — a thin, typed facad
 ### Slice P4 — summary, and one fit at the target's size
 
 `PolarisGAMFit.summary()` — per-term edf, `log10(sp)`, scale, REML score,
-deviance explained, n, convergence (Newton iterations, final gradient). **No
+deviance explained, n, convergence (Newton iterations, the final relative
+projected gradient against `ε_rel = 1e-6`, ADR-248). **No
 p-values** (they are a separate method, Wood 2013, out of scope — the summary
 says so in its footer).
 
@@ -193,7 +207,7 @@ says so in its footer).
 | L11 / slice 6b `sz` free-`sp`, `select=TRUE` on `cr+re+ti` | ladder, after this epic |
 | p-values, `anova.gam`, `gam.check` | a post-preview item, if users ask |
 | dashboard / CLI / MCP / pricing pipeline | maintainer decision at P5 (Anchor 7) |
-| convergence certificate (`ε_rel`, curvature-to-noise) | `PROPOSAL_convergence_certificate.md`; decoupled from the default solver (ROUTINE, SLICE 4 CLOSURE RULE) |
+| convergence certificate object (verdict, second-order report) | `PROPOSAL_convergence_certificate.md`; its two numbers are CLOSED (ADR-248: `ε_rel = 1e-6`, identified = step-stability scan); building it waits on demand |
 
 ## 6. Risks
 

@@ -17,10 +17,17 @@ cannot drift"). :func:`fit_polaris_gam` composes three already-independently-
 verified pieces unchanged: the basis producers
 (:func:`~polaris_re.analytics.gam_stage_a.build_python_cr_term` /
 :func:`~polaris_re.analytics.gam_stage_a.build_python_ti_term` — ADR-194,
-ADR-200, ADR-205), the continuous smoothing-parameter search
+ADR-200, ADR-205), the smoothing-parameter search — by default (ADR-248) the
+safeguarded Newton search
+(:func:`~polaris_re.analytics.gam_reml_newton.newton_select_lambdas`,
+ADR-241..247), with the continuous L-BFGS-B search
 (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous` —
-ADR-199), and the general penalized fitter it already calls internally
+ADR-199) kept as an opt-in diagnostic (``outer="lbfgsb"``) — and the general
+penalized fitter it already calls internally
 (:func:`~polaris_re.analytics.gam_fit.penalized_irls_general` — ADR-195).
+
+The paragraphs below record the L-BFGS-B search's history; they describe
+``outer="lbfgsb"``, not the default.
 
 **What this module does NOT do.** ``select = TRUE`` (PLAN slice 7) is
 wired into :func:`assemble_model_design` — set ``ModelSpec.select = True``
@@ -464,10 +471,13 @@ def fit_polaris_gam(
     max_gtol_restarts: int = 0,
     step_halving: bool = False,
     initial_sp_start: bool = False,
-    outer: Literal["lbfgsb", "newton"] = "lbfgsb",
+    outer: Literal["lbfgsb", "newton"] = "newton",
 ) -> PolarisGAMFit:
     """Fit ``model`` to ``data``/``y``, selecting every smoothing parameter by
-    continuous REML (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`,
+    REML — by default the safeguarded Newton search
+    (:func:`~polaris_re.analytics.gam_reml_newton.newton_select_lambdas`, one
+    ``initial.spg`` start; ADR-248), or with ``outer="lbfgsb"`` the continuous
+    search (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`,
     or :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous_multistart`
     when ``multistart=True``).
 
@@ -481,7 +491,9 @@ def fit_polaris_gam(
             describes the model, not one particular fit's data), so it is a
             required argument here rather than another ``data`` lookup by
             convention.
-        gamma, x0, bounds, gtol, maxiter: passed through to
+        gamma, x0, bounds, gtol, maxiter: ``gamma``, ``bounds`` and ``maxiter``
+            reach whichever search runs; ``x0`` and ``gtol`` are L-BFGS-B-only
+            (``outer="lbfgsb"``). For that search they are passed through to
             :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`
             unchanged, except ``bounds`` defaults to
             :data:`PRODUCTION_LOG10_BOUNDS` rather than that module's own
@@ -570,14 +582,25 @@ def fit_polaris_gam(
             with ``x0`` and ``multistart``.
 
         outer: which outer search selects the smoothing parameters.
-            ``"lbfgsb"`` (default) is the existing SciPy search — every existing
-            caller's behaviour is unchanged. ``"newton"`` is the safeguarded
+            ``"newton"`` (**the default since ADR-248**) is the safeguarded
             Newton search of :mod:`~polaris_re.analytics.gam_reml_newton`
-            (outer-solver epic Slice 1, ADR-241): analytic gradient, step cap,
-            step halving, gradient-based stopping, started from ``mgcv``'s
-            ``initial.spg`` (its ONLY start). Mutually exclusive with ``x0``,
-            ``multistart``, ``analytic_gradient``, ``max_gtol_restarts`` and
-            ``initial_sp_start`` (it IS the seeded single start).
+            (outer-solver epic, ADR-241..248): analytic gradient, exact
+            Hessian, step cap, step halving, and ``mgcv``'s own stopping test
+            (projected gradient <= ``conv.tol * (1 + |score|)``,
+            ``conv.tol = 1e-6`` — the tolerance ADR-248 ratified as the
+            convergence certificate's ``eps_rel``), started from ``mgcv``'s
+            ``initial.spg`` (its ONLY start). Deterministic: no random start,
+            no multistart. From that one start it meets ADR-221 against
+            ``mgcv`` on every gauntlet case (ADR-245/246) and is
+            BLAS-thread reproducible (ADR-247). Mutually exclusive with
+            ``x0``, ``multistart``, ``analytic_gradient``,
+            ``max_gtol_restarts`` and ``initial_sp_start``; ``gtol`` is not
+            used. ``"lbfgsb"`` is the previous SciPy search, kept as an opt-in
+            DIAGNOSTIC together with those options (and every recorded
+            L-BFGS-B conformance claim passes it explicitly) — it is not the
+            recommended path: from a single start it can stop on a plateau or
+            on a function-reduction test that is not a stationarity test
+            (ADR-241).
 
     Raises:
         PolarisValidationError: propagated from :func:`assemble_model_design`

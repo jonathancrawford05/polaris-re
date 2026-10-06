@@ -3,7 +3,8 @@
 **Plan:** `docs/PLAN_wood_outer_solver.md`
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md`
 **Created:** 2026-10-03, by the epic-start session (ADR-241).
-**Status:** **IN PROGRESS — ACTIVE EPIC. Slices 0-3, 4a and 4b DONE; 4c part 1 DONE. NEXT: Slice 4c (remaining).**
+**Status:** **DONE 2026-10-06 (ADR-248). Slices 0-4 complete; this epic is closed. The ACTIVE EPIC is now `docs/PLAN_gam_parity_preview.md`** (its epic-start session writes `CONTINUATION_gam_parity_preview.md` and its ADR).
+Slice 4 closure (ADR-248): `feat(mgcv-parity)` — `fit_polaris_gam` defaults to `outer="newton"`; `eps_rel` ratified at 1e-6 (`mgcv`'s `conv.tol`) after the plateau measurement; curvature-to-noise = the step-stability scan; `select=TRUE` `log10(sp)` read per block against `mgcv` (INDEPENDENT, reported, not gated).
 4c part 1 (ADR-247, tier 3 run 37232079212, `sha256:0d54c192…`): `harness(mgcv-parity)` — nothing INDEPENDENT. The gate's exit path is unit-tested; gauntlet case 5's thread axis (Polaris vs itself, no mgcv side) reads worst d eta 3.6e-08 over nine cases, `select=TRUE` d log10(sp) 7.3e-04. Still owed: `epsilon_rel` to the maintainer, INDEPENDENT `log10(sp)` on `select=TRUE`, the default flip.
 Slice 4b (ADR-246, tier 3 run 37213172762, `sha256:0d54c192…`): `feat(mgcv-parity)`, INDEPENDENT — case 4, ADR-227's 4-term HGAM, one Newton start: eta 5.212e-05, edf_total +0.0048, 8 fits, agrees; the nine 4a rows unchanged. The quasipoisson fixed-scale rows are now a blocking CI step (`--gate`). Default NOT flipped; case 5 not run.
 Slice 4a (ADR-245, tier 3 run 37204039328, `sha256:0d54c192…`): `feat(mgcv-parity)`, INDEPENDENT — one Newton start meets ADR-221 on all nine rows (six free-scale cells, fixed scale 2 and 6, `select=TRUE` N=7); `scripts/gam_newton_gauntlet.py`. Default NOT flipped; cases 4-5 not run.
@@ -21,7 +22,7 @@ Slice 1 (ADR-242): `fit_polaris_gam(outer="newton")` agrees with mgcv on gaussia
 | **3** | §3.1 reparameterisation through fit + derivatives; thread-axis study first | **DONE 2026-10-04 (ADR-244)** as a characterisation; transform not wired; derivative-path quadratic forms fixed; 3b (QR-augmented solve) registered, not released |
 | **4a** | gauntlet cases 1-3 | **DONE 2026-10-04 (ADR-245)** — tier 3, INDEPENDENT |
 | **4b** | case 2 blocking CI step; case 4 HGAM | **DONE 2026-10-04 (ADR-246)** — tier 3, INDEPENDENT |
-| **4c** | gate exit-path unit test (DONE); case 5 thread axis (DONE, ADR-247); `epsilon_rel` question; `log10(sp)` on `select=TRUE`; default flip | **part 1 DONE; remainder NEXT** |
+| **4c** | gate exit-path unit test (DONE); case 5 thread axis (DONE, ADR-247); `epsilon_rel` question; `log10(sp)` on `select=TRUE`; default flip | **DONE 2026-10-06** — part 1 ADR-247; remainder ADR-248 (one PR, closure rule) |
 
 ## What the next session needs to know
 
@@ -87,3 +88,10 @@ Slice 1 (ADR-242): `fit_polaris_gam(outer="newton")` agrees with mgcv on gaussia
 - The thread axis is NOT parity evidence (no mgcv side). Do not cite it as "reliable"; seed axis has no operand.
 - CI step output lives in the job summary; `gh run view --log` is blocked by the proxy, but the GitHub MCP `get_job_logs` with `return_content` and a large `tail_lines` saves the log to a file you can grep.
 - Remaining 4c: `epsilon_rel` / curvature-to-noise to the maintainer; INDEPENDENT `log10(sp)` reading vs mgcv on `select=TRUE`; default flip; `evidence_markdown` DoD table.
+
+## Closed by Slice 4 closure (2026-10-06, ADR-248)
+- `fit_polaris_gam`'s default is `outer="newton"`. Every recorded L-BFGS-B conformance call passes `outer="lbfgsb"` explicitly; the `fit_*_case` helpers keep `outer="lbfgsb"` as their own default (pinned by test).
+- `eps_rel = 1e-6` ratified (provisional 1e-8 withdrawn); "identified" = the step-stability scan; the "2 of 7 flat" anchor is retired as a pre-7h reading. `PROPOSAL_convergence_certificate.md` §6 carries the decision; the certificate object is still unbuilt and nothing waits on it.
+- Known limitation, not a slice: on a low-curvature direction (~4e-4) a 1e-6 relative gradient test leaves `log10(sp)` ~0.4-0.5 decades from the stationary point for us and for `mgcv` alike; `log10(sp)` stays reported, never gated (ADR-221).
+- New: `scripts/gam_convergence_certificate_plateau.py` (own criterion, committed fixtures, one non-gating CI step); the gauntlet report's `log10(sp)` column and `select=TRUE` per-block line.
+- Nothing is NEXT in this file. Slice 3b stays registered, released only by its condition (a gradient-precision failure within 2x of tolerance, which the preview's P4 target-size fit could trigger).

@@ -522,8 +522,10 @@ def test_fit_polaris_gam_multistart_matches_default_shape() -> None:
     death = rng.binomial(data["ExposCnt"].astype(int), np.clip(prob, 0.0, 1.0))
     y = death / data["ExposCnt"]
 
-    single = fit_polaris_gam(model, data, y, maxiter=60)
-    multi = fit_polaris_gam(model, data, y, maxiter=60, multistart=True, n_starts=3)
+    # Both calls pin the L-BFGS-B search this wiring test is about (ADR-248
+    # made Newton the default; multistart is an L-BFGS-B-only diagnostic).
+    single = fit_polaris_gam(model, data, y, maxiter=60, outer="lbfgsb")
+    multi = fit_polaris_gam(model, data, y, maxiter=60, multistart=True, n_starts=3, outer="lbfgsb")
     assert multi.converged
     assert multi.log_lambda.shape == single.log_lambda.shape == (4,)
     assert multi.eta.shape == single.eta.shape == (150,)
@@ -561,8 +563,9 @@ def test_fit_polaris_gam_analytic_gradient_matches_default_shape() -> None:
     death = rng.binomial(data["ExposCnt"].astype(int), np.clip(prob, 0.0, 1.0))
     y = death / data["ExposCnt"]
 
-    default = fit_polaris_gam(model, data, y, maxiter=60)
-    analytic = fit_polaris_gam(model, data, y, maxiter=60, analytic_gradient=True)
+    # Pinned to the L-BFGS-B search this option belongs to (ADR-248).
+    default = fit_polaris_gam(model, data, y, maxiter=60, outer="lbfgsb")
+    analytic = fit_polaris_gam(model, data, y, maxiter=60, analytic_gradient=True, outer="lbfgsb")
     assert analytic.converged
     assert analytic.log_lambda.shape == default.log_lambda.shape == (4,)
     assert analytic.eta.shape == default.eta.shape == (150,)
@@ -582,7 +585,7 @@ def test_fit_polaris_gam_rejects_x0_together_with_multistart() -> None:
     data = _data(n=150)
     y = np.zeros(150, dtype=np.float64)
     with pytest.raises(PolarisValidationError, match="x0"):
-        fit_polaris_gam(model, data, y, multistart=True, x0=np.zeros(2))
+        fit_polaris_gam(model, data, y, multistart=True, x0=np.zeros(2), outer="lbfgsb")
 
 
 def test_fit_polaris_gam_raises_loudly_when_the_search_hits_a_bound() -> None:
@@ -660,3 +663,65 @@ def test_fit_polaris_gam_strict_raises_at_the_upper_bound_too() -> None:
 
     with pytest.raises(PolarisComputationError, match=r"a bound.*UPPER"):
         fit_polaris_gam(model, data, y, bounds=(-2.0, 2.0), maxiter=60, strict=True)
+
+
+# --- ADR-248: the safeguarded Newton search is the default --------------------
+
+
+def test_fit_polaris_gam_defaults_to_the_newton_search() -> None:
+    """ADR-248 (outer-solver Slice 4 closure): ``outer`` defaults to
+    ``"newton"``; ``"lbfgsb"`` is an opt-in diagnostic."""
+    import inspect
+
+    assert inspect.signature(fit_polaris_gam).parameters["outer"].default == "newton"
+
+
+def test_the_default_fit_is_the_newton_fit() -> None:
+    """Behavioural pin of the same decision: on the well-conditioned smoke case
+    above, the default call and an explicit ``outer="newton"`` call are the
+    same deterministic search from the same ``initial.spg`` start, so they agree
+    exactly; the default stops on the gradient test (``mgcv``'s ``conv.tol``)."""
+    model = ModelSpec(
+        family="binomial",
+        link="cloglog",
+        terms=(
+            _cr_term(),
+            _cr_term(label="s(AttdAge,by=StudyYear_C)", by="StudyYear_C"),
+            _ti_term(),
+        ),
+        weights_column="ExposCnt",
+    )
+    data = _data(n=150)
+    rng = np.random.default_rng(7)
+    eta_true = (
+        -4.5
+        + 0.03 * data["AttdAge"]
+        - 0.02 * data["PolYear"]
+        + 0.01 * data["StudyYear_C"] * (data["AttdAge"] - 50) / 50
+    )
+    prob = 1.0 - np.exp(-np.exp(eta_true))
+    death = rng.binomial(data["ExposCnt"].astype(int), np.clip(prob, 0.0, 1.0))
+    y = death / data["ExposCnt"]
+
+    default = fit_polaris_gam(model, data, y)
+    newton = fit_polaris_gam(model, data, y, outer="newton")
+    assert default.converged
+    np.testing.assert_allclose(default.log_lambda, newton.log_lambda, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(default.eta, newton.eta, rtol=0.0, atol=0.0)
+    assert default.n_function_evals == newton.n_function_evals
+
+
+def test_newton_default_rejects_lbfgsb_only_options_unless_lbfgsb_is_named() -> None:
+    """``multistart`` belongs to the L-BFGS-B diagnostic path: with the Newton
+    default it raises rather than being silently dropped, and naming
+    ``outer="lbfgsb"`` restores it."""
+    model = ModelSpec(
+        family="binomial",
+        link="cloglog",
+        terms=(_cr_term(),),
+        weights_column="ExposCnt",
+    )
+    data = _data(n=150)
+    y = np.zeros(150, dtype=np.float64)
+    with pytest.raises(PolarisValidationError, match="outer='newton' is mutually exclusive"):
+        fit_polaris_gam(model, data, y, multistart=True)
