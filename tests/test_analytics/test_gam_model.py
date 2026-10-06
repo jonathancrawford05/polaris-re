@@ -725,3 +725,50 @@ def test_newton_default_rejects_lbfgsb_only_options_unless_lbfgsb_is_named() -> 
     y = np.zeros(150, dtype=np.float64)
     with pytest.raises(PolarisValidationError, match="outer='newton' is mutually exclusive"):
         fit_polaris_gam(model, data, y, multistart=True)
+
+    # ...and naming the L-BFGS-B search restores the option (PR #257 review P2).
+    model, data, y = _no_signal_recipe()
+    restored = fit_polaris_gam(
+        model, data, y, bounds=(-2.0, 2.0), maxiter=60, multistart=True, n_starts=2, outer="lbfgsb"
+    )
+    assert restored.log_lambda.shape == (1,)
+
+
+# --- PR #257 review P2: the bound guards on the L-BFGS-B diagnostic path ------
+# The two bound tests above call the default, so since ADR-248 they exercise the
+# Newton search. These keep the same guards covered on ``outer="lbfgsb"``, which
+# every recorded L-BFGS-B conformance claim still runs.
+
+
+def test_lbfgsb_search_also_raises_loudly_when_it_hits_a_bound() -> None:
+    model = ModelSpec(
+        family="binomial",
+        link="cloglog",
+        terms=(
+            _cr_term(),
+            _cr_term(label="s(AttdAge,by=StudyYear_C)", by="StudyYear_C"),
+            _ti_term(),
+        ),
+        weights_column="ExposCnt",
+    )
+    data = _data(n=150)
+    rng = np.random.default_rng(7)
+    eta_true = (
+        -4.5
+        + 0.03 * data["AttdAge"]
+        - 0.02 * data["PolYear"]
+        + 0.01 * data["StudyYear_C"] * (data["AttdAge"] - 50) / 50
+    )
+    prob = 1.0 - np.exp(-np.exp(eta_true))
+    death = rng.binomial(data["ExposCnt"].astype(int), np.clip(prob, 0.0, 1.0))
+    y = death / data["ExposCnt"]
+
+    with pytest.raises(PolarisComputationError, match="a bound"):
+        fit_polaris_gam(model, data, y, maxiter=60, bounds=(3.0, 3.0 + 1e-9), outer="lbfgsb")
+
+
+def test_lbfgsb_search_strict_also_raises_at_the_upper_bound() -> None:
+    model, data, y = _no_signal_recipe()
+
+    with pytest.raises(PolarisComputationError, match=r"a bound.*UPPER"):
+        fit_polaris_gam(model, data, y, bounds=(-2.0, 2.0), maxiter=60, strict=True, outer="lbfgsb")

@@ -22,6 +22,10 @@ unconditional covariance, tier 3); ADR-193 / `docs/VERIFICATION_STANDARD.md`.
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md` — same tiers, same provenance gate,
 same nevers.
 **Total slices:** 5. **No slice may be split without maintainer approval** (§4).
+The house guideline is 3-4 slices per epic (PR #257 review P2): the epic-start
+session confirms in its ADR that P5 (release) carries a user-facing deliverable
+and an INDEPENDENT comparison of its own (the generated parity report) — or folds
+P5 into P4 — so it is never a polish tail.
 
 ---
 

@@ -47,5 +47,14 @@ Slice 4 DONE; the outer-solver epic is DONE (ADR-248).
 ## PR #257 CI
 All checks green on `da63a06`. The plateau CI step (non-gating) raised inside the step-stability scan: an inner-IRLS non-convergence at a probe point, environment-dependent (ADR-224 amendment 1). Fixed by reporting a failing case as an error row (the gauntlet's own rule); the local readings are complete.
 
+## PR #257 review response
+The review approved with four P2s:
+- **P2-1:** the default-rejection test now also asserts that `outer="lbfgsb"` restores `multistart`.
+- **P2-2:** two new tests keep the bound guards (lower-bound raise, strict upper-bound raise) covered on `outer="lbfgsb"`; the existing two now run the Newton default and are unchanged.
+- **P2-3:** noted. Future published per-block tables quote the script's output verbatim.
+- **P2-4:** carried into `PLAN_gam_parity_preview.md` as an epic-start check on P5.
+
+No assertion changed. Test count +2.
+
 ## Open / follow-ups
 None in this epic. Next work is `PLAN_gam_parity_preview.md`'s epic start (ROUTINE pointer). Slice 3b stays registered with its release condition. The maintainer's routine-prompt edit (the stale "ADR-207 / parity PLAN" box) is outside this PR.
