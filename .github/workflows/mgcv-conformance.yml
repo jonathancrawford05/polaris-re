@@ -57,6 +57,11 @@ on:
       # reasoning as the line above for the penalized fitter.
       - "src/polaris_re/analytics/gam_basis_cr.py"
       - "src/polaris_re/analytics/gam_stage_a.py"
+      # PREVIEW epic Slice P1 (ADR-249) — predict at held-out rows vs predict.gam.
+      - "src/polaris_re/analytics/gam_predict.py"
+      - "src/polaris_re/analytics/gam_predict_conformance.py"
+      - "scripts/gam_predict_probe.R"
+      - "scripts/gam_predict_compare.py"
       - "src/polaris_re/analytics/gam_derivatives.py"
       - "src/polaris_re/analytics/gam_derivatives_conformance.py"
       - "src/polaris_re/analytics/gam_uncertainty.py"
@@ -885,6 +890,17 @@ jobs:
             Rscript scripts/gam_fixed_sp_score_probe.R \
               gam_fixed_sp_score_probe.json
 
+      # PREVIEW epic Slice P1 (ADR-249): mgcv's predict.gam at held-out rows on
+      # seven cells. Same DIAGNOSTIC contract as every probe above; the comparison
+      # happens in the `compare` job below.
+      - name: Predict at held-out rows under mgcv (preview slice P1)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_predict_probe.R \
+              gam_predict_probe.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: mgcv-reference
@@ -921,6 +937,7 @@ jobs:
             gam_parametric_probe.json
             gam_parametric_free_sp_probe.json
             gam_cr_re_ti_probe.json
+            gam_predict_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -4023,6 +4040,19 @@ jobs:
             echo "No gam_vc_probe.json — the R probe above did not produce one."
           fi
 
+      # PREVIEW epic Slice P1 (ADR-249) — predict at held-out rows vs predict.gam.
+      - name: Predict at held-out rows vs mgcv predict.gam (preview slice P1)
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f gam_predict_probe.json ]; then
+            uv run python scripts/gam_predict_compare.py \
+              gam_predict_probe.json gam_predict_report.md
+            cat gam_predict_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_predict_probe.json — the R probe above did not produce one."
+          fi
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -4074,3 +4104,5 @@ jobs:
             gam_parametric_free_sp_probe_report.md
             gam_cr_re_ti_probe.json
             gam_cr_re_ti_probe_report.md
+            gam_predict_probe.json
+            gam_predict_report.md
