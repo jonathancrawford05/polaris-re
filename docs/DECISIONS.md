@@ -24760,7 +24760,26 @@ A direction is **identified** iff `derive_floor_from_step_stability` resolves it
 - **Measured basis.** One start meets ADR-221 on all ten gauntlet rows, tier 3 (ADR-245/246); BLAS-thread reproducible (ADR-247). `eps_rel` does not gate it (closure rule item 2).
 
 ### (b) `log10(sp)` per block on `select=TRUE` vs `mgcv` — INDEPENDENT, reported, tier 3
-**PENDING** — filled from this PR's own tier-3 run before it leaves draft.
+Tier 3, CI run 37402772623, commit `da63a06`, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`. The gauntlet is unchanged on every row (all ten agree under ADR-221; `select=TRUE` eta 5.674e-05, edf +0.0039, 20 fits).
+
+`log10(sp)` per block, Polaris minus `mgcv`, `select=TRUE` N=7:
+
+| b0 | b1 | b2 | b3 | b4 | b5 | b6 |
+|---:|---:|---:|---:|---:|---:|---:|
+| **-0.255** | -0.000 | **-0.289** | -0.006 | -0.000 | -0.000 | -0.000 |
+
+**Five of seven blocks agree to 3 decimals.** The two that differ, b0 and b2, are exactly the two low-curvature directions the plateau measurement (a) found on the same data:
+- The local fixture is the same R draw: Newton reaches the same score, 523.645667.
+- There, the remaining Newton step on b0/b2 is 0.46/0.43 decades **upward**.
+- So Polaris stopped ~0.26-0.29 decades below `mgcv`'s `sp`, and the stationary point lies ~0.15-0.21 decades above `mgcv`'s (b0: -0.255 + 0.464; b2: -0.289 + 0.435). Both engines stop inside the same shallow valley, on opposite sides of its floor, each under a 1e-6 relative gradient test.
+- This is the mechanism ADR-245 flagged ("two plateau blocks 0.25-0.3 decades off"), now located and sized. It is a **known limitation, recorded, not a slice** (closure rule item 3). `eta` agrees to 5.7e-05 and `edf_total` to 0.004.
+
+The column also reports `log10(sp)` on the other cells for the first time (reported, never gated):
+- gaussian L1 0.437, factor-by L3 0.030, all others 0.000.
+- The 4-term HGAM's claim does not declare it, so it reads n/a.
+- L1's 0.437 is not diagnosed here. ADR-241 found L1's free-scale surface carries a plateau direction, and the same "shallow direction, 1e-6 test" reading is the expected one. If the preview needs `sp` on L1, run the plateau script on it then.
+
+The plateau CI step on that run raised inside the step-stability scan: an inner-IRLS non-convergence at a `rho +- h` probe, environment-dependent per ADR-224 amendment 1. The script now reports a failing case as an error row, never fatal to the others (the gauntlet's rule). The local readings in (a) are complete for all four rows.
 
 ### Maintainer decisions recorded with this ADR (2026-10-06) for `PLAN_gam_parity_preview.md`
 - **The public entry point is `polaris_re.gam`.** It will be a thin, typed facade package; diagnostics stay on `fit_polaris_gam`.

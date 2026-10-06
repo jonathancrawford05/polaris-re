@@ -76,6 +76,7 @@ class PlateauReading:
     min_reduced_curvature: float
     max_remaining_step_decades: float
     remaining_decrement: float
+    error: str | None = None
 
 
 def _measure(case: str, fixture: str, select: bool, outer: str) -> PlateauReading:
@@ -151,9 +152,25 @@ def _measure(case: str, fixture: str, select: bool, outer: str) -> PlateauReadin
     )
 
 
+def _guarded(case: str, fixture: str, select: bool, outer: str) -> PlateauReading:
+    """A case whose fit or step-stability probe raises is an ERROR row, never
+    dropped and never fatal to the other rows (the gauntlet's own rule). A probe
+    at ``rho +- h`` can land in an inner-IRLS non-convergent neighbourhood
+    (ADR-222/224), which varies by environment (ADR-224 amendment 1)."""
+    try:
+        reading = _measure(case, fixture, select, outer)
+    except Exception as exc:  # reported in the table, never swallowed
+        nan = float("nan")
+        reading = PlateauReading(
+            case, outer, False, -1, nan, nan, 0, 0, nan, nan, nan, nan, nan, nan, repr(exc)
+        )
+    print(f"measured: {reading.case} / {reading.outer}: {reading.error or 'ok'}", flush=True)
+    return reading
+
+
 def main(out: Path | None) -> None:
     readings = [
-        _measure(case, fixture, select, outer)
+        _guarded(case, fixture, select, outer)
         for case, fixture, select in _CASES
         for outer in ("newton", "lbfgsb")
     ]
@@ -169,9 +186,10 @@ def main(out: Path | None) -> None:
         "| min identified curvature | rel proj. grad | rel restricted grad "
         "| min reduced curvature | remaining step (decades) | remaining decrement "
         + "".join(f"| certified at eps_rel={c:g} " for c in _CANDIDATES)
-        + "|",
+        + "| error |",
         "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
-        + "---|" * len(_CANDIDATES),
+        + "---|" * len(_CANDIDATES)
+        + "---|",
         *[
             f"| {r.case} | {r.outer} | {r.converged} | {r.n_fits} | {r.score:.6f} "
             f"| {r.eps_f:.1e} | {r.n_identified} of {r.n_blocks} "
@@ -182,7 +200,7 @@ def main(out: Path | None) -> None:
                 f"| {r.rel_restricted_gradient <= c and r.min_reduced_curvature > 0.0} "
                 for c in _CANDIDATES
             )
-            + "|"
+            + f"| {r.error or ''} |"
             for r in readings
         ],
         "",
