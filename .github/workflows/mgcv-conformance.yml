@@ -218,6 +218,7 @@ on:
       # OUTER-SOLVER EPIC slice 4 (ADR-245) — the gauntlet.
       - "src/polaris_re/analytics/gam_newton_gauntlet_conformance.py"
       - "scripts/gam_newton_gauntlet.py"
+      - "scripts/gam_newton_thread_axis.py"
       # OUTER-SOLVER EPIC slice 2 (ADR-243) — the exact Hessian, its mgcv
       # comparison module, and the probe that exports mgcv's outer Hessian.
       - "src/polaris_re/analytics/gam_reml_hessian.py"
@@ -3058,6 +3059,18 @@ jobs:
             cat gam_hessian_report.md >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No gam_hessian_probe.json — the R probe above did not produce one."
+          fi
+
+      # OUTER-SOLVER EPIC slice 4c (ADR-247). DIAGNOSTIC, gates nothing, and NOT a
+      # parity comparison: gauntlet case 5, the thread axis — every Newton case
+      # fit at BLAS threads 1/2/4/1 and compared with its own first fit.
+      - name: Newton thread axis on every gauntlet case (outer-solver slice 4c)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python scripts/gam_newton_thread_axis.py . gam_newton_thread_axis_report.md
+          if [ -f gam_newton_thread_axis_report.md ]; then
+            cat gam_newton_thread_axis_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # OUTER-SOLVER EPIC slice 3 (ADR-244). DIAGNOSTIC, gates nothing, and NOT a

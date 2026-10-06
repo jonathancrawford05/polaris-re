@@ -3,7 +3,8 @@
 **Plan:** `docs/PLAN_wood_outer_solver.md`
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md`
 **Created:** 2026-10-03, by the epic-start session (ADR-241).
-**Status:** **IN PROGRESS — ACTIVE EPIC. Slices 0-3, 4a and 4b DONE. NEXT: Slice 4c.**
+**Status:** **IN PROGRESS — ACTIVE EPIC. Slices 0-3, 4a and 4b DONE; 4c part 1 DONE. NEXT: Slice 4c (remaining).**
+4c part 1 (ADR-247, tier 3 run 37232079212, `sha256:0d54c192…`): `harness(mgcv-parity)` — nothing INDEPENDENT. The gate's exit path is unit-tested; gauntlet case 5's thread axis (Polaris vs itself, no mgcv side) reads worst d eta 3.6e-08 over nine cases, `select=TRUE` d log10(sp) 7.3e-04. Still owed: `epsilon_rel` to the maintainer, INDEPENDENT `log10(sp)` on `select=TRUE`, the default flip.
 Slice 4b (ADR-246, tier 3 run 37213172762, `sha256:0d54c192…`): `feat(mgcv-parity)`, INDEPENDENT — case 4, ADR-227's 4-term HGAM, one Newton start: eta 5.212e-05, edf_total +0.0048, 8 fits, agrees; the nine 4a rows unchanged. The quasipoisson fixed-scale rows are now a blocking CI step (`--gate`). Default NOT flipped; case 5 not run.
 Slice 4a (ADR-245, tier 3 run 37204039328, `sha256:0d54c192…`): `feat(mgcv-parity)`, INDEPENDENT — one Newton start meets ADR-221 on all nine rows (six free-scale cells, fixed scale 2 and 6, `select=TRUE` N=7); `scripts/gam_newton_gauntlet.py`. Default NOT flipped; cases 4-5 not run.
 Slice 3 (ADR-244, tier 3 run 37167311644, `sha256:0d54c192…`): characterisation, `harness(mgcv-parity)` — nothing INDEPENDENT landed. Newton+exact Hessian is thread-reproducible with no reparameterisation (d eta 2.8e-07 vs 0.356 for multistart); the gradient's rounding noise (6.5e-05 at an 11-decade spread) was term 1 contracting the formed block, now a sum of squares (4.7e-08), same for the Hessian. Four transform hypotheses refuted.
@@ -20,7 +21,7 @@ Slice 1 (ADR-242): `fit_polaris_gam(outer="newton")` agrees with mgcv on gaussia
 | **3** | §3.1 reparameterisation through fit + derivatives; thread-axis study first | **DONE 2026-10-04 (ADR-244)** as a characterisation; transform not wired; derivative-path quadratic forms fixed; 3b (QR-augmented solve) registered, not released |
 | **4a** | gauntlet cases 1-3 | **DONE 2026-10-04 (ADR-245)** — tier 3, INDEPENDENT |
 | **4b** | case 2 blocking CI step; case 4 HGAM | **DONE 2026-10-04 (ADR-246)** — tier 3, INDEPENDENT |
-| **4c** | gate exit-path unit test (first); case 5 thread axis; `epsilon_rel` question; `log10(sp)` on `select=TRUE`; default flip | **NEXT** |
+| **4c** | gate exit-path unit test (DONE); case 5 thread axis (DONE, ADR-247); `epsilon_rel` question; `log10(sp)` on `select=TRUE`; default flip | **part 1 DONE; remainder NEXT** |
 
 ## What the next session needs to know
 
@@ -80,3 +81,9 @@ Slice 1 (ADR-242): `fit_polaris_gam(outer="newton")` agrees with mgcv on gaussia
 - **`select=TRUE` N=7 is not stable to the printed digit across CI runs** (review P2-1). Same oracle `sha256:0d54c192…` and identical `src/`: run 37213172762 and ADR-245 read 5.671e-05 / +0.0038, the head run 37213760199 reads 5.674e-05 / +0.0039. Far inside ADR-221, but it is the fixture case 5 (thread axis) and the `log10(sp)` plateau reading will examine. "Unchanged at every printed digit" (ADR-246) holds for the other rows in the compared run, not as a general property.
 - Test-assertion amendments (row count 8 to 9; `outer` in the signature pin) APPROVED by the maintainer.
 - The `--gate` step re-fits all ten cases to gate two rows (review P2-2). Kept deliberately: simpler, and the gate stays independent of the `continue-on-error` report step. Persisting the report step's readings as JSON for the gate to read is the alternative if the cost matters.
+
+## Added by slice 4c part 1 (2026-10-04)
+- New: `run_thread_axis` / `ThreadAxisReading` / `THREAD_AXIS_CASES`, `scripts/gam_newton_thread_axis.py`, one non-gating CI step, 3 gate-exit tests. No perf row.
+- The thread axis is NOT parity evidence (no mgcv side). Do not cite it as "reliable"; seed axis has no operand.
+- CI step output lives in the job summary; `gh run view --log` is blocked by the proxy, but the GitHub MCP `get_job_logs` with `return_content` and a large `tail_lines` saves the log to a file you can grep.
+- Remaining 4c: `epsilon_rel` / curvature-to-noise to the maintainer; INDEPENDENT `log10(sp)` reading vs mgcv on `select=TRUE`; default flip; `evidence_markdown` DoD table.
