@@ -24683,3 +24683,39 @@ ADR-227's pinned configuration, `multistart=True, n_starts=9`, used 1326-1392 fu
 
 ### Consequences
 Slice 4c registered (PLAN): case 5 (thread axis only for Newton), `epsilon_rel` put to the maintainer, `log10(sp)` read on `select=TRUE`, then the default flip. Release condition: none external.
+
+## ADR-247: Outer-solver slice 4c (part 1) — the gate's exit path is tested; gauntlet case 5's thread axis reads 3.6e-08 worst-case `eta` on the Newton search (MEASUREMENT, own criterion, tier 3) — nothing INDEPENDENT landed
+
+**Status:** Accepted, 2026-10-04. PR title class: **`harness(mgcv-parity)`** — the new measurement is Polaris against itself across BLAS thread counts; it has no `mgcv` side and carries no `VerificationClaim`. PLAN Slice 4 is NOT done: the `epsilon_rel` question, the `log10(sp)` comparison with `mgcv` on `select=TRUE`, and the default flip remain (4c continues). Code: `run_thread_axis` / `ThreadAxisReading` in `gam_newton_gauntlet_conformance.py`, `scripts/gam_newton_thread_axis.py`, one non-gating CI step, three tests of the script's `--gate` exit path (PR #255 review, 1st-order) and two of the thread axis.
+
+### Provenance (ADR-193)
+Claim sentence, written first: *"Polaris computes the Newton fit of each gauntlet case from the recipe at BLAS thread count n; Polaris computes it again at thread count m; compared on `eta`, `log10(sp)`, `edf_total`."* Both sides are the same producer, so this is a reproducibility measurement, not parity: **no ECHO, no TRANSPORT, no INDEPENDENT column** — no `mgcv` value is read. The seed axis has no operand (Newton from `initial.spg` is deterministic). `require_parity_evidence` is not called and the report headline says "NOT parity evidence".
+
+### Measurement — tier 3, CI run 37232079212, commit `7258f0f`, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+Threads 1, 2, 4, then 1 again; each fit vs the case's first; every fit converged, fit counts identical across thread counts.
+| case | max d eta | max d log10(sp) | max d edf_total |
+|---|---:|---:|---:|
+| gaussian L1 | 2.290e-08 | 1.118e-05 | 3.827e-08 |
+| gaussian factor-by L3 | 1.786e-10 | 3.210e-07 | 1.043e-10 |
+| gaussian parametric L4 | 0 | 0 | 0 |
+| gaussian cr+re+ti L6 | 4.552e-14 | 2.407e-13 | 4.690e-13 |
+| quasipoisson 3b | 3.819e-14 | 2.922e-13 | 4.974e-13 |
+| quasipoisson 3c | 1.026e-13 | 3.513e-13 | 1.727e-12 |
+| quasipoisson fixed scale (2 and 6) | 5.924e-13 | 3.899e-12 | 1.087e-11 |
+| `select=TRUE` N=7 | 3.604e-08 | 7.341e-04 | 2.361e-06 |
+| 4-term HGAM | 5.411e-13 | 5.131e-10 | 7.319e-12 |
+
+Beside ADR-222 amendment 1 (multistart(9) + L-BFGS-B, `select=TRUE` N=7, cross-thread): max d eta 0.356, d edf_total 10.002. Tier 1 (R 4.3.3 / mgcv 1.9.1) read the same orders of magnitude (worst `select=TRUE` d eta 2.8e-07, d log10(sp) 5.1e-03) — a hypothesis-grade reading; the tier-3 figures above are the ones to cite.
+
+### Reading
+The worst `eta` movement across thread counts is 3.6e-08, about seven orders below ADR-221's gate and nine below the multistart search's 0.356. The largest `log10(sp)` movement is on `select=TRUE`'s plateau blocks (7.3e-04 at tier 3, 5.1e-03 at tier 1): on a plateau `eta` is insensitive to `sp`, so this says `log10(sp)` is the less stable column there, which is exactly why ADR-245 flagged it. It is not a comparison with `mgcv`'s `log10(sp)`.
+
+### Not claimed
+- Not "reliable", and not "both reproducibility axes pass": the thread axis was measured on nine cases at three thread counts; the seed axis does not exist for Newton. Other BLAS builds, other machines and other draws were not run.
+- The `log10(sp)` agreement with `mgcv` on `select=TRUE` (the INDEPENDENT reading) is still owed.
+- `epsilon_rel` / curvature-to-noise question: not put to the maintainer this session; still owed.
+- The default is not flipped.
+- The gate's exit path now has unit tests (exit 1 on a disagreeing fixed-scale row, normal return when both agree, report-only without `--gate`); it has still never been seen failing in CI.
+
+### ADR-247 amendment 1 (PR #256 review)
+The ~1e-13 rows (L6, 3b, 3c, fixed scale, HGAM) are not evidence of thread reproducibility: OpenBLAS may run those small operations single-threaded whatever the limit, so they may never have taken a multithreaded path. Only L1 (~2e-08) and `select=TRUE` (~4e-08) are informative. The script now records the BLAS thread counts in force per requested limit. `threadpoolctl` is a declared dependency (`ml` extra and dev group).
