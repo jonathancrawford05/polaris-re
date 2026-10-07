@@ -49,6 +49,9 @@ def _synthetic_recipe(name: str, seed: int = 3) -> PredictRecipe:
     def cols(m: int) -> dict[str, list[float]]:
         c: dict[str, list[float]] = {
             "x": rng.uniform(0, 10, m).tolist(),
+            "age": rng.uniform(45, 85, m).tolist(),
+            "year": rng.uniform(2010, 2021, m).tolist(),
+            "dur": rng.uniform(2, 22, m).tolist(),
             "z": rng.uniform(0, 5, m).tolist(),
             "w": rng.uniform(-2, 2, m).tolist(),
             "f": rng.integers(0, 3, m).tolist(),
@@ -90,6 +93,8 @@ def _factor_names(name: str) -> set[str]:
         "quasipoisson_cr_re_ti": {"f"},
         "binomial_cr": set(),
         "poisson_offset": set(),
+        "poisson_hgam": set(),
+        "gaussian_select": set(),
         "gaussian_sz": {"f"},
     }[name]
 
@@ -119,6 +124,14 @@ def test_probe_runs_and_the_lpmatrix_agrees_on_every_cell(tmp_path: Path) -> Non
         comparison = compare_predict_case(a, cell)
         assert comparison.max_abs_lpmatrix_diff_inrange < 1e-9, cell["name"]
         assert comparison.max_abs_lpmatrix_diff_outrange < 1e-9, cell["name"]
+        if cell["name"] == "gaussian_factor_by":
+            # ADR-250: XtWX + S is numerically singular (rank(X) = 22 of 29), so the
+            # covariance is REFUSED rather than inverted through the null direction.
+            assert comparison.vcov_refusal is not None
+            assert comparison.se_agrees is None
+        elif cell["fit_polaris"]:
+            assert comparison.vcov_refusal is None, cell["name"]
+            assert comparison.se_agrees, cell["name"]
         if cell["name"] != "gaussian_factor_by":
             # gaussian_factor_by's FIT does not meet ADR-221's edf gate (ADR-249:
             # a recorded outer-search limitation, not a predict defect); every

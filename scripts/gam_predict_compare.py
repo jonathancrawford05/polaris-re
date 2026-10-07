@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 from polaris_re.analytics.gam_predict_conformance import (
+    _SE_REL_TOLERANCE,
     PREDICT_CLAIM,
     PredictCaseComparison,
     compare_predict_case,
@@ -60,6 +61,37 @@ def main(probe: Path, out: Path | None) -> None:
             f"{_f(r.max_abs_eta_diff_train)} | {_f(r.edf_total_diff, '+.4f')} | "
             f"{r.converged} | {r.agrees} |"
         )
+    lines += [
+        "",
+        f"Standard errors (Slice P2). Gate: relative se.fit < {_SE_REL_TOLERANCE:g} for Vp and "
+        "Vc (derived before the first tier-3 run, ADR-250); the rest are reported. "
+        "`refused` = Polaris declined to return a covariance for that fit.",
+        "",
+        "| cell | se Vp rel | se Vc rel | se resp rel | cov Vp rel | cov Vc rel | "
+        "scale rel | se agrees |",
+        "|---|---:|---:|---:|---:|---:|---:|---|",
+    ]
+    for r in rows:
+        if r.max_rel_se_link is None and r.vcov_refusal is None and r.converged is None:
+            continue
+        if r.vcov_refusal is not None:
+            lines.append(
+                f"| {r.name} | refused | refused | refused | refused | refused | "
+                f"{_f(r.rel_scale_diff)} | refused |"
+            )
+            continue
+        unc = r.unconditional_refusal is not None
+        lines.append(
+            f"| {r.name} | {_f(r.max_rel_se_link)} | "
+            f"{'refused' if unc else _f(r.max_rel_se_link_unconditional)} | "
+            f"{_f(r.max_rel_se_response)} | {_f(r.max_rel_cov_proj)} | "
+            f"{'refused' if unc else _f(r.max_rel_cov_proj_unconditional)} | "
+            f"{_f(r.rel_scale_diff)} | {r.se_agrees} |"
+        )
+    for r in rows:
+        for what, msg in (("Vp", r.vcov_refusal), ("Vc", r.unconditional_refusal)):
+            if msg is not None:
+                lines += ["", f"`{r.name}` {what} refused: {msg}"]
     for e in errors:
         lines += ["", f"**ERROR** {e}"]
     if not all(r.agrees for r in rows) or errors:
