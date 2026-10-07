@@ -4135,3 +4135,11 @@ Provenance: INDEPENDENT comparison (Polaris two-start fit vs `mgcv` `quasipoisso
 - **1st-order (promoted):** none new — Slice 4's gauntlet already owns the reliability claim; its case 3 now has a tier-1 pre-reading.
 - **2nd-order (NICE-TO-HAVE):** Slice 3b, QR-augmented solve (PLAN_wood_outer_solver), released only if a gauntlet case fails on gradient precision. The measured floor is currently 6-100x below the search tolerance.
 - **3rd-order (parked):** a tier-3 re-measurement of the Hessian BEFORE column (needs the pre-change commit run through CI); (audit of `experience_gam_penalized` run in review round 1 and closed: formed `beta'S beta` error 2.4e-9 at its lambda bound — see the Slice 3 session log).
+
+---
+
+## Addendum 2026-10-06 — preview slice P1 follow-ups (ADR-249)
+
+- **1st-order (promoted):** the HGAM held-out `predict.gam` comparison, carried as the FIRST task of the next preview session (PLAN §3 P1 item not met; no re-scoping). Source: ADR-249 deviations.
+- **2nd-order (NICE-TO-HAVE):** the `gaussian_factor_by` fit limitation (eta 2.5e-02, edf +0.458 at tier 3; edf -1.54 at tier 1): a second probe draw before the user guide states the limitation's size, unless P3 refuses factor-`by` next to `s(x)`. Source: ADR-249 / PR #258 review.
+- **3rd-order (parked):** an lpmatrix-only comparison for further bases as they land (L6-L8) reuses `gam_predict_probe.R`.

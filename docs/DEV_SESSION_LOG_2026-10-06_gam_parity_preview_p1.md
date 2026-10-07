@@ -2,7 +2,7 @@
 
 **Branch:** `claude/dreamy-galileo-yn2js4`. **PR title class:** `feat(mgcv-parity)` — the lpmatrix, eta, response and control columns are INDEPENDENT. Epic-start session: ADR-249 and `CONTINUATION_gam_parity_preview.md` written, then Slice P1.
 **Box vs repo:** the registered box names no epic; the repo's active-epic pointer named `PLAN_gam_parity_preview.md`. Repo followed; no conflict on fact.
-**Perf:** one row appended (ADR-177): the PR touches `gam_basis_cr.py`, `gam_model.py`, `gam_predict.py`, none a `*_conformance.py` module, so amendment 2 does not exempt it.
+**Perf:** one row appended (ADR-177; `perf_history.py --check-only`: no structural, wall-time or config creep): the PR touches `gam_basis_cr.py`, `gam_model.py`, `gam_predict.py`, none a `*_conformance.py` module, so amendment 2 does not exempt it.
 
 ## Baseline
 No mortality tables here, so five environmental failures stand: `test_loaded_ilec_feeds_tensor_mi_surface` and four `TestCalibratedPremiums`. Before: **3900 passed, 5 failed, 40 skipped, 145 deselected** (R installed mid-run, so R-gated tests skipped). After: **3938 passed, 5 failed, 22 skipped, 145 deselected** — the same five failures; +38 passed = 20 new tests + 18 R-gated tests that now run. `tests/qa/`: 85 passed, 9 skipped; goldens untouched.

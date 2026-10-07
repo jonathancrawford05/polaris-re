@@ -2,7 +2,7 @@
 
 > **STATUS: APPROVED — ACTIVE EPIC from 2026-10-06 (maintainer; ADR-248).** Its
 > precondition, `PLAN_wood_outer_solver.md` Slice 4, is DONE (ADR-248):
-> `fit_polaris_gam` defaults to the deterministic Newton search. Epic started and **P1 DONE** 2026-10-06 (ADR-249;
+> `fit_polaris_gam` defaults to the deterministic Newton search. Epic started and **P1 DONE except its HGAM held-out comparison (first task next session)** 2026-10-06 (ADR-249;
 > `CONTINUATION_gam_parity_preview.md`). **NEXT: Slice P2.**
 >
 > **Maintainer decisions already taken (2026-10-06, recorded in ADR-248):**
