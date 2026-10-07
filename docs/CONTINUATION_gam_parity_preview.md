@@ -15,6 +15,19 @@
 | **P4** | `summary()`, 13+-block target-size fit | — |
 | **P5** | guide, notebook, generated parity report | — |
 
+## Staying on track — checkpoints (maintainer-agreed 2026-10-07)
+The factor-`by` miss (`gaussian_factor_by`, ADR-249) is documented, not fixed: no solver work, no start strategy (PLAN §4 rules 3-4). It is revisited ONLY at these points, each owned by an existing slice:
+
+| when | what happens | owner |
+|---|---|---|
+| **start of the next session** | finish P1's carried item: the 4-term HGAM held-out comparison (extend `gam_predict_probe.R`); then P2 | P1 / P2 |
+| **P3 (refusal list)** | decide: refuse `s(x)` + `s(x, by=f)` on one covariate, citing `MGCV_FEATURE_COVERAGE.md`; open maintainer question 2 (recommended: refuse). Bare `s(x)` stays refused until L7 `tp`, explicit bases accepted | P3 |
+| **before P5 states the limitation's size** | a second probe draw (tier-1 vs tier-3 `edf` changed sign) | P5 |
+| **P4 target-size fit** | if it fails on gradient precision, Slice 3b's release condition fires; re-run `gaussian_factor_by` as a regression case then | P4 |
+| **any time** | only on preview-user demand for factor-`by`, or evidence the plateau is precision not valley, and then via Slice 3b | maintainer |
+
+Guardrails each session re-reads before acting: one slice per session; no splitting; a disagreement outside the target formula is a recorded limitation; every number carries tier + digest; every comparison declares provenance.
+
 ## Maintainer answers (2026-10-07)
 1. P4/P5 unchanged: P5 stays a separate slice.
 2. A bare `s(x)` stays refused until `tp` (L7) lands, provided the same model can be fitted with an explicit basis (`bs="cr"`, `bs="re"`, ...). P3 must therefore accept every explicit-basis form in the verified subset; a test pins a refused bare `s(x)` and its explicit equivalent.
