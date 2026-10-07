@@ -392,6 +392,28 @@ def _cr_basis_raw(x: np.ndarray, knots: np.ndarray) -> tuple[np.ndarray, np.ndar
     np.add.at(design, (rows, j + 1), a[:, 1])
     design += c[:, [0]] * f_star[j, :]
     design += c[:, [1]] * f_star[j + 1, :]
+
+    # Beyond the end knots mgcv's crspl extrapolates LINEARLY along the end
+    # slope of the natural spline (measured, tier 1: second differences of the
+    # design columns are zero outside the knot range, both when the rows are
+    # training rows and when they come through predict.gam). The Hermite
+    # weights above would continue the end interval's cubic instead. Rows
+    # inside [knots[0], knots[-1]] are untouched, so every in-range design is
+    # bit-identical to what this function returned before.
+    below = x < knots[0]
+    above = x > knots[-1]
+    if below.any():
+        slope = -f_star[1, :] * (h[0] / 6.0)
+        slope[0] -= 1.0 / h[0]
+        slope[1] += 1.0 / h[0]
+        design[below, :] = (x[below] - knots[0])[:, None] * slope[None, :]
+        design[below, 0] += 1.0
+    if above.any():
+        slope = f_star[k - 2, :] * (h[-1] / 6.0)
+        slope[k - 1] += 1.0 / h[-1]
+        slope[k - 2] -= 1.0 / h[-1]
+        design[above, :] = (x[above] - knots[-1])[:, None] * slope[None, :]
+        design[above, k - 1] += 1.0
     return design, s_full
 
 

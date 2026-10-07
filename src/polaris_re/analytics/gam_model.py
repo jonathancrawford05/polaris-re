@@ -90,6 +90,7 @@ from polaris_re.analytics.gam_family import (
     quasipoisson_log,
 )
 from polaris_re.analytics.gam_initial_sp import initial_log10_lambda
+from polaris_re.analytics.gam_predict import TermState, fit_term_state, predict_design
 from polaris_re.analytics.gam_reml_newton import NewtonLambdaSelection, newton_select_lambdas
 from polaris_re.analytics.gam_reml_optimize import (
     ContinuousLambdaSelection,
@@ -452,6 +453,49 @@ class PolarisGAMFit:
     :mod:`polaris_re.analytics.gam_dispersion`). NaN estimates mean the
     diagnostic was undefined for this fit (no residual degrees of freedom, or a
     saturated ``mu`` with ``V = 0``) — it never blocks the fit itself."""
+    term_states: tuple[TermState, ...] = ()
+    """Per-term knots and absorbed constraints from the TRAINING rows — what
+    ``mgcv`` keeps in ``m$smooth`` — so :meth:`predict` can rebuild each basis at
+    new rows (ADR-249). Empty only on a fit built by hand rather than by
+    :func:`fit_polaris_gam`; :meth:`predict` then raises."""
+
+    def predict(
+        self,
+        newdata: Mapping[str, np.ndarray],
+        type: Literal["link", "response"] = "link",
+    ) -> np.ndarray:
+        """The fitted model evaluated at ``newdata``'s rows (``predict.gam``).
+
+        ``newdata`` carries the same columns the fit read (numeric covariates,
+        0-indexed factor codes, and the offset column if the model has one —
+        ``predict.gam`` also requires the offset variable). ``type="link"``
+        returns ``eta = offset + X beta``; ``"response"`` applies the inverse
+        link. Numeric covariates outside the training range extrapolate
+        linearly, as ``mgcv``'s ``cr`` does (ADR-249); a factor code the fit did
+        not see raises.
+        """
+        if type not in ("link", "response"):
+            raise PolarisValidationError(
+                f"PolarisGAMFit.predict: type must be 'link' or 'response', got {type!r}."
+            )
+        if not self.term_states:
+            raise PolarisValidationError(
+                "PolarisGAMFit.predict: this fit carries no stored term states "
+                "(it was not built by fit_polaris_gam)."
+            )
+        x_new = predict_design(self.model, self.term_states, newdata)
+        eta = x_new @ self.coef
+        if self.model.offset_column is not None:
+            if self.model.offset_column not in newdata:
+                raise PolarisValidationError(
+                    f"PolarisGAMFit.predict: the model has offset column "
+                    f"{self.model.offset_column!r}; newdata must carry it."
+                )
+            eta = eta + np.asarray(newdata[self.model.offset_column], dtype=np.float64)
+        if type == "link":
+            return np.asarray(eta, dtype=np.float64)
+        family = resolve_family(self.model.family, self.model.link)
+        return np.asarray(family.link.linkinv(eta), dtype=np.float64)
 
 
 def fit_polaris_gam(
@@ -789,4 +833,5 @@ def fit_polaris_gam(
         at_bound=bool(upper_bound_blocks),
         at_bound_blocks=tuple(label for label, _ in upper_bound_blocks),
         dispersion=_dispersion_or_nan(y, mu, family, selection.edf_total, weights),
+        term_states=tuple(fit_term_state(term, data) for term in model.terms),
     )

@@ -95,6 +95,8 @@ each other.
 > constrained), so conflating them into one field would have hidden that
 > difference rather than expressed it.
 
+**Predict at new rows (2026-10-06, preview slice P1, ADR-249).** `PolarisGAMFit.predict(newdata, type)` rebuilds `cr` (plain, numeric/factor `by`), `ti`, `re`, `parametric` and `sz` designs from stored per-term state. The design at held-out rows, in and beyond the training range, is compared with `predict.gam(type="lpmatrix")` on all seven cells (INDEPENDENT; tier 3, ADR-249: <= 1.6e-13). `cr` extrapolates linearly beyond the end knots, as `mgcv` does. `sz` is compared at the lpmatrix only (no verified free-`sp` fit). **Known limitation:** a `s(x) + s(x, by=f)` fit (3 levels) did not converge under Newton and missed ADR-221 at tier 3 on the probe's draw (eta 2.5e-02, edf +0.458) — a plateau block, recorded, not a slice; a P3 refusal candidate.
+
 ### 2.2 Families and links
 
 | family / link | expressible? | Stage B | notes |

@@ -24794,3 +24794,55 @@ The plateau CI step on that run raised inside the step-stability scan: an inner-
 - **The outer-solver epic is DONE.** Slice 3b stays registered with its release condition, which P4's target-size fit may trigger.
 - **The ACTIVE EPIC becomes `PLAN_gam_parity_preview.md`.** The next session writes its ADR and CONTINUATION.
 - **The capability ladder resumes after the preview,** not after this slice.
+
+
+## ADR-249: GAM parity preview epic start; Slice P1 — `PolarisGAMFit.predict` at new rows agrees with `predict.gam` (INDEPENDENT, tier 3 reading in the PR); `cr` extrapolates linearly like `mgcv`
+
+**Status:** Accepted, 2026-10-06 (epic-start session; ratified by merging the PR). Opens `PLAN_gam_parity_preview.md` (ADR-248's active epic) and lands Slice P1. PR title class: **`feat(mgcv-parity)`** — the `lpmatrix`, `eta`, response and control columns are INDEPENDENT. Goldens untouched (no pricing path calls `fit_polaris_gam`, Anchor 7).
+
+### Epic start
+- **Epic ADR:** this one. **CONTINUATION:** `docs/CONTINUATION_gam_parity_preview.md` (IN PROGRESS).
+- **P5 confirmed as a deliverable, not a polish tail:** it carries the user guide + notebook AND `scripts/gam_parity_report.py`, whose generated report is an INDEPENDENT-claims aggregate (headline by `evidence_markdown`). If P4 leaves room the maintainer may fold P5 into P4; the routine does not decide.
+- Five slices, none split (PLAN §4 rule 2).
+
+### Claim sentence (ADR-193), written before the code
+*"Polaris (`PolarisGAMFit.predict` / `gam_predict.predict_design`) computes the design and the linear predictor at held-out rows from the training recipe plus the new covariates; `mgcv` computes the same via `predict.gam(m, newdata, type=c('lpmatrix','link','response'))` from its own fit; compared on the lpmatrix, `eta` in range and beyond the training range, the response, and `eta` at the training rows (control)."* Declared as `PREDICT_CLAIM`; every column INDEPENDENT. `fit_predict_case` takes `PredictRecipe` (training columns, `y`, new-row covariates) — no `mgcv` output is a key of that type (pinned by test).
+
+### What changed
+1. `gam_predict.py`: `TermState` (knots + the sum-to-zero null space `Z` absorbed from the TRAINING design, per margin — `mgcv`'s `m$smooth[[i]]`), `fit_term_state`, `predict_term_design`, `predict_design`. No new numeric formula: the same basis functions, applied to new rows with stored objects. Covers `cr` (plain, numeric `by`, factor `by`), `ti`, `sz`, `re`, `parametric`.
+2. `PolarisGAMFit.term_states` (new field, default `()`) and `.predict(newdata, type="link"|"response")`. Offset column must be in `newdata` (as `predict.gam` requires). A factor code outside `[0, n_levels)` raises.
+3. **`gam_basis_cr._cr_basis_raw` now extrapolates LINEARLY beyond the end knots** along the natural spline's end slope. Measured first, tier 1: `mgcv` is linear outside the knots both in `predict.gam` and in its own training design. The previous code continued the end interval's cubic. In-range rows are untouched (bit-identical); no committed recipe has data outside its knots, so no existing comparison moves.
+4. Refactor guard `[machine]`: the training design rebuilt from stored state equals `assemble_model_design(...)["x"]` with `assert_array_equal` (all seven bases, supplied and default knots); `fit.predict(training rows) == fit.eta` to 1e-12.
+
+### Tolerances (derived before the first tier-3 run)
+- **lpmatrix: 1e-9** — Stage A's committed tolerance (`gam_stage_a._AGREEMENT_TOLERANCE`), imported: the column is Stage A evaluated at new rows (no `sp`, no fit), so it inherits Stage A's bar.
+- **`eta` in range and `edf_total`: ADR-221's gate** (2e-2, 1.0), imported.
+- **Reported, never gated:** beyond-range `eta` (linear extrapolation amplifies whatever fit gap exists — gating it would measure the fit twice), the response, the training-row control.
+
+### Reading — tier 3 (the committed numbers)
+CI run 37464498558, commit `088b93f`, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`. All INDEPENDENT.
+
+| cell | lpmatrix in | lpmatrix beyond | eta in | eta beyond | eta train (control) | edf_total diff | converged | agrees |
+|---|---:|---:|---:|---:|---:|---:|---|---|
+| gaussian_cr_by_ti | 1.2e-14 | 1.6e-13 | 6.3e-05 | 9.1e-05 | 8.0e-05 | +0.0032 | yes | yes |
+| gaussian_factor_by | 7.6e-15 | 4.2e-14 | **2.5e-02** | 1.1e-01 | 3.2e-02 | **+0.458** | **no** | **NO** |
+| gaussian_parametric | 5.4e-15 | 4.1e-14 | 9.4e-10 | 5.2e-09 | 1.6e-09 | +0.0000 | yes | yes |
+| quasipoisson_cr_re_ti | 5.8e-15 | 5.2e-14 | 8.3e-05 | 3.4e-04 | 9.0e-05 | -0.0010 | yes | yes |
+| binomial_cr | 1.1e-14 | 4.2e-14 | 7.4e-07 | 2.6e-06 | 1.1e-06 | +0.0000 | yes | yes |
+| poisson_offset | 5.5e-15 | 4.6e-14 | 1.2e-11 | 6.2e-11 | 2.0e-11 | -0.0000 | yes | yes |
+| gaussian_sz (lpmatrix only) | 8.2e-15 | 4.8e-14 | n/a | n/a | n/a | n/a | n/a | yes |
+
+- **The predictor agrees:** the design at held-out rows matches `predict.gam(type="lpmatrix")` to <= 1.6e-13 on all seven cells, in range and beyond it (bar 1e-9), identical at tier 1 (1.2e-14 / 1.6e-13). This holds on `factor_by` too.
+- **Five of six fitted cells agree on `eta` and `edf_total`** under ADR-221; the held-out `eta` gap tracks the training-row gap (the control), so the predictor adds nothing beyond the fit's own gap.
+- **`gaussian_factor_by` DISAGREES at tier 3** (eta 2.5e-02 > 2e-02, edf +0.458, Newton not converged; tier 1 read edf -1.54, so the size moves between oracles — the mark of a plateau block). The training-row control (3.2e-02) shows it is the FIT, not the predictor. Mechanism class (iii) (outer search; plateau block, ADR-248's finding on `select=TRUE`). Per PLAN §4 rule 3 it is a **recorded limitation and a P3 refusal candidate**, not a slice and not a start strategy; it is outside the target formula (no factor-`by` term). Maintainer question in the CONTINUATION.
+
+### Deviations from the PLAN's wording (stated, not hidden)
+- The PLAN says "six free-scale cells and the 4-term HGAM". Each existing probe embeds its own recipe and exports no new rows, so reusing them needed seven probe edits. This slice instead adds ONE new probe (`scripts/gam_predict_probe.R`) with six fitted cells chosen to cover every verified basis (numeric `by` + `ti`, factor `by`, parametric + cr, `re` + `ti` quasi-Poisson, binomial, Poisson + offset) plus an lpmatrix-only `sz` cell. The HGAM is **NOT MET** here; it is the same `cr`/`ti` construction as the covered cells, so its predict path is exercised, but it is not compared.
+- Out-of-range behaviour is measured on the probe and pinned by `test_natural_cubic_spline_reproduces_a_linear_function_beyond_the_end_knots` / `test_extrapolation_is_linear_outside_the_knots` (closed form: a natural spline reproduces a linear function, so linear extrapolation continues it exactly).
+
+### Not claimed
+- Not that predict is verified for `sz` fits: `sz` is compared at the lpmatrix only (free-`sp` `sz` is not a verified fit).
+- Not standard errors (P2), not the formula front end (P3), not that factor-`by` fits meet ADR-221 on every recipe.
+
+### Consequences
+- P2 can build `se_fit` on `predict_design`. P3's factor-ordering work meets the same `TermState` codes.
