@@ -9,6 +9,7 @@ import subprocess
 import typing
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from polaris_re.analytics.experience_mgcv_conformance import rscript_mgcv_available
@@ -109,4 +110,4 @@ def test_the_producer_ignores_mgcv_keys_at_runtime() -> None:
     poisoned = typing.cast(FormulaRecipe, {**recipe, "mgcv": {"eta": [1e9]}})
     dirty = fit_formula_case(poisoned)
     assert clean.fit is not None and dirty.fit is not None
-    assert (clean.fit.eta == dirty.fit.eta).all()
+    np.testing.assert_array_equal(clean.fit.eta, dirty.fit.eta)
