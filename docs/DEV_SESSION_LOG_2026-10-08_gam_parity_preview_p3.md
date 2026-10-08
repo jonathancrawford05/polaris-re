@@ -5,7 +5,7 @@
 **Perf:** one row appended (ADR-177): the PR adds `src/polaris_re/gam/{api,formula}.py`, neither a `*_conformance.py` module.
 
 ## Baseline
-No mortality tables here, so five environmental failures stand (`test_loaded_ilec_feeds_tensor_mi_surface`, four `TestCalibratedPremiums`). **Before** (previous parity log): 3952 passed, 5 failed, 22 skipped, 145 deselected. **This session's start (R installed, new package present but untested):** 3953 passed, 5 failed, 22 skipped, 145 deselected (`-m "not slow"`, whole `tests/`, incl. `tests/qa/` — goldens untouched; +1 pass = the R-gated end-to-end test flipping from skipped, per the routine). **After:** AFTER_PLACEHOLDER.
+No mortality tables here, so five environmental failures stand (`test_loaded_ilec_feeds_tensor_mi_surface`, four `TestCalibratedPremiums`). **Before** (previous parity log): 3952 passed, 5 failed, 22 skipped, 145 deselected. **This session's start (R installed, new package present but untested):** 3953 passed, 5 failed, 22 skipped, 145 deselected (`-m "not slow"`, whole `tests/`, incl. `tests/qa/` — goldens untouched; +1 pass = the R-gated end-to-end test flipping from skipped, per the routine). **After:** **4025 passed, 5 failed, 22 skipped, 145 deselected** (same five failures; +72 = the new `tests/test_gam/` tests; goldens untouched)..
 
 ## Oracle Version
 Tier 1: R 4.3.3 / mgcv 1.9.1, `LC_COLLATE=C` (after `apt-get update`). Tier 3 (every committed number): CI run 37770947784 (commit `45971de`) and re-run 37772378216 (commit `d736e9d`), mgcv 1.9.4 / R 4.6.1, `LC_COLLATE=en_US.UTF-8`, `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`.
@@ -16,12 +16,12 @@ Tier 1: R 4.3.3 / mgcv 1.9.1, `LC_COLLATE=C` (after `apt-get update`). Tier 3 (e
 ## Hypotheses Tried
 1. `gam(<formula string>)` reproduces `mgcv::gam(<same string>)` on eta/edf (ADR-221) and exactly on structure and level order. Tier 1: held on 10 cells. Tier 3 run 1: held on 9 of 10 fitted cells; **level order DISAGREED** on the mixed-case/numeric-string cell.
 2. R's collation on the oracle is `C`. **Refuted at tier 3**: the image runs `en_US.UTF-8`; R sorts `[b,B,a,A,10,9,_z,Z]` as `[_z,10,9,a,A,b,B,Z]` (tier 1 gave the `C` order, which is why tier 1 could not settle it).
-3. `en_US` order is `_` < digits < letters, letters case-insensitive, lowercase first on a tie. RESULT3_PLACEHOLDER
+3. `en_US` order is `_` < digits < letters, letters case-insensitive, lowercase first on a tie. HELD at tier 3, run 37772378216 (`d736e9d`): `gaussian_level_order` level order True, eta 5.558e-08.
 4. `s(x) + s(x, by=f)` is refused by the structural test (null space of `sum S_j` unseen by `X`) and `f + s(x, by=f)` is fitted. Held (1 direction; identified spelling eta 7.5e-08).
 No tolerance was touched.
 
 ## Gap After
-GAP_AFTER_PLACEHOLDER
+GAP_**4025 passed, 5 failed, 22 skipped, 145 deselected** (same five failures; +72 = the new `tests/test_gam/` tests; goldens untouched).
 
 ## Provenance
 All columns INDEPENDENT (`FORMULA_CLAIM`; headline from `evidence_markdown`). Left producer: `polaris_re.gam.gam` via `fit_formula_case(recipe: FormulaRecipe)` — formula string, family, data columns (factors as strings); no mgcv output is a key (pinned by test). Right producer: `mgcv::gam(as.formula(<same string>), method="REML")` with R's own `factor()`. Per column: eta, `edf_total` (INDEPENDENT, gated ADR-221); smooth labels / `bs.dim` / coefficients per smooth / `nsdf` (INDEPENDENT, exact; Polaris reads its parser and design blocks, R reads `m$smooth`); factor level order (INDEPENDENT, exact); per-smooth edf and `log10(sp)` (INDEPENDENT, reported). Neither side is handed anything the other produced. The `gaussian_factor_by_with_bare_smooth` row is an expected refusal: "agrees" means Polaris refused on the structural condition; mgcv's fit is carried, not compared. `tests/test_gam/` is MEASUREMENT (own criterion), not parity.

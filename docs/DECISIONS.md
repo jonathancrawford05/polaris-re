@@ -24914,7 +24914,7 @@ Run before filing (under an hour): on the probe's own draw `rank(X) = 22` of 29 
 None new. `eta` < 2e-2 and `|edf_total diff|` < 1 are ADR-221's, imported; term structure and level order are exact; per-smooth edf and `log10(sp)` are reported, never gated (ADR-221/248).
 
 ### Result (tier 3, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, mgcv 1.9.4 / R 4.6.1; run 37770947784 at `45971de`, re-run 37772378216 at `d736e9d` after the collation fix)
-Ten fitted cells plus one expected refusal. Run 37770947784: 10 of 11 agreed, the 11th (`gaussian_level_order`) disagreed on level order only (eta 5.6e-8, structure exact). After the collation pin, run 37772378216: RESULT_PLACEHOLDER
+Ten fitted cells plus one expected refusal. Run 37770947784: 10 of 11 agreed, the 11th (`gaussian_level_order`) disagreed on level order only (eta 5.6e-8, structure exact). After the collation pin, run 37772378216: all 10 fitted cells agree on every column (level order True on `gaussian_level_order`; eta 5.6e-08) and the expected refusal holds.
 Fit-agreement readings (identical between the two runs at the printed digits): `eta` <= 6.2e-04 (HGAM), `edf_total` <= 9.5e-03; `log10(sp)` up to 0.89 on the HGAM and `select=TRUE` plateau rows (reported only, ADR-248). `gaussian_factor_by_with_bare_smooth` is refused by the structural test (the verified behaviour); `f + s(x, by=f)` agrees to 7.5e-08.
 
 ### Not claimed
