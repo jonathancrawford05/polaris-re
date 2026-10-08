@@ -445,7 +445,8 @@ def compare_predict_case(python: PredictedCase, payload: PredictPayload) -> Pred
     """Compare Polaris's predictions with ``mgcv``'s on every declared column.
 
     ``agrees`` = both lpmatrix blocks within the Stage-A tolerance AND (for a cell
-    with a Polaris fit) in-range ``eta`` and ``edf_total`` within ADR-221's gate.
+    with a Polaris fit) in-range ``eta`` and ``edf_total`` within ADR-221's gate AND
+    ``se_agrees`` is not ``False`` (a refused covariance, ``None``, is not a miss).
     The beyond-range ``eta``, the response and the training-row control are
     reported, never gated."""
     mg = payload["mgcv"]
@@ -524,7 +525,7 @@ def compare_predict_case(python: PredictedCase, payload: PredictPayload) -> Pred
         max_abs_eta_diff_train=eta_train,
         edf_total_diff=edf_diff,
         converged=python.fit.converged,
-        agrees=agrees,
+        agrees=agrees and se_agrees is not False,
         evidence=PREDICT_CLAIM,
         max_rel_se_link=rel_se,
         max_rel_se_link_unconditional=rel_se_unc,

@@ -181,4 +181,10 @@ def coefficient_covariance(
 def linear_predictor_se(x_new: np.ndarray, v: np.ndarray) -> np.ndarray:
     """``sqrt(diag(X_new V X_newᵀ))`` without forming the ``n x n`` matrix."""
     var = np.einsum("ij,jk,ik->i", x_new, v, x_new)
+    floor = -1.0e-10 * max(1.0, float(np.max(np.abs(var))))
+    if np.any(var < floor):
+        raise PolarisComputationError(
+            f"linear_predictor_se: a variance of {float(var.min()):.3e} is materially negative, "
+            "so V is not positive semi-definite; clipping it would hide that."
+        )
     return np.asarray(np.sqrt(np.maximum(var, 0.0)), dtype=np.float64)

@@ -2,7 +2,7 @@
 
 **Branch:** `claude/dreamy-galileo-wife66`. **PR title class:** `feat(mgcv-parity)` — every compared column is INDEPENDENT.
 **Box vs repo:** the registered box names no epic; the repo's active-epic pointer named `PLAN_gam_parity_preview.md` (P1 carry, then P2). Repo followed; no conflict on fact.
-**Perf:** one row appended (ADR-177): the PR touches `gam_model.py` and adds `gam_vcov.py`, neither a `*_conformance.py` module.
+**Perf:** one row appended (ADR-177; `perf_history` verdict: no structural creep, no wall-time creep, no config drift; peak 33 -> 33 MiB, wall-time recent/baseline 1.122x advisory): the PR touches `gam_model.py` and adds `gam_vcov.py`, neither a `*_conformance.py` module.
 
 ## Baseline
 No mortality tables here, so five environmental failures stand (`test_loaded_ilec_feeds_tensor_mi_surface`, four `TestCalibratedPremiums`). **Before** (previous parity log, same environment): 3938 passed, 5 failed, 22 skipped, 145 deselected. My own pre-change run was contaminated by concurrent edits and is not used. **After:** **3952 passed, 5 failed, 22 skipped, 145 deselected** (`-m "not slow"`, whole `tests/`, incl. `tests/qa/` — goldens untouched). +14 passed = 12 new tests in `test_gam_vcov.py` + 2 new parametrised predict cells; the same five failures.
@@ -32,4 +32,4 @@ All columns INDEPENDENT (`PREDICT_CLAIM`; headline from `evidence_markdown`). Le
 - quasi-family scale convention stated and measured: **MET** — ADR-250 "Scale"; scale matches `m$scale` to 3.6e-03.
 
 ## Maintainer questions
-3 (new): factor-`by` is a rank defect; recommended P3 refuses by `rank(X) < p`, and pivoted-rank handling is not taken as a slice. See CONTINUATION.
+3 (new): factor-`by` is a rank defect; recommended P3 refuses by `rank(X) < p`. **ANSWERED by the maintainer, 2026-10-07:** support the restriction, but `s(x) + s(x, by=f)` has a use case, so the fix is registered as `PLAN_mgcv_parity_engine.md` Slice 9 (one slice). See CONTINUATION.

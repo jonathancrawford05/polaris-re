@@ -222,3 +222,12 @@ def test_prior_weights_enter_the_information() -> None:
     )
     expected = fit.dispersion.fletcher * np.linalg.inv(x.T @ (w[:, None] * x) + s)
     np.testing.assert_allclose(fit.vcov(), expected, rtol=1e-9, atol=1e-12)
+
+
+def test_a_materially_negative_variance_is_raised_not_clipped() -> None:
+    x_new = np.array([[1.0, 0.0], [0.0, 1.0]])
+    np.testing.assert_allclose(linear_predictor_se(x_new, np.eye(2)), [1.0, 1.0])
+    with pytest.raises(PolarisComputationError, match="materially negative"):
+        linear_predictor_se(x_new, np.diag([1.0, -0.5]))
+    # rounding-level negatives are absorbed
+    assert linear_predictor_se(x_new, np.diag([1.0, -1e-14]))[1] == 0.0
