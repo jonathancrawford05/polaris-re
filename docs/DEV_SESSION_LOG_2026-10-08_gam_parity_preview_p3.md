@@ -36,3 +36,6 @@ All columns INDEPENDENT (`FORMULA_CLAIM`; headline from `evidence_markdown`). Le
 
 ## Maintainer questions
 4 (new): `select=TRUE` with `re`/parametric/factor-`by` terms is refused, yet P4's target fit needs it. Recommended answer in the CONTINUATION. Work that does not depend on it continues (P4).
+
+## Follow-up (same session): `select=TRUE` scope, ADR-252
+On the maintainer's question the refusal was re-examined: it is a verification gap, not `bam`. Lifted for `re` and parametric terms; two new INDEPENDENT cells, tier 3 run 37779421820 (`cfab000`), both agree (eta 5.4e-07, 3.7e-04). Factor-`by` stays refused. `tests/test_gam/` 72 passed locally; the full-suite count above predates this change (test count unchanged, 72 -> 72: one test replaced by two, one removed).

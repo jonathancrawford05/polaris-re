@@ -35,7 +35,7 @@ Guardrails each session re-reads before acting: one slice per session; no splitt
 Still open: the factor-`by` question below (not addressed by the answer above).
 
 ## Maintainer questions (as asked)
-4. **(P3, new) `select=TRUE` with `re`/parametric/factor-`by` terms.** `gam()` refuses it because the free-`sp` search is verified only on `cr`/numeric-`by`/`ti` (PLAN §5 puts `select=TRUE` on `cr+re+ti` after this epic), yet P4's target-size fit needs exactly that. Recommended: P4 measures the target formula at tier 3 and lifts the refusal only if it meets ADR-221 from one Newton start; otherwise the preview ships the refusal and says so.
+4. **(P3, new) `select=TRUE` with `re`/parametric/factor-`by` terms. PARTLY RESOLVED (ADR-252): `re` and parametric are now accepted, tier-3 verified on one draw each; only factor-`by` remains refused (Slice 9). What is still open is the 13+-block target-size fit (P4).** Original: `gam()` refuses it because the free-`sp` search is verified only on `cr`/numeric-`by`/`ti` (PLAN §5 puts `select=TRUE` on `cr+re+ti` after this epic), yet P4's target-size fit needs exactly that. Recommended: P4 measures the target formula at tier 3 and lifts the refusal only if it meets ADR-221 from one Newton start; otherwise the preview ships the refusal and says so.
 1. **Fold P5 into P4?** (PLAN header asks whether P5 is a polish tail.) Recommended: **no** — P5 carries the generated parity report, an aggregate of INDEPENDENT claims, so it is a deliverable. Keep five slices.
 2. **Factor-`by` limitation.** `gaussian_factor_by` (s(x) + s(x, by=f), 3 levels) does not converge under Newton and misses ADR-221 at tier 3 (eta 2.5e-02, edf +0.458; ADR-249). Recommended: record as a limitation and make P3 refuse a factor-`by` smooth next to a bare `s(x)` of the same covariate unless the maintainer wants it investigated as an outer-search case (it would go to Slice 3b's release condition, not a new start strategy).
 
@@ -43,7 +43,7 @@ Still open: the factor-`by` question below (not addressed by the answer above).
 
 ## What the next session needs to know
 - **P3 done (ADR-251):** `polaris_re.gam.gam(formula, df, family)` -> `GamFit` (a `PolarisGAMFit`; `predict` takes a DataFrame). `GamFit.smooth_labels` / `smooth_bs_dim` / `n_parametric` / `factor_levels` / `edf_per_term` / `dispersion` / `converged` are what `summary()` (P4) reads. Probe: `scripts/gam_formula_probe.R` + `gam_formula_compare.py`; claim `polaris_re.gam.formula_conformance.FORMULA_CLAIM`.
-- **P4 decision owed:** the target formula is `select=TRUE` with `re` + parametric terms, which `gam()` currently REFUSES (verified only on `cr`/numeric-`by`/`ti`). P4's 13+-block fit must either verify that structure at tier 3 and lift the refusal, or record it as a limitation. Put to the maintainer below (question 4).
+- **`select=TRUE` scope (ADR-252):** `gam()` accepts it with `cr`/numeric-`by`/`ti`/`re`/parametric; only factor-`by` is refused. P4's job is the 13+-block SIZE, not the structure.
 - Oracle collation is `en_US.UTF-8`; the `en_US` rule in `r_factor_levels` is verified on one 8-string sample only.
 - P2 done: `PolarisGAMFit.vcov`, `predict(se_fit=, unconditional=)`; `gam_vcov.py`; the SAME probe/compare script carry the `se.fit` columns (`_SE_REL_TOLERANCE = 2e-2`). P3 should call these, not re-derive them.
 - `PolarisGAMFit.term_states` holds knots + absorbed constraints; `predict_design(model, states, newdata)` is the entry point for `se_fit` (P2): `se = sqrt(rowSums((X_new @ Vp) * X_new))`.

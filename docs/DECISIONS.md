@@ -24925,3 +24925,19 @@ Fit-agreement readings (identical between the two runs at the printed digits): `
 
 ### Consequences
 - P4 builds `summary()` on `GamFit` (`smooth_labels`, `edf_per_term`, `dispersion`, `converged`); the 13+-block `select=TRUE` target fit will need `select=True` with `re`/parametric terms, so P4 either verifies that structure or leaves its refusal in place.
+
+
+## ADR-252: `gam(select=True)` is accepted with `re` and parametric terms (INDEPENDENT, tier 3); refused only with a factor-`by` smooth
+
+**Date:** 2026-10-08. **Status:** accepted. Amends ADR-251 decision 3 and answers CONTINUATION question 4 in part.
+
+**Why the refusal existed.** Not `bam`: `select=TRUE` is plain `gam()` and was already supported. ADR-251 refused `select=True` with `re`, parametric and factor-`by` terms only because the free-`sp` search had tier-3 evidence on `cr`/numeric-`by`/`ti` structures alone (ADR-217/218) and PLAN §5 parks `select=TRUE` on `cr+re+ti`. For `re` and the parametric block that was a verification gap, not a mechanical one: a `re` identity penalty is full rank (`null_space_penalty` returns nothing to add) and a parametric block has no penalty (`assemble_model_design` already skips it).
+
+**Claim sentence.** *Polaris (`gam(formula, select=True)`) fits the formula with its null-space double penalty on each penalised term; `mgcv` fits the same string via `gam(select=TRUE, method='REML')`; compared on the same columns as ADR-251.* Two new INDEPENDENT cells, written before the dispatch: `gaussian_select_parametric` (`A + B + A:B + s(x) `, `select=TRUE`) and `quasipoisson_select_cr_re_ti` (`s(x) + s(f, bs="re") + ti(x, z)`, quasi-Poisson, `select=TRUE`). Gates unchanged (ADR-221).
+
+**Result** (tier 3, run 37779421820, commit `cfab000`, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`): both agree on every column. `gaussian_select_parametric`: eta 5.4e-07, `edf_total` -0.0000. `quasipoisson_select_cr_re_ti`: eta 3.7e-04, `edf_total` +0.0006, structure and levels exact; `log10(sp)` 0.94 (reported only, ADR-248 — the `select=TRUE` plateau blocks, as on `gaussian_select`).
+
+**Decision.** `select=True` is accepted for `cr`, numeric-`by`, `ti`, `re` and parametric terms. It stays refused with a factor-`by` smooth: not verified on that block shape and entangled with the rank handling of `PLAN_mgcv_parity_engine.md` Slice 9. The PLAN §5 line "`select=TRUE` on `cr+re+ti`" is therefore met for the preview's subset by this measurement on one draw each.
+
+### Not claimed
+One draw per structure. Not the 13+-block target-size fit (P4); not `select=TRUE` with factor-`by`; `log10(sp)` agreement on plateau blocks.
