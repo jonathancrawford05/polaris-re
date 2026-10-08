@@ -93,6 +93,9 @@ def test_the_probe_runs_and_every_cell_agrees_at_tier_one(tmp_path: Path) -> Non
     )
     payload = json.loads(out.read_text())
     assert {c["name"] for c in payload["cells"]} >= EXPECTED_REFUSALS
+    local_en_us = payload["collate"].startswith("en_US")
     for cell in payload["cells"]:
+        if cell["name"] == "gaussian_level_order" and not local_en_us:
+            continue  # apt R runs in the C locale; the pin is the oracle image's (ADR-251)
         result = compare_formula_case(fit_formula_case(cell), cell)
         assert result.agrees, (cell["name"], result)

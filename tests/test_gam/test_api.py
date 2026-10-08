@@ -172,7 +172,16 @@ def test_dtype_and_null_guards(frame: pl.DataFrame) -> None:
 def test_factor_levels_follow_r_rules(frame: pl.DataFrame) -> None:
     mixed = ["b", "B", "a", "A", "10", "9", "_z", "Z"]
     assert r_factor_levels(mixed, "C") == ("10", "9", "A", "B", "Z", "_z", "a", "b")
-    assert r_factor_levels(mixed, "en_US") == ("10", "9", "_z", "a", "A", "b", "B", "Z")
+    assert r_factor_levels(mixed, "en_US") == (
+        "_z",
+        "10",
+        "9",
+        "a",
+        "A",
+        "b",
+        "B",
+        "Z",
+    )  # tier-3 order
     assert r_factor_levels(mixed) == r_factor_levels(mixed, gam_api.ORACLE_COLLATION)
     with pytest.raises(PolarisValidationError, match="Enum"):
         r_factor_levels(["é", "e"], "en_US")

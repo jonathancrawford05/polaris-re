@@ -56,7 +56,7 @@ __all__ = [
     "structural_rank_deficiency",
 ]
 
-ORACLE_COLLATION: Literal["C", "en_US"] = "C"
+ORACLE_COLLATION: Literal["C", "en_US"] = "en_US"
 """``LC_COLLATE`` rule used to sort string levels. Pinned to what the oracle image
 reports (``scripts/gam_formula_probe.R`` -> ``collate``); see ADR-251."""
 
@@ -79,14 +79,24 @@ def _collation_key(value: str, collation: str) -> tuple[object, ...]:
     if collation == "C":
         return (value,)
     if collation == "en_US":
-        if not value.isascii() or not value.replace("_", "").isalnum():
+        if not all(ch.isascii() and (ch.isalnum() or ch == "_") for ch in value):
             raise PolarisValidationError(
-                f"gam(): level {value!r} has non-alphanumeric or non-ASCII characters; "
-                "its sort position under en_US collation is not reproduced here. "
-                "Use a pl.Enum column to state the level order explicitly."
+                f"gam(): level {value!r} has characters outside [A-Za-z0-9_]; its sort "
+                "position under en_US collation is not reproduced here. Use a pl.Enum "
+                "column to state the level order explicitly."
             )
-        # glibc en_US: case-insensitive first pass, lowercase before uppercase on ties
-        return (value.casefold(), value.swapcase())
+
+        # Measured on the oracle image (ADR-251, tier 3): '_' < digits < letters;
+        # letters compare case-insensitively, lowercase before uppercase on a tie.
+        def weight(ch: str) -> tuple[int, str]:
+            if ch == "_":
+                return (0, ch)
+            return (1, ch) if ch.isdigit() else (2, ch.lower())
+
+        return (
+            tuple(weight(ch) for ch in value),
+            tuple(ch.isupper() for ch in value),
+        )
     raise PolarisValidationError(f"gam(): unknown collation {collation!r}.")
 
 
