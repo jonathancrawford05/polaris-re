@@ -45,7 +45,7 @@ Still open: the factor-`by` question below (not addressed by the answer above).
 ## What the next session needs to know
 - **P3 done (ADR-251):** `polaris_re.gam.gam(formula, df, family)` -> `GamFit` (a `PolarisGAMFit`; `predict` takes a DataFrame). `GamFit.smooth_labels` / `smooth_bs_dim` / `n_parametric` / `factor_levels` / `edf_per_term` / `dispersion` / `converged` are what `summary()` (P4) reads. Probe: `scripts/gam_formula_probe.R` + `gam_formula_compare.py`; claim `polaris_re.gam.formula_conformance.FORMULA_CLAIM`.
 - **`select=TRUE` scope (ADR-252):** `gam()` accepts it with `cr`/numeric-`by`/`ti`/`re`/parametric; only factor-`by` is refused. P4's job is the 13+-block SIZE, not the structure.
-- Oracle collation is `en_US.UTF-8`; the `en_US` rule in `r_factor_levels` is verified on one 8-string sample only.
+- Oracle collation is `en_US.UTF-8`; the `en_US` rule in `r_factor_levels` was fitted on one 8-string sample and matched a 13-string held-out set (tier 3) only.
 - P2 done: `PolarisGAMFit.vcov`, `predict(se_fit=, unconditional=)`; `gam_vcov.py`; the SAME probe/compare script carry the `se.fit` columns (`_SE_REL_TOLERANCE = 2e-2`). P3 should call these, not re-derive them.
 - `PolarisGAMFit.term_states` holds knots + absorbed constraints; `predict_design(model, states, newdata)` is the entry point for `se_fit` (P2): `se = sqrt(rowSums((X_new @ Vp) * X_new))`.
 - `gam_predict_conformance.PREDICT_CLAIM` / `scripts/gam_predict_probe.R` / `scripts/gam_predict_compare.py` are wired into `mgcv-conformance.yml` (non-gating, `continue-on-error`). Extend the SAME probe for P2 (`predict(se.fit=TRUE)`, `vcov`) rather than adding a new one.

@@ -24920,7 +24920,7 @@ Fit-agreement readings (identical between the two runs at the printed digits): `
 ### Not claimed
 - Not that every formula `mgcv` accepts is accepted here; the subset is the claim.
 - Not coefficient agreement (Anchor 2); not p-values; not the held-out predict (P1) or `se.fit` (P2), consumed unchanged.
-- The `en_US` rule is verified on one 8-string sample, not as a general reimplementation of glibc collation; unlisted characters are refused, not guessed.
+- The `en_US` rule was fitted on one 8-string sample and then matched a 13-string held-out set, not verified as a general reimplementation of glibc collation; unlisted characters are refused, not guessed.
 - `tests/test_gam/` (the facade reproduces `fit_polaris_gam` on the equivalent hand-built `ModelSpec`; refusal tests; `structural_rank_deficiency` closed form) are MEASUREMENTS of Polaris's own behaviour, not parity.
 
 ### Consequences
