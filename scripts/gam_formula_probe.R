@@ -96,6 +96,9 @@ main <- function(argv) {
   d$y <- eff + cos(d$x / 2) + rnorm(n, sd = 0.3)
   cells[[length(cells) + 1]] <- cell("gaussian_parametric",
     'y ~ A + B + A:B + s(x, k = 8, bs = "cr")', "gaussian", d)
+  # select=TRUE with an unpenalised parametric block (ADR-252)
+  cells[[length(cells) + 1]] <- cell("gaussian_select_parametric",
+    'y ~ A + B + A:B + s(x, k = 8, bs = "cr")', "gaussian", d, select = TRUE)
 
   set.seed(20261009); n <- 500
   d <- data.frame(x = runif(n, 0, 10), z = runif(n, 0, 5), f = sample(lv3, n, TRUE),
@@ -105,6 +108,10 @@ main <- function(argv) {
   cells[[length(cells) + 1]] <- cell("quasipoisson_cr_re_ti",
     'y ~ s(x, k = 8, bs = "cr") + s(f, bs = "re") + ti(x, z, k = c(6, 5), bs = "cr")',
     "quasipoisson", d)
+  # select=TRUE on cr + re + ti, quasi-Poisson (ADR-252): the target formula's structure
+  cells[[length(cells) + 1]] <- cell("quasipoisson_select_cr_re_ti",
+    'y ~ s(x, k = 8, bs = "cr") + s(f, bs = "re") + ti(x, z, k = c(6, 5), bs = "cr")',
+    "quasipoisson", d, select = TRUE)
 
   set.seed(20261010); n <- 600
   d <- data.frame(x = runif(n, 0, 10), z = runif(n, 0, 5))

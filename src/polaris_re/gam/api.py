@@ -13,8 +13,9 @@ raises :class:`~polaris_re.core.exceptions.PolarisValidationError` naming the
 construct and the ``MGCV_FEATURE_COVERAGE.md`` row that says why. Two refusals are
 not about syntax:
 
-* ``select=True`` is accepted only for ``cr`` (plain or numeric-``by``) and ``ti``
-  terms — the structures its free-``sp`` search is verified on (ADR-217/218);
+* ``select=True`` is refused with a factor-``by`` smooth (not verified on that block
+  shape, and entangled with Slice 9); ``cr``, numeric-``by``, ``ti``, ``re`` and the
+  parametric block are accepted (ADR-217/218, ADR-252);
 * a design whose **unpenalised null space is not identified by the data** (the
   structural condition behind ``rank(X) < p``, ADR-250) is refused — most commonly
   ``s(x) + s(x, by=f)`` on one covariate. ``mgcv`` pivots the unidentified
@@ -415,13 +416,13 @@ def _build_model(
                 smooth_meta.append((label, call.k))
 
     if select:
-        bad = [t.label for t in smooth if t.basis == "re" or t.by_factor is not None]
-        if bad or parametric:
-            what = bad + [t.label for t in parametric]
+        bad = [t.label for t in smooth if t.by_factor is not None]
+        if bad:
             raise PolarisValidationError(
-                f"gam(): select=True with {what} is not supported — the free-sp search under "
-                "select=TRUE is verified on cr (plain or numeric-by) and ti terms only "
-                f"({_COVERAGE} §2.3 select row; PLAN_gam_parity_preview.md §5)."
+                f"gam(): select=True with the factor-by smooth(s) {bad} is not supported — "
+                "the free-sp search is not verified on a factor-by block shape, and the "
+                "factor-by structure is entangled with the rank handling of Slice 9 "
+                f"({_COVERAGE} §2.3 select row; PLAN_mgcv_parity_engine.md Slice 9)."
             )
     if weights is not None:
         need_numeric(weights, "weights=")
@@ -463,7 +464,7 @@ def gam(
         weights: name of a prior-weights column.
         offset: name of an offset column (alternative to ``offset(col)`` in the
             formula; not both).
-        select: ``mgcv``'s ``select=TRUE`` (cr / numeric-by / ti terms only).
+        select: ``mgcv``'s ``select=TRUE`` (refused with a factor-``by`` smooth).
         scale: a fixed dispersion. **Refused:** it is verified only inside the
             conformance module (ADR-236/237), not through the production fitter.
 

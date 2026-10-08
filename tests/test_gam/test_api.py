@@ -123,20 +123,24 @@ def test_structural_rank_deficiency_closed_form() -> None:
     ("kwargs", "needle"),
     [
         ({"scale": 2.0}, "scale="),
-        ({"select": True}, "select=True"),
     ],
 )
 def test_unverified_options_are_refused(frame: pl.DataFrame, kwargs: dict, needle: str) -> None:
-    formula = 'y ~ g + s(x, bs="cr", k=6)' if kwargs.get("select") else 'y ~ s(x, bs="cr", k=6)'
     with pytest.raises(PolarisValidationError, match=needle):
-        gam(formula, frame, "gaussian", **kwargs)
+        gam('y ~ s(x, bs="cr", k=6)', frame, "gaussian", **kwargs)
 
 
-def test_select_is_accepted_for_cr_and_ti_terms(frame: pl.DataFrame) -> None:
+def test_select_is_accepted_for_cr_ti_re_and_parametric_terms(frame: pl.DataFrame) -> None:
     fit = gam('y ~ s(x, bs="cr", k=6) + s(z, bs="cr", k=5)', frame, "gaussian", select=True)
     assert len(fit.log_lambda) == 4  # each cr term gains a null-space penalty
-    with pytest.raises(PolarisValidationError, match="select=True"):
-        gam('y ~ s(x, bs="cr", k=6) + s(g, bs="re")', frame, "gaussian", select=True)
+    # re's identity penalty is full rank: nothing to double; parametric has no penalty
+    mixed = gam('y ~ g + s(x, bs="cr", k=6) + s(g, bs="re")', frame, "gaussian", select=True)
+    assert len(mixed.log_lambda) == 3  # cr (2) + re (1)
+
+
+def test_select_with_a_factor_by_smooth_is_refused(frame: pl.DataFrame) -> None:
+    with pytest.raises(PolarisValidationError, match="factor-by smooth"):
+        gam('y ~ g + s(x, by=g, bs="cr", k=6)', frame, "gaussian", select=True)
 
 
 @pytest.mark.parametrize(
