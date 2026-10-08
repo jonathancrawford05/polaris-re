@@ -25,7 +25,7 @@ The factor-`by` miss (`gaussian_factor_by`, ADR-249) is documented, not fixed: n
 | **before P5 states the limitation's size** | a second probe draw (tier-1 vs tier-3 `edf` changed sign) | P5 |
 | **P4 target-size fit** | if it fails on gradient precision, Slice 3b's release condition fires; re-run `gaussian_factor_by` as a regression case then | P4 |
 | **after P3, before P5 states the limitation** | run parity-engine Slice 9 (rank pivoting) — maintainer-registered 2026-10-07; relaxes P3's structural refusal | Slice 9 |
-| **before P5 states the limitation** | held-out `en_US` collation check (PR #260 review P1-1): result in the ledger row 'held-out'; until it MATCHES, the guide says "use a Polars `Enum`" for string levels with mixed case | P5 |
+| **before P5 states the limitation** | held-out `en_US` collation check (PR #260 review P1-1): result in the ledger row 'held-out'; **held-out MATCHED at tier 3 (run 37811883360, ADR-251 §5); closed.** Original: until it MATCHES, the guide says "use a Polars `Enum`" for string levels with mixed case | P5 |
 | **any time** | only on preview-user demand for factor-`by`, or evidence the plateau is precision not valley, and then via Slice 3b | maintainer |
 
 Guardrails each session re-reads before acting: one slice per session; no splitting; a disagreement outside the target formula is a recorded limitation; every number carries tier + digest; every comparison declares provenance.
