@@ -24895,3 +24895,33 @@ Run before filing (under an hour): on the probe's own draw `rank(X) = 22` of 29 
 
 ### Consequences
 - P3 consumes `vcov`/`se_fit` through the facade and implements the structural refusal. P4's `summary()` can report `scale` (matches `m$scale` to 3.6e-3 on the worst cell).
+
+
+## ADR-251: Preview Slice P3 — `polaris_re.gam.gam(formula)` agrees with `mgcv::gam(<the same string>)` on structure and fit (INDEPENDENT, tier 3); the refusal list; factor levels follow the oracle's `en_US.UTF-8` collation
+
+**Date:** 2026-10-08. **Status:** accepted. **Plan:** `PLAN_gam_parity_preview.md` Slice P3.
+
+**Claim sentence (ADR-193), written before the code.** *Polaris (`polaris_re.gam.gam`) parses the formula string with its own parser, encodes the DataFrame's factors with its own level-ordering rule and fits by REML; `mgcv` parses the same string with R's formula machinery, builds factors with `factor()` and fits via `gam(method='REML')`; compared on eta at the training rows, `edf_total`, the per-smooth edf, the term structure (smooth labels, `bs.dim`, coefficients per smooth, `nsdf`) and the factor level order.* Every column INDEPENDENT; the headline is `evidence_markdown(FORMULA_CLAIM)`.
+
+### Decisions
+1. **Package `polaris_re.gam`** (maintainer, 2026-10-06): `gam(formula, data, family, *, weights, offset, select, scale) -> GamFit`. `GamFit` subclasses `PolarisGAMFit` and adds the formula, the factor coding and `mgcv`-style term labels, so `predict`/`vcov`/`se_fit` (P1/P2) are consumed, not re-derived; `predict` also takes a Polars DataFrame. No solver option is exposed. `analytics`/`core` never import `polaris_re.gam` (a test pins it).
+2. **The parsed subset** is exactly the verified one: `s(x, bs="cr", k=, by=)` (numeric or factor `by`), `s(f, bs="re")`, `ti(x, z, bs="cr", k=)`, factors `a`, `a:b` (both main effects required), `offset(col)`. Defaults are `mgcv`'s own (`cr` k=10, `ti` k=5 per margin).
+3. **A bare `s(x)` is refused** (maintainer, 2026-10-06/07), and so is anything in `MGCV_FEATURE_COVERAGE.md` §2.1's NO rows (`tp`, `ts`, `cs`, `cc`, `cp`, `ps`, `ds`, `gp`, `mrf`, `so`, `sos`, `fs`, `sz`, `te`, `t2`), multi-variable `s()`, `s(x, bs="cr", sp/fx/m/id/pc/xt=)`, `ti` with !=2 margins, `-1`/`0`/`*`/`^`, transformed responses/covariates/offsets, numeric parametric terms, Boolean/numeric columns as factors, `scale=` (verified only inside the conformance module, ADR-236/237), non-`{gaussian, poisson, quasipoisson, binomial}` families and unverified links, `select=True` with `re`/factor-`by`/parametric terms (verified on `cr`/numeric-`by`/`ti` only). One test per construct (`tests/test_gam/test_formula.py`, `test_api.py`); each message names the construct and the coverage row. The explicit-basis equivalent of every refused bare `s(x)` is accepted (maintainer answer 2).
+4. **Structural identifiability refusal (ADR-250 (b)).** `structural_rank_deficiency(X, penalties)` takes the null space `N` of `sum_j S_j/||S_j||` and counts the rank deficiency of `X N` (relative singular-value cut 1e-10; deficient designs read ~1e-15, identified ones >= 1e-3). It is keyed on the structure, not the syntax, and independent of `y` and of the fitted smoothing parameters. `s(x) + s(x, by=f)` reads 1 and is refused naming Slice 9; `f + s(x, by=f)` is identified and fitted. The refusal is relaxed when Slice 9 lands.
+5. **Factor coding reproduces R's.** String/Categorical columns are sorted as R's `factor()` sorts them under the oracle's `LC_COLLATE`; a Polars `Enum` keeps its declared order. **Measured, not assumed:** the first tier-3 run reported the image's `LC_COLLATE = en_US.UTF-8` and R sorting `[b,B,a,A,10,9,_z,Z]` as `[_z,10,9,a,A,b,B,Z]`; the pinned-`C` rule MISMATCHED (level-order column False) and was replaced by `en_US`: `_` < digits < letters, letters case-insensitive, lowercase first on a tie, restricted to `[A-Za-z0-9_]` (anything else raises, pointing at `Enum`). The underscore position rests on this one sample. Level order never changes `eta`/`edf` (invariant to contrasts); it fixes the reference level and the `by`-level labels.
+
+### Tolerances
+None new. `eta` < 2e-2 and `|edf_total diff|` < 1 are ADR-221's, imported; term structure and level order are exact; per-smooth edf and `log10(sp)` are reported, never gated (ADR-221/248).
+
+### Result (tier 3, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, mgcv 1.9.4 / R 4.6.1; run 37770947784 at `45971de`, re-run 37772378216 at `d736e9d` after the collation fix)
+Ten fitted cells plus one expected refusal. Run 37770947784: 10 of 11 agreed, the 11th (`gaussian_level_order`) disagreed on level order only (eta 5.6e-8, structure exact). After the collation pin, run 37772378216: RESULT_PLACEHOLDER
+Fit-agreement readings (identical between the two runs at the printed digits): `eta` <= 6.2e-04 (HGAM), `edf_total` <= 9.5e-03; `log10(sp)` up to 0.89 on the HGAM and `select=TRUE` plateau rows (reported only, ADR-248). `gaussian_factor_by_with_bare_smooth` is refused by the structural test (the verified behaviour); `f + s(x, by=f)` agrees to 7.5e-08.
+
+### Not claimed
+- Not that every formula `mgcv` accepts is accepted here; the subset is the claim.
+- Not coefficient agreement (Anchor 2); not p-values; not the held-out predict (P1) or `se.fit` (P2), consumed unchanged.
+- The `en_US` rule is verified on one 8-string sample, not as a general reimplementation of glibc collation; unlisted characters are refused, not guessed.
+- `tests/test_gam/` (the facade reproduces `fit_polaris_gam` on the equivalent hand-built `ModelSpec`; refusal tests; `structural_rank_deficiency` closed form) are MEASUREMENTS of Polaris's own behaviour, not parity.
+
+### Consequences
+- P4 builds `summary()` on `GamFit` (`smooth_labels`, `edf_per_term`, `dispersion`, `converged`); the 13+-block `select=TRUE` target fit will need `select=True` with `re`/parametric terms, so P4 either verifies that structure or leaves its refusal in place.
