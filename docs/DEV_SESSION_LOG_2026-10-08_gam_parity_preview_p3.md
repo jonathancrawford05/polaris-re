@@ -21,7 +21,7 @@ Tier 1: R 4.3.3 / mgcv 1.9.1, `LC_COLLATE=C` (after `apt-get update`). Tier 3 (e
 No tolerance was touched.
 
 ## Gap After
-GAP_**4025 passed, 5 failed, 22 skipped, 145 deselected** (same five failures; +72 = the new `tests/test_gam/` tests; goldens untouched).
+All 10 fitted cells agree with `mgcv::gam(<same string>)` on eta (<= 6.2e-04), `edf_total` (<= 9.5e-03), exact term structure and exact level order; the rank-deficient cell is refused as expected. Open: the `en_US` rule is verified on one 8-string sample; `select=TRUE` with `re`/parametric terms is refused (question 4); `log10(sp)` up to 0.89 on plateau rows (reported only).
 
 ## Provenance
 All columns INDEPENDENT (`FORMULA_CLAIM`; headline from `evidence_markdown`). Left producer: `polaris_re.gam.gam` via `fit_formula_case(recipe: FormulaRecipe)` — formula string, family, data columns (factors as strings); no mgcv output is a key (pinned by test). Right producer: `mgcv::gam(as.formula(<same string>), method="REML")` with R's own `factor()`. Per column: eta, `edf_total` (INDEPENDENT, gated ADR-221); smooth labels / `bs.dim` / coefficients per smooth / `nsdf` (INDEPENDENT, exact; Polaris reads its parser and design blocks, R reads `m$smooth`); factor level order (INDEPENDENT, exact); per-smooth edf and `log10(sp)` (INDEPENDENT, reported). Neither side is handed anything the other produced. The `gaussian_factor_by_with_bare_smooth` row is an expected refusal: "agrees" means Polaris refused on the structural condition; mgcv's fit is carried, not compared. `tests/test_gam/` is MEASUREMENT (own criterion), not parity.
