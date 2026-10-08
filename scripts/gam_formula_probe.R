@@ -161,6 +161,16 @@ main <- function(argv) {
   cells[[length(cells) + 1]] <- cell("gaussian_level_order",
     'y ~ g + s(x, k = 8, bs = "cr")', "gaussian", d)
 
+  # HELD-OUT level ordering (review P1-1): strings chosen BEFORE the run, disjoint from the
+  # calibration sample above -- multi-character case ties, an embedded underscore and
+  # digit/letter mixes -- so the en_US rule is tested rather than re-confirmed.
+  set.seed(20261017); n <- 600
+  lvh <- c("aB", "Ab", "ab", "AB", "a_b", "ab2", "a1", "1a", "B2", "b10", "b9", "Zed", "zed")
+  d <- data.frame(x = runif(n, 0, 10), g = sample(lvh, n, TRUE), stringsAsFactors = FALSE)
+  d$y <- sin(d$x) + as.integer(factor(d$g)) * 0.05 + rnorm(n, sd = 0.3)
+  cells[[length(cells) + 1]] <- cell("gaussian_level_order_heldout",
+    'y ~ g + s(x, k = 8, bs = "cr")', "gaussian", d)
+
   out <- list(
     schema_version = 1L,
     mgcv_version = as.character(packageVersion("mgcv")),
@@ -168,6 +178,8 @@ main <- function(argv) {
     collate = Sys.getlocale("LC_COLLATE"),
     sort_probe_input = c("b", "B", "a", "A", "10", "9", "_z", "Z"),
     sort_probe = sort(c("b", "B", "a", "A", "10", "9", "_z", "Z")),
+    sort_heldout_input = c("aB", "Ab", "ab", "AB", "a_b", "ab2", "a1", "1a", "B2", "b10", "b9", "Zed", "zed"),
+    sort_heldout = sort(c("aB", "Ab", "ab", "AB", "a_b", "ab2", "a1", "1a", "B2", "b10", "b9", "Zed", "zed")),
     cells = cells
   )
   jsonlite::write_json(out, out_path, digits = NA, auto_unbox = TRUE, null = "null")

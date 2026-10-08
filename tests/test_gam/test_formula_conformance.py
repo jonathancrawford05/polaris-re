@@ -95,7 +95,18 @@ def test_the_probe_runs_and_every_cell_agrees_at_tier_one(tmp_path: Path) -> Non
     assert {c["name"] for c in payload["cells"]} >= EXPECTED_REFUSALS
     local_en_us = payload["collate"].startswith("en_US")
     for cell in payload["cells"]:
-        if cell["name"] == "gaussian_level_order" and not local_en_us:
+        if cell["name"].startswith("gaussian_level_order") and not local_en_us:
             continue  # apt R runs in the C locale; the pin is the oracle image's (ADR-251)
         result = compare_formula_case(fit_formula_case(cell), cell)
         assert result.agrees, (cell["name"], result)
+
+
+def test_the_producer_ignores_mgcv_keys_at_runtime() -> None:
+    """A full probe cell (with an ``mgcv`` key) is projected onto the recipe keys, so
+    the separation holds at runtime and not only in the type hints (review P2-3)."""
+    recipe = _recipe("binomial_cr", 'y ~ f + s(x, bs="cr", k=5)')
+    clean = fit_formula_case(recipe)
+    poisoned = typing.cast(FormulaRecipe, {**recipe, "mgcv": {"eta": [1e9]}})
+    dirty = fit_formula_case(poisoned)
+    assert clean.fit is not None and dirty.fit is not None
+    assert (clean.fit.eta == dirty.fit.eta).all()

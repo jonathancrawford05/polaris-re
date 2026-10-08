@@ -8,10 +8,17 @@ this one.
     fit = gam('y ~ s(x, bs="cr", k=8)', df, "gaussian")
 """
 
-from polaris_re.gam.api import GamFit, gam, r_factor_levels, structural_rank_deficiency
+from polaris_re.gam.api import (
+    ORACLE_COLLATION,
+    GamFit,
+    gam,
+    r_factor_levels,
+    structural_rank_deficiency,
+)
 from polaris_re.gam.formula import ParsedFormula, parse_formula
 
 __all__ = [
+    "ORACLE_COLLATION",
     "GamFit",
     "ParsedFormula",
     "gam",

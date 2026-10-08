@@ -40,6 +40,15 @@ def main(probe: Path, out: Path | None) -> None:
     probe_in = payload["sort_probe_input"]
     ref_sorted = [str(s) for s in payload["sort_probe"]]
     match = "MATCH" if list(gam_api.r_factor_levels(probe_in)) == ref_sorted else "MISMATCH"
+    held_ref = [str(s) for s in payload["sort_heldout"]]
+    try:
+        held = (
+            "MATCH"
+            if list(gam_api.r_factor_levels(payload["sort_heldout_input"])) == held_ref
+            else "MISMATCH"
+        )
+    except Exception as exc:  # a refused character is a reported result
+        held = f"REFUSED ({exc})"
     mine = {c: list(gam_api.r_factor_levels(probe_in, c)) for c in ("C", "en_US")}
     lines = [
         "",
@@ -55,6 +64,10 @@ def main(probe: Path, out: Path | None) -> None:
         f"`{payload['sort_probe']}`; `r_factor_levels` gives C: `{mine['C']}`, "
         f"en_US: `{mine['en_US']}`; pinned `ORACLE_COLLATION = {gam_api.ORACLE_COLLATION}` "
         f"-> {match}.",
+        "",
+        f"HELD-OUT sort set (disjoint from the calibration sample): R sorts "
+        f"`{payload['sort_heldout_input']}` as `{payload['sort_heldout']}`; `r_factor_levels` "
+        f"gives `{list(gam_api.r_factor_levels(payload['sort_heldout_input']))}` -> {held}.",
         "",
         "| cell | eta | edf_total diff | per-smooth edf | log10(sp) | labels | bs.dim | "
         "ncoef | nsdf | levels | converged | agrees |",

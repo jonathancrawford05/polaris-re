@@ -124,7 +124,17 @@ def _frame(recipe: FormulaRecipe) -> pl.DataFrame:
 
 def fit_formula_case(recipe: FormulaRecipe) -> FormulaCaseFit:
     """The independent Python producer. Its signature takes :class:`FormulaRecipe`
-    only, so it cannot read ``mgcv``'s eta / edf / labels / levels."""
+    only, so it cannot read ``mgcv``'s eta / edf / labels / levels. A caller may pass the
+    full probe cell (a ``TypedDict`` does not strip keys at runtime), so the recipe keys
+    are projected out first: the separation holds at runtime, not only in the hints."""
+    recipe = FormulaRecipe(
+        name=recipe["name"],
+        formula=recipe["formula"],
+        family=recipe["family"],
+        select=recipe["select"],
+        weights_column=recipe["weights_column"],
+        data=recipe["data"],
+    )
     try:
         fit = gam(
             recipe["formula"],

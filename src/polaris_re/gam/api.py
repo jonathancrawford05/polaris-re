@@ -118,16 +118,17 @@ class _FactorCoding:
     def encode(self, column: pl.Series, name: str) -> np.ndarray:
         if column.null_count():
             raise PolarisValidationError(f"gam(): column {name!r} contains nulls.")
-        index = {level: i for i, level in enumerate(self.levels)}
-        codes = np.empty(len(column), dtype=np.int64)
-        for i, value in enumerate(column.cast(pl.String).to_list()):
-            if value not in index:
-                raise PolarisValidationError(
-                    f"gam(): column {name!r} has level {value!r}, not seen when the model "
-                    f"was fitted ({list(self.levels)}); mgcv refuses an unseen level too."
-                )
-            codes[i] = index[value]
-        return codes
+        text = column.cast(pl.String)
+        unseen = sorted(set(text.unique().to_list()) - set(self.levels))
+        if unseen:
+            raise PolarisValidationError(
+                f"gam(): column {name!r} has level {unseen[0]!r}, not seen when the model "
+                f"was fitted ({list(self.levels)}); mgcv refuses an unseen level too."
+            )
+        codes = text.replace_strict(
+            list(self.levels), list(range(len(self.levels))), return_dtype=pl.Int64
+        )
+        return np.asarray(codes.to_numpy(), dtype=np.int64)
 
 
 @dataclass(frozen=True)
