@@ -76,7 +76,7 @@ penalty at all, unchanged.
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, overload
 
 import numpy as np
 
@@ -108,6 +108,11 @@ from polaris_re.analytics.gam_stage_a import (
     build_python_ti_term,
 )
 from polaris_re.analytics.gam_term_spec import ModelSpec, TermSpec
+from polaris_re.analytics.gam_vcov import (
+    CoefficientCovariance,
+    coefficient_covariance,
+    linear_predictor_se,
+)
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
 __all__ = [
@@ -458,13 +463,82 @@ class PolarisGAMFit:
     ``mgcv`` keeps in ``m$smooth`` — so :meth:`predict` can rebuild each basis at
     new rows (ADR-249). Empty only on a fit built by hand rather than by
     :func:`fit_polaris_gam`; :meth:`predict` then raises."""
+    y: np.ndarray | None = None
+    """The training response, kept so :meth:`vcov` can rebuild the observed
+    information (ADR-250). ``None`` only on a fit built by hand."""
+    prior_weights: np.ndarray | None = None
+    """The training prior weights (``None`` = all one)."""
+    offset: np.ndarray | None = None
+    """The training offset (``None`` = zero)."""
+
+    def vcov(self, unconditional: bool = False) -> np.ndarray:
+        """The coefficient covariance (``mgcv``'s ``vcov(m)``), ``(p, p)``.
+
+        ``unconditional=False`` is ``Vp = phi (XᵀWX + S_lambda)⁻¹`` (the Bayesian
+        posterior covariance, scaled by the fit's dispersion); ``True`` adds the
+        Wood-Pya-Säfken smoothing-parameter-uncertainty correction (``Vc``, ADR-202)
+        using the exact REML Hessian. Coefficient covariances are basis-dependent
+        (Anchor 2): compare ``mgcv`` through :meth:`predict`'s ``se_fit``, which is
+        not. See :mod:`polaris_re.analytics.gam_vcov`.
+        """
+        cov = self._covariance(unconditional)
+        return cov.vc if unconditional else cov.vp
+
+    def _covariance(self, unconditional: bool) -> CoefficientCovariance:
+        if self.y is None:
+            raise PolarisValidationError(
+                "PolarisGAMFit.vcov: this fit carries no training response "
+                "(it was not built by fit_polaris_gam)."
+            )
+        family = resolve_family(self.model.family, self.model.link)
+        scale = 1.0 if family.dispersion_fixed else float(self.dispersion.fletcher)
+        return coefficient_covariance(
+            y=self.y,
+            x=self.design["x"],
+            family=family,
+            penalty_blocks=self.design["penalty_blocks"],
+            log10_lambda=self.log_lambda,
+            coef=self.coef,
+            offset=self.offset,
+            weights=self.prior_weights,
+            scale=scale,
+            unconditional=unconditional,
+        )
+
+    @overload
+    def predict(
+        self,
+        newdata: Mapping[str, np.ndarray],
+        type: Literal["link", "response"] = "link",
+        *,
+        se_fit: Literal[False] = False,
+        unconditional: bool = False,
+    ) -> np.ndarray: ...
+
+    @overload
+    def predict(
+        self,
+        newdata: Mapping[str, np.ndarray],
+        type: Literal["link", "response"] = "link",
+        *,
+        se_fit: Literal[True],
+        unconditional: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray]: ...
 
     def predict(
         self,
         newdata: Mapping[str, np.ndarray],
         type: Literal["link", "response"] = "link",
-    ) -> np.ndarray:
+        *,
+        se_fit: bool = False,
+        unconditional: bool = False,
+    ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
         """The fitted model evaluated at ``newdata``'s rows (``predict.gam``).
+
+        With ``se_fit=True`` returns ``(fit, se)`` — ``predict.gam(se.fit=TRUE)``:
+        ``se = sqrt(rowSums((X_new @ V) * X_new))`` with ``V`` from :meth:`vcov`
+        (``unconditional`` selects ``Vc``); on ``type="response"`` the delta method
+        scales it by ``|dmu/deta|``. The offset contributes no variance.
 
         ``newdata`` carries the same columns the fit read (numeric covariates,
         0-indexed factor codes, and the offset column if the model has one —
@@ -492,10 +566,19 @@ class PolarisGAMFit:
                     f"{self.model.offset_column!r}; newdata must carry it."
                 )
             eta = eta + np.asarray(newdata[self.model.offset_column], dtype=np.float64)
-        if type == "link":
-            return np.asarray(eta, dtype=np.float64)
         family = resolve_family(self.model.family, self.model.link)
-        return np.asarray(family.link.linkinv(eta), dtype=np.float64)
+        fit_values = (
+            np.asarray(eta, dtype=np.float64)
+            if type == "link"
+            else np.asarray(family.link.linkinv(eta), dtype=np.float64)
+        )
+        if not se_fit:
+            return fit_values
+        cov = self._covariance(unconditional)
+        se = linear_predictor_se(x_new, cov.vc if unconditional else cov.vp)
+        if type == "response":
+            se = se * np.abs(np.asarray(family.link.mu_eta(eta), dtype=np.float64))
+        return fit_values, se
 
 
 def fit_polaris_gam(
@@ -834,4 +917,7 @@ def fit_polaris_gam(
         at_bound_blocks=tuple(label for label, _ in upper_bound_blocks),
         dispersion=_dispersion_or_nan(y, mu, family, selection.edf_total, weights),
         term_states=tuple(fit_term_state(term, data) for term in model.terms),
+        y=y,
+        prior_weights=weights,
+        offset=offset,
     )

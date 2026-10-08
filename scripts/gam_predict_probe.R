@@ -15,6 +15,9 @@
 #         type="response"  -- mu
 #       plus the training-row m$linear.predictors, sp and sum(edf).
 #
+# P2 (ADR-250) adds, per block: predict(se.fit=TRUE) with and without
+# unconditional=TRUE, the response-scale se, Xp Vp Xp' and Xp Vc Xp', and m$scale.
+#
 # Polaris never reads any of those outputs when it fits and predicts (the
 # recipe it takes -- train data, y, newdata COVARIATES -- is the first block of
 # keys below; everything under "mgcv" is the comparand). See
@@ -28,6 +31,10 @@
 #   quasipoisson_cr_re_ti  s(x) + s(f,bs="re") + ti(x,z)       (free scale, log)
 #   binomial_cr            s(x) + s(z)                         (logit)
 #   poisson_offset         offset(log(expo)) + s(x)            (log, with offset)
+#   poisson_hgam           offset(off) + s(age) + s(year) + ti(age,year) + s(dur)
+#                          (the four-term ANOVA-shaped HGAM, log link; carried
+#                          from P1 and added in the P2 session)
+#   gaussian_select        s(x)+s(z)+s(w), select=TRUE, w is pure noise (plateau row)
 #   gaussian_sz            s(f,x,bs="sz",xt=list(bs="cr"))  -- lpmatrix ONLY
 #                          (free-sp sz is not verified; no Polaris fit is made)
 #
@@ -70,20 +77,32 @@ as_factors <- function(df, fac_levels) {
 }
 
 cell <- function(name, formula, family, train, y_col, num_cols, fac_levels, seed_new,
-                 offset_col = NULL, fit = TRUE) {
+                 offset_col = NULL, fit = TRUE, offset_range = c(log(20), log(200)),
+                 select = FALSE) {
   train <- as_factors(train, fac_levels)
-  m <- mgcv::gam(formula, data = train, family = family, method = "REML")
+  m <- mgcv::gam(formula, data = train, family = family, method = "REML", select = select)
   nd <- draw_new(train, 60L, 12L, num_cols, fac_levels, seed_new)
   if (!is.null(offset_col)) {
-    nd$inrange[[offset_col]] <- runif(60L, log(20), log(200))
-    nd$outrange[[offset_col]] <- runif(12L, log(20), log(200))
+    nd$inrange[[offset_col]] <- runif(60L, offset_range[1], offset_range[2])
+    nd$outrange[[offset_col]] <- runif(12L, offset_range[1], offset_range[2])
   }
   block <- function(df) {
     dff <- as_factors(df, fac_levels)
+    xp <- predict(m, dff, type = "lpmatrix")
+    pl <- predict(m, dff, type = "link", se.fit = TRUE)
+    plu <- predict(m, dff, type = "link", se.fit = TRUE, unconditional = TRUE)
+    pr <- predict(m, dff, type = "response", se.fit = TRUE)
     out <- list(
-      lpmatrix = predict(m, dff, type = "lpmatrix"),
+      lpmatrix = xp,
       link = as.numeric(predict(m, dff, type = "link")),
-      response = as.numeric(predict(m, dff, type = "response"))
+      response = as.numeric(predict(m, dff, type = "response")),
+      # preview Slice P2 (ADR-250): mgcv's own standard errors and covariance
+      # projected onto these rows (Xp Vp Xp'), a basis-independent image of Vp/Vc
+      se_link = as.numeric(pl$se.fit),
+      se_link_unconditional = as.numeric(plu$se.fit),
+      se_response = as.numeric(pr$se.fit),
+      cov_proj = xp %*% m$Vp %*% t(xp),
+      cov_proj_unconditional = xp %*% m$Vc %*% t(xp)
     )
     out
   }
@@ -111,6 +130,7 @@ cell <- function(name, formula, family, train, y_col, num_cols, fac_levels, seed
       inrange = block(nd$inrange),
       outrange = block(nd$outrange),
       eta_train = as.numeric(m$linear.predictors),
+      scale = as.numeric(m$scale),
       sp = as.numeric(m$sp),
       edf_total = as.numeric(sum(m$edf))
     )
@@ -192,6 +212,31 @@ main <- function(argv) {
   cells[[7]] <- cell("gaussian_sz",
     y ~ s(f, x, bs = "sz", k = 8, xt = list(bs = "cr")),
     gaussian(), d, "y", list(x = 1), list(f = lv3), 107, fit = FALSE)
+
+  # 8. the four-term HGAM (poisson/log + offset): s(age)+s(year)+ti(age,year)+s(dur)
+  set.seed(20261013)
+  n <- 700
+  d <- data.frame(age = runif(n, 45, 85), year = runif(n, 2010, 2021),
+                  dur = runif(n, 2, 22), expo = runif(n, 200, 4000))
+  lrr <- -0.014 * (d$year - 2015) * (1 + 0.012 * (d$age - 65)) +
+    0.05 * sin(d$age / 11) - 0.18 * exp(-d$dur / 9)
+  q <- 0.0004 + 0.00003 * exp(0.085 * (d$age - 45))
+  d$y <- rpois(n, d$expo * q * exp(lrr))
+  d$off <- log(d$expo * q)
+  cells[[8]] <- cell("poisson_hgam",
+    y ~ offset(off) + s(age, k = 7, bs = "cr") + s(year, k = 5, bs = "cr") +
+      ti(age, year, k = c(7, 5), bs = "cr") + s(dur, k = 5, bs = "cr"),
+    poisson(), d, "y", list(age = 1, year = 1, dur = 1), list(), 108,
+    offset_col = "off", offset_range = range(d$off))
+
+  # 9. select=TRUE with a pure-noise smooth: the plateau-block row (PLAN P2 risk)
+  set.seed(20261014)
+  n <- 400
+  d <- data.frame(x = runif(n, 0, 10), z = runif(n, 0, 5), w = runif(n, 0, 1))
+  d$y <- sin(d$x) + 0.3 * d$z + rnorm(n, sd = 0.3)
+  cells[[9]] <- cell("gaussian_select",
+    y ~ s(x, k = 8, bs = "cr") + s(z, k = 6, bs = "cr") + s(w, k = 6, bs = "cr"),
+    gaussian(), d, "y", list(x = 1, z = 1, w = 1), list(), 109, select = TRUE)
 
   out <- list(
     schema_version = 1L,

@@ -2368,6 +2368,22 @@ at fixed `sp` on a `paraPen`-only model, `bam` agrees with `gam` to **2.1e-12**,
 in slices 1-7 is invalidated by deferring it; and `bam` at 125,000 rows takes **1.69 s**,
 so performance is not the reason to want it. Maintainer decision, 2026-08-10.
 
+### Slice 9: rank-deficient designs — pivot the unidentified coefficient out, as `mgcv` does
+
+**Registered 2026-10-07 (maintainer: a use case for `s(x) + s(x, by=f)` exists; ADR-250).** Mechanism class **(ii)** criterion / rank handling — NOT the outer search.
+
+**The defect (measured, ADR-250).** A smooth and a factor-`by` smooth of the same covariate share their linear null space, so `rank(X) < p` and `X'WX + S` has an exactly null direction (probe draw: `rank(X)` 22 of 29, min eigenvalue 7e-15). `mgcv` pivots the unidentified coefficient out of the criterion, the edf and `Vp`; this engine does not, so `log|X'WX+S|` runs through rounding noise. Until this lands, `vcov` / `se_fit` REFUSE such a fit and P3 refuses the construct.
+
+**Design (the cheapest that keeps every downstream consumer unchanged).** At design-assembly time find the directions `v` with `S_total v = 0` and `X v = 0` (SVD of `X` restricted to the penalty null space), and eliminate one coefficient per direction by pivot (a fixed-zero column). `v` is in the null space of every penalty, so the penalties restricted to the kept columns are unchanged; the fitted function space, `eta`, edf and `log|S|_+` are unchanged; only `log|X'WX+S|` becomes the identifiable-subspace determinant `mgcv` uses. Record the dropped columns in `ModelDesign` / `TermState` so `predict_design` applies the same elimination, and the criterion, gradient, Hessian, `vcov` and `predict` need no change. Eliminating by pivot is valid for structurally rank-deficient designs (W-independent for positive weights); a weight-dependent rank loss (zero weights) is out of scope and stays refused.
+
+**Pre-registered evidence (tier 1, hypothesis, 2026-10-07 — NOT committable).** An uncommitted experiment dropped the single pivot column on the probe's `gaussian_factor_by` draw and refit under Newton: converged in 11 fits, `edf` diff +0.0037 (was -1.54 tier 1 / +0.458 tier 3), `eta` at training rows 8.4e-5 (was 3.2e-2), `log10(sp)` within 0.015 on three blocks and 0.14 on the plateau block. This supports the mechanism and puts the cost at one slice; the tier-3 reading is the slice's job.
+
+**Scope.** (1) rank detection + pivot elimination in `assemble_model_design`, stored in `ModelDesign`/`TermState`; (2) `predict_design` applies it; (3) lift the `vcov` refusal for pivoted designs (the pivoted-out coefficient has zero variance, as in `mgcv`); (4) INDEPENDENT tier-3 comparison on `gaussian_factor_by` and one more rank-deficient structure (e.g. `s(x) + s(x, by=f) + f`), under ADR-221's gate and ADR-250's `se` gate; (5) P3's structural refusal (`rank(X) < p`) becomes "accepted when pivotable".
+
+**Effort estimate: one slice, one session**, riskiest part being conditioning of the SVD-based detection (threshold derived, not tuned; the same `p * eps * max` rule as the covariance guard) and whether `mgcv`'s pivot choice changes any quantity compared (it should not: `eta`, edf, `se` are pivot-invariant; `sp` and coefficients are not compared).
+
+**Release condition.** After preview slice P3 (the refusal it relaxes), BEFORE P5 states the factor-`by` limitation's size; or earlier on preview-user demand. It is not a solver slice and does not touch Slice 3b. **Exit criterion.** `gaussian_factor_by` meets ADR-221 (`eta` < 2e-2, `|edf|` < 1) and ADR-250's `se` gate at tier 3, on a fit that converges.
+
 ## 4. What is explicitly out of scope
 
 - **Replacing `mgcv` in the exploration workflow** (§1).

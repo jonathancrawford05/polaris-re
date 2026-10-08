@@ -24846,3 +24846,52 @@ CI run 37464498558, commit `088b93f`, R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c
 
 ### Consequences
 - P2 can build `se_fit` on `predict_design`. P3's factor-ordering work meets the same `TermState` codes.
+
+
+## ADR-250: Preview Slice P2 — `PolarisGAMFit.vcov` and `predict(se_fit=True)` agree with `mgcv` (INDEPENDENT, tier 3); a numerically singular `X'WX + S` is refused; the factor-`by` miss is a RANK defect, not an outer-search one
+
+**Status:** Accepted, 2026-10-07 (ratified by merging the PR). PR title class: **`feat(mgcv-parity)`** — every compared column is INDEPENDENT. Goldens untouched (no pricing path calls `fit_polaris_gam`, Anchor 7). Also lands P1's carried HGAM held-out comparison.
+
+### Claim sentence (ADR-193), written before the code
+*"Polaris (`PolarisGAMFit.predict(se_fit=True[, unconditional=True])` / `vcov`) computes the link-scale standard error as `sqrt(diag(X_new V X_new'))` with `Vp = phi (X'WX+S)^-1` (Newton weights, Fletcher scale) and `Vc = Vp + J Vrho J' + phi V''` using Polaris's own exact REML Hessian; `mgcv` computes it via `predict.gam(m, newdata, se.fit=TRUE[, unconditional=TRUE])` from its own fit; compared on se.fit under Vp and Vc (gated), the response-scale se, the projected covariances and the scale (reported)."* Declared in `PREDICT_CLAIM`; headline by `evidence_markdown`.
+
+### What changed
+1. `gam_vcov.py` (new): `coefficient_covariance`, `linear_predictor_se`. No new numeric formula — composes `newton_working_weights`, `d_beta_d_rho`, `dw_drho`, `reml_score_hessian[_profiled]` (ADR-243/244) and `unconditional_covariance` (ADR-202). **Scale (PLAN P2 bullet 3):** `Vp = phi * V_unit`; `unconditional_covariance` is unit-dispersion, its `first_order` is scale-free and `second_order` is linear in phi, so `Vc = Vp + first_order + phi * second_order`. `phi = 1` for a fixed-dispersion family, else `dispersion.fletcher`. Pinned by `test_scale_enters_vp_linearly_and_the_second_order_term_linearly`.
+2. `PolarisGAMFit.vcov(unconditional=False)`, `predict(..., se_fit=True, unconditional=False)` (returns `(fit, se)`; response scale by the delta method `|dmu/deta|`; the offset adds no variance). `PolarisGAMFit` now keeps `y`, `prior_weights`, `offset` (defaults `None`).
+3. The ADR-202 comparison had to BORROW `mgcv`'s outer Hessian; here Polaris's own exact one is used, so the `Vc` column is a stronger test than ADR-202's.
+4. Probe `gam_predict_probe.R` extended in place (not a new probe): per block `se.fit` (Vp, Vc, response), `Xp Vp Xp'`, `Xp Vc Xp'`, `m$scale`; plus two cells — the 4-term HGAM (`poisson_hgam`, P1's carried item) and a `select=TRUE` cell with a pure-noise smooth (`gaussian_select`, the PLAN's plateau row).
+
+### Tolerance (derived before the first tier-3 run; code `_SE_REL_TOLERANCE`)
+Relative `se.fit`, `2e-2`, for both Vp and Vc. `Vp` has no Taylor remainder, so its only disagreement source is the two engines' smoothing parameters, which ADR-221's `eta` gate already bounds at `2e-2`; `Vc - Vp` carries WPS's dropped remainder, whose measured floor is ADR-202's 0.73% against its committed 2% (Anchor 8). One number serves both. Reported, not gated: response-scale se, projected covariances, scale.
+
+### Reading — tier 3 (the committed numbers)
+CI run 37613368268, commit `f9ffcfb`, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`. R 4.6.1 / mgcv 1.9.4 (the pinned image; the tier-1 local reading, R 4.3.3 / mgcv 1.9.1, is identical to the printed digits). All INDEPENDENT.
+
+| cell | se Vp rel | se Vc rel | se resp rel | cov Vp rel | cov Vc rel | scale rel | se agrees |
+|---|---:|---:|---:|---:|---:|---:|---|
+| gaussian_cr_by_ti | 3.7e-04 | 1.8e-03 | 3.7e-04 | 2.6e-04 | 2.0e-03 | 7.8e-06 | yes |
+| gaussian_factor_by | refused | refused | refused | refused | refused | 3.6e-03 | refused |
+| gaussian_parametric | 3.3e-09 | 2.3e-08 | 3.3e-09 | 4.1e-09 | 2.5e-08 | 3.4e-11 | yes |
+| quasipoisson_cr_re_ti | 1.0e-04 | 5.4e-03 | 1.9e-04 | 1.9e-04 | 5.8e-03 | 3.0e-06 | yes |
+| binomial_cr | 7.5e-07 | 6.3e-04 | 7.2e-07 | 1.0e-06 | 6.4e-04 | 0 | yes |
+| poisson_offset | 6.1e-11 | 1.3e-03 | 5.3e-11 | 7.2e-11 | 1.3e-03 | 0 | yes |
+| **poisson_hgam** | 3.0e-03 | **1.2e-02** | 2.8e-03 | 2.3e-03 | 1.4e-02 | 0 | yes |
+| gaussian_select (plateau row) | 5.3e-05 | 2.9e-04 | 5.3e-05 | 3.8e-05 | 2.4e-04 | 6.3e-07 | yes |
+
+- **Seven of seven covariance-bearing fitted cells agree** under the pre-declared 2e-2 gate, `Vp` and `Vc`, free-scale (gaussian, quasi-Poisson, `scale` to 3.6e-3 or better) and fixed-scale alike. `gaussian_select`, the plateau row, is not degraded.
+- **The weakest margin is `Vc` on the HGAM (1.2e-02 against 2e-02)**, consistent with ADR-202's WPS floor; it is reported, not tightened or widened.
+- **P1's carried HGAM held-out comparison (tier 3): MET.** `poisson_hgam` lpmatrix 3.0e-12 in range / 1.3e-11 beyond, `eta` 4.8e-04 in range, edf +0.0095, converged, agrees; `gaussian_select` lpmatrix 9.9e-15, `eta` 3.6e-06, agrees.
+
+### `gaussian_factor_by` is a RANK defect — corrects ADR-249's "class (iii)" label
+Run before filing (under an hour): on the probe's own draw `rank(X) = 22` of 29 columns, and `X'WX + S` has a smallest eigenvalue of 7e-15 against 4.5e+02 — one exactly null direction. A smooth `s(x)` and a factor-`by` smooth of the same covariate share their linear null space (the sum over levels of the per-level linear terms equals the main-effect linear term), and no penalty or datum identifies it. `mgcv` pivots the unidentified coefficient out of its criterion and covariance; this engine inverts and takes `log|X'WX+S|` through that direction, so the REML gradient there is rounding noise. That, not the outer search, is the mechanism behind ADR-249's non-convergence and edf gap (a synthetic redraw of the same structure fails even the START fit). Mechanism class (ii) (criterion / rank handling). Decisions, per PLAN §4 rule 3: **(a)** `vcov` / `se_fit` REFUSE such a fit with a `PolarisComputationError` naming the cause, rather than return an arbitrary covariance (`test_a_numerically_singular_information_is_refused_not_inverted`); **(b)** the P3 refusal should key on the structural condition (`rank(X) < p`, equivalently a smooth plus a factor-`by` smooth of one covariate), not only on syntax; **(c)** NO solver work, NO new slice: pivoted-rank handling would be a design/criterion change to every fit and is not in the preview's scope. It is registered as a limitation in `MGCV_FEATURE_COVERAGE.md` and put to the maintainer (CONTINUATION question 3).
+
+**Update 2026-10-07 (maintainer):** (c) is superseded. The maintainer reported a real use case for `s(x) + s(x, by=f)`, so the fix is registered as `PLAN_mgcv_parity_engine.md` **Slice 9** (pivot the unidentified coefficient out); P3's structural refusal stays until it lands.
+
+### Not claimed
+- Not that `Vc` is exact: eq. (7) drops a remainder; 2e-2 is the floor-based bound.
+- Not coefficient-space agreement (Anchor 2): the projected covariance is the basis-independent image; `vcov()` itself is not compared elementwise.
+- Not `bam`, `sz` free-`sp`, rank-deficient fits, or p-values.
+- `tests/test_analytics/test_gam_vcov.py` (closed forms: `Vp = phi (X'WX+S)^-1`, `tr(F) = edf_total`, delta method, offset, weights, scale linearity) are MEASUREMENTS of Polaris's own criterion, not parity.
+
+### Consequences
+- P3 consumes `vcov`/`se_fit` through the facade and implements the structural refusal. P4's `summary()` can report `scale` (matches `m$scale` to 3.6e-3 on the worst cell).

@@ -60,6 +60,8 @@ on:
       # PREVIEW epic Slice P1 (ADR-249) — predict at held-out rows vs predict.gam.
       - "src/polaris_re/analytics/gam_predict.py"
       - "src/polaris_re/analytics/gam_predict_conformance.py"
+      # Slice P2 (ADR-250): Vp / Vc and se.fit.
+      - "src/polaris_re/analytics/gam_vcov.py"
       - "scripts/gam_predict_probe.R"
       - "scripts/gam_predict_compare.py"
       - "src/polaris_re/analytics/gam_derivatives.py"
@@ -891,7 +893,7 @@ jobs:
               gam_fixed_sp_score_probe.json
 
       # PREVIEW epic Slice P1 (ADR-249): mgcv's predict.gam at held-out rows on
-      # seven cells. Same DIAGNOSTIC contract as every probe above; the comparison
+      # nine cells (P2, ADR-250, adds se.fit / Vp / Vc / scale). Same DIAGNOSTIC contract as every probe above; the comparison
       # happens in the `compare` job below.
       - name: Predict at held-out rows under mgcv (preview slice P1)
         continue-on-error: true

@@ -44,7 +44,7 @@ from polaris_re.analytics.gam_select_free_sp_conformance import (
 )
 from polaris_re.analytics.gam_stage_a import _AGREEMENT_TOLERANCE as _STAGE_A_TOLERANCE
 from polaris_re.analytics.gam_term_spec import ModelSpec, TermSpec, factor_by_terms
-from polaris_re.core.exceptions import PolarisValidationError
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.verification import (
     ComparedQuantity,
     ComparisonProvenance,
@@ -71,11 +71,24 @@ PREDICT_CASE_NAMES: tuple[str, ...] = (
     "binomial_cr",
     "poisson_offset",
     "gaussian_sz",
+    "poisson_hgam",
+    "gaussian_select",
 )
 
 _ETA_TOLERANCE = _AGREEMENT_TOLERANCE_ETA
 """ADR-221's ``eta`` gate (``2e-2``), imported, never redeclared (Anchor W5)."""
 _EDF_TOLERANCE = _AGREEMENT_TOLERANCE_EDF
+_SE_REL_TOLERANCE = 0.02
+"""Relative gate on ``se.fit`` (``Vp`` and ``Vc``), derived BEFORE the first tier-3
+run of the P2 comparison (ADR-250). ``Vp`` has no Taylor remainder, so its only
+disagreement source is the two engines' smoothing parameters — which ADR-221's
+``eta`` gate already bounds at ``2e-2`` — and ``se`` is a smooth functional of
+``rho`` of the same order of sensitivity as ``eta``. The ``Vc - Vp`` correction
+carries Wood-Pya-Säfken's dropped remainder, whose measured floor is ADR-202's
+``0.73%`` over five held-out cases against its committed ``2%`` (Anchor 8). One
+number, ``2e-2``, therefore serves both: no wider than the committed uncertainty
+tolerance, and applied to a relative ``se`` rather than an absolute ``eta``. An
+exceedance is a reported result, never a reason to widen it."""
 _LPMATRIX_TOLERANCE = _STAGE_A_TOLERANCE
 """The Stage-A design tolerance (``1e-9``), imported. Derived before the first
 tier-3 run of this comparison (ADR-249): the lpmatrix comparison is Stage A
@@ -101,12 +114,18 @@ class _MgcvBlock(TypedDict):
     lpmatrix: list[list[float]]
     link: list[float]
     response: list[float]
+    se_link: list[float]
+    se_link_unconditional: list[float]
+    se_response: list[float]
+    cov_proj: list[list[float]]
+    cov_proj_unconditional: list[list[float]]
 
 
 class _MgcvOutputs(TypedDict):
     inrange: _MgcvBlock
     outrange: _MgcvBlock
     eta_train: list[float]
+    scale: float
     sp: list[float]
     edf_total: float
 
@@ -132,6 +151,8 @@ def predict_model_spec(name: str, n_levels: dict[str, int], offset_column: str |
         "quasipoisson_cr_re_ti": ("quasipoisson", "log"),
         "binomial_cr": ("binomial", "logit"),
         "poisson_offset": ("poisson", "log"),
+        "poisson_hgam": ("poisson", "log"),
+        "gaussian_select": ("gaussian", "identity"),
         "gaussian_sz": ("gaussian", "identity"),
     }[name]
     terms: tuple[TermSpec, ...]
@@ -170,6 +191,15 @@ def predict_model_spec(name: str, n_levels: dict[str, int], offset_column: str |
         terms = (cr("s(x)", "x", 8), cr("s(z)", "z", 6))
     elif name == "poisson_offset":
         terms = (cr("s(x)", "x", 8),)
+    elif name == "poisson_hgam":
+        terms = (
+            cr("s(age)", "age", 7),
+            cr("s(year)", "year", 5),
+            TermSpec(label="ti(age,year)", variables=("age", "year"), basis="ti", k=(7, 5)),
+            cr("s(dur)", "dur", 5),
+        )
+    elif name == "gaussian_select":
+        terms = (cr("s(x)", "x", 8), cr("s(z)", "z", 6), cr("s(w)", "w", 6))
     elif name == "gaussian_sz":
         terms = (
             TermSpec(
@@ -182,7 +212,13 @@ def predict_model_spec(name: str, n_levels: dict[str, int], offset_column: str |
         )
     else:
         raise PolarisValidationError(f"predict_model_spec: unknown cell {name!r}.")
-    return ModelSpec(family=family, link=link, terms=terms, offset_column=offset_column)
+    return ModelSpec(
+        family=family,
+        link=link,
+        terms=terms,
+        offset_column=offset_column,
+        select=name == "gaussian_select",
+    )
 
 
 def _arrays(cols: dict[str, list[float]]) -> dict[str, np.ndarray]:
@@ -207,6 +243,16 @@ class PredictedCase:
     link_inrange: np.ndarray | None
     link_outrange: np.ndarray | None
     response_inrange: np.ndarray | None
+    se_link: np.ndarray | None = None
+    se_link_unconditional: np.ndarray | None = None
+    se_response: np.ndarray | None = None
+    cov_proj: np.ndarray | None = None
+    cov_proj_unconditional: np.ndarray | None = None
+    vcov_refusal: str | None = None
+    """``PolarisComputationError`` text when the covariance is refused (a
+    numerically singular ``XᵀWX + S_lambda``); ``None`` when it was computed."""
+    unconditional_refusal: str | None = None
+    scale: float | None = None
 
 
 def fit_predict_case(recipe: PredictRecipe) -> PredictedCase:
@@ -230,14 +276,39 @@ def fit_predict_case(recipe: PredictRecipe) -> PredictedCase:
             response_inrange=None,
         )
     fit = fit_polaris_gam(model, train, np.asarray(recipe["y"], dtype=np.float64), outer="newton")
+    x_in = predict_design(model, fit.term_states, new_in)
+    se_link = se_resp = cov_proj = None
+    se_unc = cov_unc = None
+    refusal = unc_refusal = None
+    try:
+        _, se_link = fit.predict(new_in, "link", se_fit=True)
+        _, se_resp = fit.predict(new_in, "response", se_fit=True)
+        cov_proj = x_in @ fit.vcov() @ x_in.T
+    except PolarisComputationError as exc:
+        refusal = str(exc)
+    if refusal is None:
+        try:
+            _, se_unc = fit.predict(new_in, "link", se_fit=True, unconditional=True)
+            cov_unc = x_in @ fit.vcov(unconditional=True) @ x_in.T
+        except PolarisComputationError as exc:
+            unc_refusal = str(exc)
+    family = resolve_family(recipe["family"], recipe["link"])
     return PredictedCase(
         name=recipe["name"],
         fit=fit,
-        design_inrange=predict_design(model, fit.term_states, new_in),
+        design_inrange=x_in,
         design_outrange=predict_design(model, fit.term_states, new_out),
         link_inrange=fit.predict(new_in, "link"),
         link_outrange=fit.predict(new_out, "link"),
         response_inrange=fit.predict(new_in, "response"),
+        se_link=se_link,
+        se_link_unconditional=se_unc,
+        se_response=se_resp,
+        cov_proj=cov_proj,
+        cov_proj_unconditional=cov_unc,
+        vcov_refusal=refusal,
+        unconditional_refusal=unc_refusal,
+        scale=1.0 if family.dispersion_fixed else float(fit.dispersion.fletcher),
     )
 
 
@@ -245,9 +316,10 @@ _CLAIM_SENTENCE = (
     "Polaris (PolarisGAMFit.predict / gam_predict.predict_design) computes the design "
     "and the linear predictor at held-out rows from the training recipe plus the new "
     "covariates; mgcv computes the same via predict.gam(m, newdata, "
-    "type=c('lpmatrix','link','response')) from its own fit; compared on the lpmatrix, "
-    "eta in range and beyond the training range, the response, and eta at the training "
-    "rows (control)."
+    "type=c('lpmatrix','link','response'), se.fit=TRUE, unconditional=c(FALSE,TRUE)) from "
+    "its own fit; compared on the lpmatrix, eta in range and beyond the training range, "
+    "the response, the link-scale se.fit under Vp and Vc, the response-scale se.fit, the "
+    "projected covariances, the scale, and eta at the training rows (control)."
 )
 
 PREDICT_CLAIM = VerificationClaim(
@@ -278,6 +350,42 @@ PREDICT_CLAIM = VerificationClaim(
             quantity="response at held-out rows, in range (reported, not gated)",
             left_producer="PolarisGAMFit.predict(newdata, 'response') (family inverse link)",
             right_producer="mgcv predict.gam(m, newdata, type='response')",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="se.fit on the link scale, Vp (gated, relative)",
+            left_producer=(
+                "PolarisGAMFit.predict(se_fit=True): sqrt(diag(X_new Vp X_new')), "
+                "Vp = phi (X'WX + S)^-1 from the Polaris fit"
+            ),
+            right_producer="mgcv predict.gam(m, newdata, se.fit=TRUE)$se.fit from its own fit",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="se.fit on the link scale, Vc unconditional (gated, relative)",
+            left_producer=(
+                "PolarisGAMFit.predict(se_fit=True, unconditional=True): Vp + J Vrho J' + "
+                "phi V'' (eq. 7) with Polaris's own exact REML Hessian"
+            ),
+            right_producer=("mgcv predict.gam(m, newdata, se.fit=TRUE, unconditional=TRUE)$se.fit"),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="se.fit on the response scale, Vp (reported, not gated)",
+            left_producer="PolarisGAMFit.predict('response', se_fit=True): delta method",
+            right_producer="mgcv predict.gam(m, newdata, type='response', se.fit=TRUE)",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="X_new Vp X_new' and X_new Vc X_new' (reported, not gated)",
+            left_producer="PolarisGAMFit.vcov() and vcov(unconditional=True), projected",
+            right_producer="mgcv m$Vp and m$Vc, projected through predict.gam's lpmatrix",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="scale phi (reported, not gated)",
+            left_producer="PolarisGAMFit.dispersion.fletcher (1 for a fixed-dispersion family)",
+            right_producer="mgcv m$scale from gam(method='REML')",
             provenance=ComparisonProvenance.INDEPENDENT,
         ),
         ComparedQuantity(
@@ -312,6 +420,17 @@ class PredictCaseComparison:
     converged: bool | None
     agrees: bool
     evidence: VerificationClaim
+    max_rel_se_link: float | None = None
+    max_rel_se_link_unconditional: float | None = None
+    max_rel_se_response: float | None = None
+    max_rel_cov_proj: float | None = None
+    max_rel_cov_proj_unconditional: float | None = None
+    rel_scale_diff: float | None = None
+    se_agrees: bool | None = None
+    """Both gated ``se.fit`` columns inside :data:`_SE_REL_TOLERANCE`; ``None``
+    when Polaris refused the covariance (``vcov_refusal``)."""
+    vcov_refusal: str | None = None
+    unconditional_refusal: str | None = None
 
 
 def _max_abs(a: np.ndarray, b: np.ndarray, what: str) -> float:
@@ -326,7 +445,8 @@ def compare_predict_case(python: PredictedCase, payload: PredictPayload) -> Pred
     """Compare Polaris's predictions with ``mgcv``'s on every declared column.
 
     ``agrees`` = both lpmatrix blocks within the Stage-A tolerance AND (for a cell
-    with a Polaris fit) in-range ``eta`` and ``edf_total`` within ADR-221's gate.
+    with a Polaris fit) in-range ``eta`` and ``edf_total`` within ADR-221's gate AND
+    ``se_agrees`` is not ``False`` (a refused covariance, ``None``, is not a miss).
     The beyond-range ``eta``, the response and the training-row control are
     reported, never gated."""
     mg = payload["mgcv"]
@@ -366,6 +486,33 @@ def compare_predict_case(python: PredictedCase, payload: PredictPayload) -> Pred
     eta_train = _max_abs(python.fit.eta, np.asarray(mg["eta_train"]), "eta train")
     edf_diff = float(python.fit.edf_total - mg["edf_total"])
     agrees = agrees and eta_in < _ETA_TOLERANCE and abs(edf_diff) < _EDF_TOLERANCE
+
+    def _rel(ours: np.ndarray | None, theirs: list[float] | list[list[float]]) -> float | None:
+        if ours is None:
+            return None
+        ref = np.asarray(theirs, dtype=np.float64)
+        return float(np.max(np.abs(ours - ref)) / np.max(np.abs(ref)))
+
+    def _rel_rows(ours: np.ndarray | None, theirs: list[float]) -> float | None:
+        if ours is None:
+            return None
+        ref = np.asarray(theirs, dtype=np.float64)
+        return float(np.max(np.abs(ours - ref) / ref))
+
+    blk = mg["inrange"]
+    rel_se = _rel_rows(python.se_link, blk["se_link"])
+    rel_se_unc = _rel_rows(python.se_link_unconditional, blk["se_link_unconditional"])
+    se_agrees = (
+        None
+        if python.vcov_refusal is not None
+        else (
+            rel_se is not None
+            and rel_se < _SE_REL_TOLERANCE
+            and rel_se_unc is not None
+            and rel_se_unc < _SE_REL_TOLERANCE
+        )
+    )
+    rel_scale = None if python.scale is None else abs(python.scale - mg["scale"]) / abs(mg["scale"])
     # the family must resolve (a wrong family would fail here, not downstream)
     resolve_family(payload["family"], payload["link"])
     return PredictCaseComparison(
@@ -378,6 +525,17 @@ def compare_predict_case(python: PredictedCase, payload: PredictPayload) -> Pred
         max_abs_eta_diff_train=eta_train,
         edf_total_diff=edf_diff,
         converged=python.fit.converged,
-        agrees=agrees,
+        agrees=agrees and se_agrees is not False,
         evidence=PREDICT_CLAIM,
+        max_rel_se_link=rel_se,
+        max_rel_se_link_unconditional=rel_se_unc,
+        max_rel_se_response=_rel_rows(python.se_response, blk["se_response"]),
+        max_rel_cov_proj=_rel(python.cov_proj, blk["cov_proj"]),
+        max_rel_cov_proj_unconditional=_rel(
+            python.cov_proj_unconditional, blk["cov_proj_unconditional"]
+        ),
+        rel_scale_diff=rel_scale,
+        se_agrees=se_agrees,
+        vcov_refusal=python.vcov_refusal,
+        unconditional_refusal=python.unconditional_refusal,
     )
