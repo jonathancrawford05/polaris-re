@@ -3,7 +3,7 @@
 > **STATUS: APPROVED — ACTIVE EPIC from 2026-10-06 (maintainer; ADR-248).** Its
 > precondition, `PLAN_wood_outer_solver.md` Slice 4, is DONE (ADR-248):
 > `fit_polaris_gam` defaults to the deterministic Newton search. Epic started 2026-10-06 (ADR-249); **P1 and P2 DONE 2026-10-07 (ADR-250); P3 DONE 2026-10-08 (ADR-251); P4 DONE 2026-10-09 (ADR-253)**
-> (`CONTINUATION_gam_parity_preview.md`). **P5 DONE 2026-10-09 (ADR-254, draft PR). NEXT: maintainer review; then Slice 9 (rank pivoting) per CONTINUATION Q8.**
+> (`CONTINUATION_gam_parity_preview.md`). **P5 DONE 2026-10-09 (ADR-254, draft PR). Maintainer approved Q7-Q9 (2026-10-09): merge PR #262 as is; NEXT: parity-engine Slice 9 (rank pivoting).**
 >
 > **Maintainer decisions already taken (2026-10-06, recorded in ADR-248):**
 > (1) the public entry point is **`polaris_re.gam`** (P3); (2) a bare `s(x)` is
