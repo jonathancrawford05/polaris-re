@@ -4143,3 +4143,11 @@ Provenance: INDEPENDENT comparison (Polaris two-start fit vs `mgcv` `quasipoisso
 - **1st-order (promoted):** the HGAM held-out `predict.gam` comparison, carried as the FIRST task of the next preview session (PLAN §3 P1 item not met; no re-scoping). Source: ADR-249 deviations.
 - **2nd-order (NICE-TO-HAVE):** the `gaussian_factor_by` fit limitation (eta 2.5e-02, edf +0.458 at tier 3; edf -1.54 at tier 1): a second probe draw before the user guide states the limitation's size, unless P3 refuses factor-`by` next to `s(x)`. Source: ADR-249 / PR #258 review.
 - **3rd-order (parked):** an lpmatrix-only comparison for further bases as they land (L6-L8) reuses `gam_predict_probe.R`.
+
+---
+
+## Addendum 2026-10-09 — parity Slice 9 follow-ups (ADR-255)
+
+- **1st-order (promoted):** none new. The `Vc` refusal and the per-term-edf miss for pivoted fits are recorded limitations awaiting maintainer Q10 (CONTINUATION_gam_parity_preview), not slices.
+- **2nd-order (NICE-TO-HAVE):** make the `summary()` comparison report (not gate) per-term edf for a pivoted fit (narrows an ADR-253 gate, so maintainer-gated); a formula-probe cell for `select=TRUE` with a factor-`by` smooth (Q11) to decide whether that refusal can lift.
+- **3rd-order (parked):** deriving `mgcv`'s own pivot rule (its pivoted QR of the penalised augmented design) so `Vc` and per-term edf of a pivoted fit can be reproduced; no preview user has asked.
