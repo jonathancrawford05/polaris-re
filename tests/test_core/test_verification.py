@@ -276,7 +276,7 @@ def test_headline_of_a_mixed_claim_names_the_parity_column() -> None:
         quantities=(_echo("design_X"), _independent("rank")),
     )
     headline = evidence_headline(claim)
-    assert "Parity comparison on 1 column;" in headline
+    assert "1 of 2 columns are parity evidence" in headline
     assert "Parity evidence: `rank`" in headline
     assert "Harness only (not parity): `design_X` (ECHO)" in headline
 
@@ -291,7 +291,7 @@ def test_headline_counts_the_parity_columns_instead_of_saying_one() -> None:
         ),
     )
     headline = evidence_headline(claim)
-    assert "Parity comparison on 6 columns;" in headline
+    assert "6 of 7 columns are parity evidence" in headline
     assert "one parity column" not in headline
     assert "Harness only (not parity): `n` (ECHO)" in headline
 
