@@ -125,15 +125,13 @@ def test_probe_runs_and_the_lpmatrix_agrees_on_every_cell(tmp_path: Path) -> Non
         assert comparison.max_abs_lpmatrix_diff_inrange < 1e-9, cell["name"]
         assert comparison.max_abs_lpmatrix_diff_outrange < 1e-9, cell["name"]
         if cell["name"] == "gaussian_factor_by":
-            # ADR-250: XtWX + S is numerically singular (rank(X) = 22 of 29), so the
-            # covariance is REFUSED rather than inverted through the null direction.
-            assert comparison.vcov_refusal is not None
-            assert comparison.se_agrees is None
+            # Slice 9 (ADR-255): the unidentified coefficient is pivoted out, so Vp and the
+            # Vp-based se are returned and gated; Vc is refused (its V'' term is not
+            # pivot-invariant), which is a stated limitation and not a miss.
+            assert comparison.vcov_refusal is None
+            assert comparison.unconditional_refusal is not None
+            assert comparison.se_agrees
         elif cell["fit_polaris"]:
             assert comparison.vcov_refusal is None, cell["name"]
             assert comparison.se_agrees, cell["name"]
-        if cell["name"] != "gaussian_factor_by":
-            # gaussian_factor_by's FIT does not meet ADR-221's edf gate (ADR-249:
-            # a recorded outer-search limitation, not a predict defect); every
-            # other cell agrees on eta and edf.
-            assert comparison.agrees, cell["name"]
+        assert comparison.agrees, cell["name"]

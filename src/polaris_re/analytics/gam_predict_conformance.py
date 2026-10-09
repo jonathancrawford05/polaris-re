@@ -508,8 +508,12 @@ def compare_predict_case(python: PredictedCase, payload: PredictPayload) -> Pred
         else (
             rel_se is not None
             and rel_se < _SE_REL_TOLERANCE
-            and rel_se_unc is not None
-            and rel_se_unc < _SE_REL_TOLERANCE
+            # a Vc refusal (a pivoted fit, Slice 9) is a stated limitation, not a miss:
+            # the Vp column is still gated and Vc is reported as refused
+            and (
+                python.unconditional_refusal is not None
+                or (rel_se_unc is not None and rel_se_unc < _SE_REL_TOLERANCE)
+            )
         )
     )
     rel_scale = None if python.scale is None else abs(python.scale - mg["scale"]) / abs(mg["scale"])
