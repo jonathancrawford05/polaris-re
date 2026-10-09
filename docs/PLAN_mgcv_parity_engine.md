@@ -2370,7 +2370,7 @@ so performance is not the reason to want it. Maintainer decision, 2026-08-10.
 
 ### Slice 9: rank-deficient designs — pivot the unidentified coefficient out, as `mgcv` does
 
-> **STATUS: DONE 2026-10-09 (ADR-255, `feat(mgcv-parity)`, INDEPENDENT, tier 3 run 37973792420).** Exit criterion met for `eta`, `edf_total` and the `Vp`-based `se`; **two measured limitations**: the unconditional `Vc` of a pivoted fit is refused (not pivot-invariant) and per-term edf is pivot-dependent (summary comparison differs by 1.002). Neither is registered as a slice (CONTINUATION_gam_parity_preview Q10).
+> **STATUS: DONE 2026-10-09 (ADR-255, `feat(mgcv-parity)`, INDEPENDENT, tier 3 run 37977750939).** Exit criterion met for `eta`, `edf_total` and the `Vp`-based `se`; **two measured limitations**: the unconditional `Vc` of a pivoted fit is refused (not pivot-invariant) and per-term edf is pivot-dependent (summary comparison: one of two rank-deficient cells misses by 1.002). Neither is registered as a slice (CONTINUATION_gam_parity_preview Q10).
 
 **Registered 2026-10-07 (maintainer: a use case for `s(x) + s(x, by=f)` exists; ADR-250).** Mechanism class **(ii)** criterion / rank handling — NOT the outer search.
 
