@@ -46,6 +46,6 @@ No failed hypotheses to record; the one first-draft change was the example's dat
 ## PR #262 review response (changes requested on the guardrail, no code defect)
 - P0 (existing assertions rewritten): maintainer-approved wording change (Q5); listed in ADR-254 Decision 3. Awaiting the maintainer's confirmation. Question put back with the reviewer's point: the bold lead now begins "Parity comparison on N column(s)" for every mixed claim, including the ECHO-dominated `RAW_PATH_CLAIM`. Alternative that keeps the count and leads with the share: "N of M columns are parity evidence; the rest are harness-only". Not changed unilaterally: the maintainer chose the wording.
 - P1 baseline placeholder: filled below.
-- P2 notebook in a `--target runtime` image: not changed; the runtime stage carries neither `tests/` nor the other docs these tests read, and CI/`make docker-test` build the `dev` stage.
+- P2 notebook in a `--target runtime` image: not changed; the runtime stage does copy `tests/` (and, since `39fb31a`, the guide and example CSVs); the only gap is `notebooks/gam_parity_preview.ipynb`, which only the `dev` stage copies. CI and `make docker-test` build `dev`, so they pass; a `--target runtime` pytest would fail that one test.
 - P2 "8 of 9" includes `gaussian_sz`, which is lpmatrix-only (its `agrees` flag is the P1 module's). Noted for the report's reader; the counting is P1's, unchanged.
 - P2 draft wording: fixed. P2 harvest: Q7-Q9 stay in the CONTINUATION as decisions.
