@@ -209,6 +209,26 @@ uv run python scripts/perf_history.py --check-only    # analyse the log without 
 
 ---
 
+## Preview: `polaris_re.gam` — an `mgcv`-parity GAM engine
+
+A **preview** of a Python GAM fitter that reproduces R's `mgcv` on a **verified subset** of
+the `gam()` formula language (`cr` smooths incl. `by`, `ti`, `re`, factors, offsets,
+`select=TRUE`; gaussian / poisson / quasipoisson / binomial). Fit, predict with standard
+errors, and summarise from one call; anything outside the subset is refused by name. It is
+not "`mgcv`-compatible" in general: the evidence is the generated, CI-pinned
+[parity report](docs/GAM_PARITY_REPORT.md) against R 4.6.1 / `mgcv` 1.9.4 (one pinned
+image, gates `eta` 2e-2 / `edf` 1 / relative `se.fit` 2e-2). See the
+[user guide](docs/GAM_USER_GUIDE.md) and `notebooks/gam_parity_preview.ipynb`.
+
+```python
+from polaris_re.gam import GUIDE_FAMILY, GUIDE_FORMULA, gam, load_guide_example
+
+train, new = load_guide_example()
+fit = gam(GUIDE_FORMULA, train, GUIDE_FAMILY)
+print(fit.summary())
+rate, se = fit.predict(new, "response", se_fit=True)
+```
+
 ## Example: Price a YRT Deal on a Term Life Block
 
 ```python

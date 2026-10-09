@@ -24,8 +24,8 @@ parent plan and anchors: `docs/PLAN_mgcv_parity_engine.md`
 
 > **ACTIVE EPIC POINTER (maintainer, 2026-10-06, ADR-248) — READ THIS FIRST.**
 > The active epic is **`docs/PLAN_gam_parity_preview.md`**. Epic started 2026-10-06
-> (ADR-249); `docs/CONTINUATION_gam_parity_preview.md` is IN PROGRESS; Slices P1, P2, P3 and P4 are DONE
-> (ADR-250, ADR-251, ADR-253). The next session takes **Slice P5**. "The PLAN's next unchecked slice" in
+> (ADR-249); `docs/CONTINUATION_gam_parity_preview.md` is IN PROGRESS; Slices P1-P5 are DONE
+> (ADR-250, ADR-251, ADR-253, ADR-254; P5 is a draft PR awaiting the maintainer). **The preview epic is complete pending merge: the next session takes parity-engine Slice 9 (rank pivoting) unless the maintainer's PR comments say otherwise.** "The PLAN's next unchecked slice" in
 > this file means **that** plan's next slice. Read its §2 (definition of done)
 > and §4 (the rules that keep it from spiralling) before anything else — they
 > bind this routine as firmly as the nevers below. The capability ladder

@@ -3,7 +3,7 @@
 **Plan:** `docs/PLAN_gam_parity_preview.md`
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md`
 **Created:** 2026-10-06, epic-start session (ADR-249).
-**Status:** **IN PROGRESS. P1 DONE (ADR-249 + HGAM held-out, ADR-250). P2 DONE (ADR-250). P3 DONE (ADR-251). P4 DONE (ADR-253). NEXT: P5 (guide, notebook, generated parity report, release).**
+**Status:** **P1-P4 DONE (ADR-249..253). P5 DELIVERED as a DRAFT PR (ADR-254): guide, notebook, generated parity report, honest headline. Epic is DONE when the maintainer merges it and answers the questions below.**
 
 ## Slice status
 
@@ -13,7 +13,7 @@
 | **P2** | `vcov`, `predict(se_fit=True)` | **DONE** — `feat(mgcv-parity)`, INDEPENDENT, tier 3 run 37613368268 (ADR-250) |
 | **P3** | `polaris_re.gam.gam(formula, ...)` + refusals | **DONE** — `feat(mgcv-parity)`, INDEPENDENT, tier 3 (ADR-251) |
 | **P4** | `summary()`, 15-penalty target-size fit | **DONE** — `feat(mgcv-parity)`, INDEPENDENT, tier 3 run 37868934383 (ADR-253) |
-| **P5** | guide, notebook, generated parity report | next |
+| **P5** | guide, notebook, generated parity report | **DONE (draft PR)** — `feat(mgcv-parity)` for the guide-example prediction columns (INDEPENDENT); the report itself is an aggregation (ADR-254) |
 
 ## Staying on track — checkpoints (maintainer-agreed 2026-10-07)
 The factor-`by` miss (`gaussian_factor_by`, ADR-249) is documented, not fixed: no solver work, no start strategy (PLAN §4 rules 3-4). It is revisited ONLY at these points, each owned by an existing slice:
@@ -36,6 +36,9 @@ Guardrails each session re-reads before acting: one slice per session; no splitt
 Still open: the factor-`by` question below (not addressed by the answer above).
 
 ## Maintainer questions (as asked)
+7. **(P5, new) What is exposed beyond Python?** CLI / MCP / dashboard / pricing pipeline (Anchor 7). Recommended: **nothing yet** — ship the Python preview, collect what preview users ask for, then expose `gam()` through the CLI first (smallest surface, same refusals), MCP second; keep the dashboard and pricing pipeline out until a parity-verified use in pricing exists.
+8. **(P5, new) Run parity-engine Slice 9 (rank pivoting) before or after merging the preview?** The CONTINUATION checkpoint said "before P5 states the limitation"; one slice per session meant P5 stated it as a *refusal* with its size marked single-draw and un-re-measured. Recommended: merge the preview as is (the refusal is safe), then take Slice 9 as the next session; the guide's §6/§7 row is the only text it changes.
+9. **(P5, new) `docs/GAM_PARITY_REPORT.md` is committed from CI run text.** Recommended: keep it a committed snapshot refreshed by whoever dispatches the workflow, rather than a CI-committed file (no bot write access needed).
 5. **ANSWERED 2026-10-09 (maintainer): approved — build the headline from the actual count; to be done in P5 (edit `evidence_headline` in `core/verification.py` + its test, e.g. "Parity comparison on N columns; harness only: ...").** Original: **(P4, new) `evidence_markdown` headline wording.** `core/verification.evidence_headline` prints "Harness check with one parity column — NOT basis parity" whenever ANY column is ECHO/TRANSPORT, even beside six INDEPENDENT ones (P4's table). The text is quoted verbatim as the routine requires; the "one" is hard-coded. Recommended: change to "with N parity columns" (core wording change, a tiny edit + its test) — not done here because `core/verification.py` is the ADR-193 contract and the change is the maintainer's to approve.
 6. **ANSWERED 2026-10-09 (maintainer): `n` stays in the claim as ECHO.** Original: **(P4, new) `n` as ECHO.** Recommended: keep it in the claim as ECHO (it makes the headline say so honestly) rather than drop it.
 4. **(P3, new) `select=TRUE` with `re`/parametric/factor-`by` terms. PARTLY RESOLVED (ADR-252): `re` and parametric are now accepted, tier-3 verified on one draw each; only factor-`by` remains refused (Slice 9). What is still open is the 13+-block target-size fit (P4).** Original: `gam()` refuses it because the free-`sp` search is verified only on `cr`/numeric-`by`/`ti` (PLAN §5 puts `select=TRUE` on `cr+re+ti` after this epic), yet P4's target-size fit needs exactly that. Recommended: P4 measures the target formula at tier 3 and lifts the refusal only if it meets ADR-221 from one Newton start; otherwise the preview ships the refusal and says so.
@@ -45,6 +48,7 @@ Still open: the factor-`by` question below (not addressed by the answer above).
 3. **ANSWERED 2026-10-07 (maintainer): support the rank restriction in P3, but `s(x) + s(x, by=f)` has a real use case, so the fix is on the roadmap — registered as `PLAN_mgcv_parity_engine.md` Slice 9 (pivot the unidentified coefficient out). One slice; tier-1 experiment: converged, edf +0.0037.** Original question: **Factor-`by` mechanism (ADR-250).** The miss is a RANK defect (`rank(X)` 22/29, one null direction in `X'WX+S`), not an outer-search plateau; `vcov`/`se_fit` refuse such a fit. Recommended: P3 refuses by the structural test and the guide lists it as a limitation; pivoted-rank handling (as `mgcv` does) is NOT taken as a slice unless preview users need `s(x) + s(x, by=f)`.
 
 ## What the next session needs to know
+- **P5 done (ADR-254):** `docs/GAM_USER_GUIDE.md`, `notebooks/gam_parity_preview.ipynb` (built by `scripts/build_gam_preview_notebook.py`), `scripts/gam_parity_report.py` -> `docs/GAM_PARITY_REPORT.md` (generated in the `compare` job; refresh by dispatching `mgcv-conformance.yml` and pasting the `::group::` log text), `polaris_re.gam.example` / `guide_conformance` / `data/gam_preview/`. The guide's example is cell `guide_example` of `gam_formula_probe.R`. Headline wording fixed (Q5).
 - **P4 done (ADR-253):** `GamFit.summary()` -> `GamSummary` (`polaris_re.gam.summary`); `print(fit.summary())` renders it; no p-values. Comparison: `polaris_re.gam.summary_conformance` (`SUMMARY_CLAIM`: six INDEPENDENT columns + `n` ECHO), `scripts/gam_summary_compare.py`, probes `gam_formula_probe.R` (now also exports `summary.gam`) and `gam_target_size_probe.R`. Tolerances are the ADR-221-implied bounds (`implied_gates`). **P5 should quote `SUMMARY_CLAIM` through `evidence_markdown`, never retype it.**
 - **Target-size cell is 5,000 rows, 15 blocks, verified-subset terms only** (no `sz`, not 30,000-row `bam`). The guide must say so. mgcv `gam()` at that size: 15.6 s (CI); Polaris 4.4 s.
 - **REML score is not comparable across packages for non-Gaussian / weighted fits** (ADR-231 constant; weighted Gaussian differs by `0.5 sum log w`). The guide must not tell users to compare REML scores with R's.
