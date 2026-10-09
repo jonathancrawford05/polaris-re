@@ -122,7 +122,8 @@ class ImpliedGates:
 def implied_gates(fit: GamFit, summary: GamSummary) -> ImpliedGates:
     """The bound ADR-221's slack implies, evaluated at Polaris's own fit (ADR-253)."""
     family = resolve_family(fit.model.family, fit.model.link)
-    assert fit.y is not None
+    if fit.y is None:
+        raise PolarisValidationError("implied_gates: this fit carries no training response.")
     y = fit.y
     w = np.ones_like(y) if fit.prior_weights is None else fit.prior_weights
     eta = fit.eta
@@ -294,7 +295,7 @@ def compare_summary_case(python: SummaryCaseFit, payload: SummaryPayload) -> Sum
     sp_ref = np.log10(np.asarray(_floats(mg["sp"]), dtype=np.float64))
     sp_mine = np.asarray([v for t in s.smooths for v in t.log10_sp], dtype=np.float64)
     sp_diff = float(np.max(np.abs(sp_mine - sp_ref))) if sp_mine.size == sp_ref.size else None
-    if gates.scale_relative == 0.0:
+    if not s.scale_estimated:
         scale_diff = abs(s.scale - mg["scale"])
         scale_ok = scale_diff < _FIXED_SCALE_TOLERANCE
     else:

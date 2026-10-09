@@ -22,6 +22,7 @@ from scipy.optimize import brentq
 from polaris_re.analytics.gam_family import Family
 from polaris_re.analytics.gam_model import PolarisGAMFit, resolve_family
 from polaris_re.analytics.gam_reml_newton import MGCV_NEWTON_CONV_TOL
+from polaris_re.core.exceptions import PolarisValidationError
 
 __all__ = [
     "EPSILON_REL",
@@ -160,7 +161,7 @@ def build_summary(
     terms (the parametric block is counted as ``n_parametric`` = ``m$nsdf``, not listed,
     as in ``summary.gam``)."""
     if fit.y is None:
-        raise ValueError("summary(): this fit carries no training response.")
+        raise PolarisValidationError("summary(): this fit carries no training response.")
     family = resolve_family(fit.model.family, fit.model.link)
     w = np.ones_like(fit.y) if fit.prior_weights is None else fit.prior_weights
     mu = np.asarray(family.link.linkinv(fit.eta), dtype=np.float64)

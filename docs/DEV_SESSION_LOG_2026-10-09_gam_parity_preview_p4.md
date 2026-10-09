@@ -34,3 +34,9 @@ No tolerance was changed after reading a result; no solver, start strategy or co
 
 ## Maintainer questions
 5 (headline wording "one parity column") and 6 (keep `n` as ECHO) — in the CONTINUATION with recommendations. Work that did not depend on them continued.
+
+## PR #261 review response (approved; five P2 nits, no P0/P1)
+- P2-1 float sentinel and P2-2 `assert`/`ValueError` fixed (branch on `scale_estimated`; `PolarisValidationError`).
+- P2-4 run, not filed (ROUTINE step 12): **Polaris alone, 30,000 rows, same 15-penalty cell, one Newton start — MEASUREMENT (own criterion), NOT parity, tier-1 box, no oracle:** converged, 10 iterations, 12 penalised fits, relative projected gradient 0.868 x `epsilon_rel`, 39.9 s wall, dev.expl 0.0906, scale 1.288. It shows Polaris reaches its own criterion at the plan's row count; it does NOT make the "production-like size" DoD item met (no `mgcv` side exists at that size: plain `gam()` did not finish; `bam(discrete=TRUE)` is outside the verified subset).
+- P2-5 perf: CI "Perf (head-vs-main regression)" green per the reviewer; the appended row is for a commit with no hot-path change (new modules only plus three optional dataclass fields), so no creep is expected or claimed beyond that CI result.
+- P2-3 (per-term edf gate is ADR-221's `edf_total` gate of 1): accepted, not built — a derived per-term bound is a candidate for P5's report; observed 6.4e-03 / 2.9e-02.
