@@ -27,7 +27,7 @@ main <- function(argv) {
   set.seed(20261009); n <- 5000
   d <- data.frame(
     age = runif(n, 25, 95), dur = runif(n, 1, 25), z = runif(n, 0, 10),
-    mi = runif(n, -5, 6), expo = runif(n, 0.5, 4),
+    mi = runif(n, -5, 6), expo = runif(n, 200, 4000),
     FS = sample(c("small", "large"), n, TRUE), SM = sample(c("ns", "sm"), n, TRUE),
     grp = sample(paste0("g", 1:6), n, TRUE), stringsAsFactors = FALSE)
   lrr <- -0.012 * d$mi * (1 + 0.01 * (d$age - 60)) + 0.05 * sin(d$age / 11) -
