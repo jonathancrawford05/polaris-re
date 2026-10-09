@@ -67,6 +67,10 @@ COPY data/inputs/portfolio_staggered_sample/ ./data/inputs/portfolio_staggered_s
 # exchange must re-hash to what the exporter produces), and the runtime image runs the
 # test suite. Same reason as data/qa/ above.
 COPY data/mgcv_exchange/ ./data/mgcv_exchange/
+# Preview slice P5 (ADR-254): the guide's worked-example CSVs (polaris_re.gam.example) and
+# the guide itself, which tests/test_gam/test_guide.py executes and checks.
+COPY data/gam_preview/ ./data/gam_preview/
+COPY docs/GAM_USER_GUIDE.md ./docs/
 COPY pyproject.toml ./
 COPY Makefile ./
 COPY .env.example ./
