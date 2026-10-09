@@ -323,9 +323,15 @@ def evidence_headline(claim: VerificationClaim) -> str:
             "**Harness check — NOT parity.** No column here is independently "
             f"produced: {harness}. {proves}{internal_clause}"
         )
+    # Count the parity columns rather than hard-coding "one": a claim with six INDEPENDENT
+    # columns and one ECHO ``n`` is mostly parity, and a headline saying "one parity
+    # column" understated it (maintainer, 2026-10-09). The ECHO/TRANSPORT columns are
+    # still named, with their kind, so the zeros that are not parity stay labelled.
+    n_parity = len(claim.parity_quantities)
+    columns = "column" if n_parity == 1 else "columns"
     return (
-        f"**Harness check with one parity column — NOT basis parity.** Parity "
-        f"evidence: {parity}. Harness only: {harness}.{internal_clause}"
+        f"**Parity comparison on {n_parity} {columns}; harness-only columns present.** "
+        f"Parity evidence: {parity}. Harness only (not parity): {harness}.{internal_clause}"
     )
 
 

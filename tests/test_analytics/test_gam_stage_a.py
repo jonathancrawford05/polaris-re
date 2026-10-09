@@ -1379,7 +1379,8 @@ def test_a_comparison_carries_its_producers_provenance_through() -> None:
     assert comparison.agrees
     assert comparison.evidence is RAW_PATH_CLAIM
     # The verdict a report prints above the zeros, derived from the declaration.
-    assert "NOT basis parity" in evidence_headline(comparison.evidence)
+    # (wording changed 2026-10-09, maintainer-approved: the parity columns are counted)
+    assert "harness-only columns present" in evidence_headline(comparison.evidence)
 
 
 def test_the_python_cr_basis_declares_every_quantity_independent() -> None:

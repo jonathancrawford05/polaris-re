@@ -27,7 +27,9 @@ def _f(v: float | None, spec: str = ".3e") -> str:
     return "n/a" if v is None else format(v, spec)
 
 
-def main(probe: Path, out: Path | None) -> None:
+def build_report(probe: Path) -> tuple[str, int, int]:
+    """``(markdown, cells that agree, cells compared)``: no I/O beyond reading the probe
+    JSON; also used by ``scripts/gam_parity_report.py``."""
     payload = json.loads(probe.read_text())
     rows: list[FormulaCaseComparison] = []
     errors: list[str] = []
@@ -91,7 +93,12 @@ def main(probe: Path, out: Path | None) -> None:
         lines += ["", f"**ERROR** {e}"]
     if not all(r.agrees for r in rows) or errors:
         lines.insert(2, "**Disagreement or error — see the table. This is a result.**")
-    report = "\n".join(lines) + "\n"
+    n_agree = sum(1 for r in rows if r.agrees)
+    return "\n".join(lines) + "\n", n_agree, len(rows) + len(errors)
+
+
+def main(probe: Path, out: Path | None) -> None:
+    report, _, _ = build_report(probe)
     print(report)
     if out is not None:
         out.write_text(report)

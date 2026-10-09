@@ -15,16 +15,20 @@ from polaris_re.gam.api import (
     r_factor_levels,
     structural_rank_deficiency,
 )
+from polaris_re.gam.example import GUIDE_FAMILY, GUIDE_FORMULA, load_guide_example
 from polaris_re.gam.formula import ParsedFormula, parse_formula
 from polaris_re.gam.summary import GamSummary, SmoothSummary
 
 __all__ = [
+    "GUIDE_FAMILY",
+    "GUIDE_FORMULA",
     "ORACLE_COLLATION",
     "GamFit",
     "GamSummary",
     "ParsedFormula",
     "SmoothSummary",
     "gam",
+    "load_guide_example",
     "parse_formula",
     "r_factor_levels",
     "structural_rank_deficiency",
