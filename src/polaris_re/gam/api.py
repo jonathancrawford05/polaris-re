@@ -48,6 +48,7 @@ from polaris_re.gam.formula import (
     TensorCall,
     parse_formula,
 )
+from polaris_re.gam.summary import GamSummary, build_summary
 
 __all__ = [
     "ORACLE_COLLATION",
@@ -148,6 +149,12 @@ class GamFit(PolarisGAMFit):
     ``ti``, the level count for ``re``."""
     n_parametric: int = 0
     """``mgcv``'s ``m$nsdf``: the intercept plus the parametric block's columns."""
+
+    def summary(self) -> GamSummary:
+        """The fit report (``summary.gam``'s counterpart, no p-values): per-smooth edf and
+        ``log10(sp)``, scale, REML score, deviance explained, ``n`` and the Newton
+        search's convergence report. ``print(fit.summary())`` renders it."""
+        return build_summary(self, self.formula, self.smooth_labels, self.n_parametric)
 
     def encode(self, newdata: pl.DataFrame) -> dict[str, np.ndarray]:
         """``newdata`` as the arrays :meth:`PolarisGAMFit.predict` reads."""
