@@ -183,7 +183,7 @@ Report generators call `evidence_markdown(claim)` and print it **above** the
 diffs. The headline is *derived* from the declared provenance:
 
 - all columns independent → `**Parity comparison** — …`
-- some independent → `**Harness check with one parity column — NOT basis parity.** …`
+- some independent → `**N of M columns are parity evidence; the rest are harness-only.** Parity evidence: …; Harness only (not parity): …` (N, M counted from the claim; reworded twice on 2026-10-09, ADR-254: first from "one parity column" to a count, then to the share)
 - none independent → `**Harness check — NOT parity.** …`
 
 A human writing that line by hand is exactly the step that failed before.

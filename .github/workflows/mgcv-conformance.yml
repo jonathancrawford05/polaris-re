@@ -71,6 +71,10 @@ on:
       # Slice P4 (ADR-253): GamFit.summary() vs summary.gam, and the target-size fit.
       - "scripts/gam_target_size_probe.R"
       - "scripts/gam_summary_compare.py"
+      # Slice P5 (ADR-254): the generated parity report and the guide's worked example.
+      - "scripts/gam_parity_report.py"
+      - "scripts/gam_guide_example_data.py"
+      - "data/gam_preview/**"
       - "src/polaris_re/analytics/gam_derivatives.py"
       - "src/polaris_re/analytics/gam_derivatives_conformance.py"
       - "src/polaris_re/analytics/gam_uncertainty.py"
@@ -4116,11 +4120,30 @@ jobs:
             echo "No gam_formula_probe.json — the R probe above did not produce one."
           fi
 
+      # PREVIEW epic Slice P5 (ADR-254) — the GENERATED parity report: the preview's
+      # INDEPENDENT comparisons re-run from the probe JSONs above and concatenated, every
+      # headline from evidence_markdown(), pinned to THIS run id, commit and oracle digest.
+      # The text is also printed verbatim in the log between the ::group:: markers so a
+      # maintainer can commit it as docs/GAM_PARITY_REPORT.md without a second run.
+      - name: Generate the GAM parity report (preview slice P5)
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          uv run python scripts/gam_parity_report.py . GAM_PARITY_REPORT.generated.md \
+            --run-id "$GITHUB_RUN_ID" --commit "$GITHUB_SHA" --digest "${ORACLE_IMAGE#*@}" \
+            > /dev/null
+          cat GAM_PARITY_REPORT.generated.md >> "$GITHUB_STEP_SUMMARY"
+          echo "::group::GAM_PARITY_REPORT.md (verbatim, run $GITHUB_RUN_ID)"
+          cat GAM_PARITY_REPORT.generated.md
+          echo "::endgroup::"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: mgcv-conformance-report
           path: |
+            GAM_PARITY_REPORT.generated.md
             mgcv_conformance_report.md
             mgcv_conformance.json
             mgcv_reference.json

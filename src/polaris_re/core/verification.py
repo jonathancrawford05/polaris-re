@@ -323,9 +323,16 @@ def evidence_headline(claim: VerificationClaim) -> str:
             "**Harness check — NOT parity.** No column here is independently "
             f"produced: {harness}. {proves}{internal_clause}"
         )
+    # Lead with the SHARE of parity columns (maintainer, 2026-10-09, PR #262): a bold lead that
+    # opened with "Parity comparison" oversold ECHO-dominated claims. The ECHO/TRANSPORT
+    # columns are still named, with their kind, so the zeros that are not parity stay labelled.
+    n_parity = len(claim.parity_quantities)
+    n_all = len(claim.quantities)
+    columns = "column" if n_all == 1 else "columns"
+    verb = "is" if n_parity == 1 and n_all == 1 else "are"
     return (
-        f"**Harness check with one parity column — NOT basis parity.** Parity "
-        f"evidence: {parity}. Harness only: {harness}.{internal_clause}"
+        f"**{n_parity} of {n_all} {columns} {verb} parity evidence; the rest are harness-only.** "
+        f"Parity evidence: {parity}. Harness only (not parity): {harness}.{internal_clause}"
     )
 
 

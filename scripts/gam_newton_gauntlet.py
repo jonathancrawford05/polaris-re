@@ -49,7 +49,8 @@ def _per_block_lines(readings: list[GauntletReading]) -> list[str]:
     return lines
 
 
-def main(probe_dir: Path, out: Path | None, gate: bool = False) -> None:
+def build_report(probe_dir: Path) -> tuple[str, list[GauntletReading]]:
+    """``(markdown, readings)``; also used by ``scripts/gam_parity_report.py``."""
     readings = run_gauntlet(
         payloads_from_probe_dir(lambda name: json.loads((probe_dir / name).read_text()))
     )
@@ -83,7 +84,11 @@ def main(probe_dir: Path, out: Path | None, gate: bool = False) -> None:
         "",
         *_per_block_lines(readings),
     ]
-    report = "\n".join(lines)
+    return "\n".join(lines), readings
+
+
+def main(probe_dir: Path, out: Path | None, gate: bool = False) -> None:
+    report, readings = build_report(probe_dir)
     print(report)
     if out is not None:
         out.write_text(report)

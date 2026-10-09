@@ -30,7 +30,7 @@ suppressPackageStartupMessages({
   library(jsonlite)
 })
 
-cell <- function(name, formula, family, d, select = FALSE, weights_col = NULL) {
+cell <- function(name, formula, family, d, select = FALSE, weights_col = NULL, newdata = NULL) {
   fam <- eval(parse(text = paste0(family, "()")))
   # character -> factor with R's DEFAULT factor() (levels sorted by the session's
   # collation): this is the level-ordering measurement. The strings are exported.
@@ -43,10 +43,29 @@ cell <- function(name, formula, family, d, select = FALSE, weights_col = NULL) {
   sm <- m$smooth
   ssum <- summary(m)
   fac_names <- names(m$model)[vapply(m$model, is.factor, logical(1))]
+  # Slice P5 (ADR-254): predict.gam at held-out rows, link and response scale, with se.fit
+  # (Vp) and unconditional se.fit (Vc) -- the guide's worked example only.
+  pred <- NULL
+  if (!is.null(newdata)) {
+    nd <- newdata
+    for (nm in names(nd)) if (is.character(nd[[nm]])) {
+      nd[[nm]] <- factor(nd[[nm]], levels = levels(dfit[[nm]]))
+    }
+    pl <- predict(m, nd, type = "link", se.fit = TRUE)
+    plu <- predict(m, nd, type = "link", se.fit = TRUE, unconditional = TRUE)
+    pr <- predict(m, nd, type = "response", se.fit = TRUE)
+    pred <- list(
+      newdata = as.list(newdata),
+      link = as.numeric(pl$fit), link_se = as.numeric(pl$se.fit),
+      link_se_unconditional = as.numeric(plu$se.fit),
+      response = as.numeric(pr$fit), response_se = as.numeric(pr$se.fit)
+    )
+  }
   list(
     name = name, formula = formula, family = family, select = select,
     weights_column = weights_col,
     data = as.list(d),
+    predict = pred,
     # Slice P4 (ADR-253): summary.gam's own report, for GamFit.summary() to be compared with
     summary = list(
       n = as.integer(ssum$n),
@@ -182,6 +201,16 @@ main <- function(argv) {
   d$y <- sin(d$x) + as.integer(factor(d$g)) * 0.05 + rnorm(n, sd = 0.3)
   cells[[length(cells) + 1]] <- cell("gaussian_level_order_heldout",
     'y ~ g + s(x, k = 8, bs = "cr")', "gaussian", d)
+
+  # Slice P5 (ADR-254): the user guide's worked example. The data are the committed
+  # synthetic CSVs that docs/GAM_USER_GUIDE.md and the notebook read; the formula string is
+  # polaris_re.gam.example.GUIDE_FORMULA, copied here as text (a test pins the two equal).
+  gd <- read.csv("data/gam_preview/guide_example_train.csv", stringsAsFactors = FALSE)
+  gn <- read.csv("data/gam_preview/guide_example_new.csv", stringsAsFactors = FALSE)
+  cells[[length(cells) + 1]] <- cell("guide_example",
+    paste0("deaths ~ offset(log_exposure) + sex + s(age, k = 8, bs = 'cr') + ",
+           "s(duration, k = 6, bs = 'cr') + ti(age, duration, k = c(6, 4), bs = 'cr')"),
+    "quasipoisson", gd, newdata = gn)
 
   out <- list(
     schema_version = 1L,

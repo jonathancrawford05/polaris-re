@@ -276,8 +276,24 @@ def test_headline_of_a_mixed_claim_names_the_parity_column() -> None:
         quantities=(_echo("design_X"), _independent("rank")),
     )
     headline = evidence_headline(claim)
-    assert "NOT basis parity" in headline
+    assert "1 of 2 columns are parity evidence" in headline
     assert "Parity evidence: `rank`" in headline
+    assert "Harness only (not parity): `design_X` (ECHO)" in headline
+
+
+def test_headline_counts_the_parity_columns_instead_of_saying_one() -> None:
+    """Maintainer, 2026-10-09: six INDEPENDENT columns beside one ECHO ``n`` is not 'one'."""
+    claim = VerificationClaim(
+        claim="P4-shaped: six independent columns and an echoed row count.",
+        quantities=(
+            *(_independent(name) for name in ("a", "b", "c", "d", "e", "f")),
+            _echo("n"),
+        ),
+    )
+    headline = evidence_headline(claim)
+    assert "6 of 7 columns are parity evidence" in headline
+    assert "one parity column" not in headline
+    assert "Harness only (not parity): `n` (ECHO)" in headline
 
 
 def test_headline_of_a_full_parity_claim_says_parity() -> None:
