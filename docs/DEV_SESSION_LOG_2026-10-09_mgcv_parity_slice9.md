@@ -38,3 +38,6 @@ All INDEPENDENT; headlines are `evidence_markdown()` of the existing `PREDICT_CL
 
 ## Follow-ups harvested
 PRODUCT_DIRECTION addendum 2026-10-09 (1st/2nd/3rd-order as classified there). Maintainer questions Q10 (accept the two limitations; stop gating per-term edf for pivoted fits) and Q11 (`select=TRUE` + factor-`by`) are in the CONTINUATION with recommended answers. Nothing opened is merely filed: the limitations are recorded in the guide §7, coverage, ADR-255 and the ledger; no new slice is registered (PLAN-preview §4 rule 3; no user demand).
+
+## Baseline after
+Full suite on the final code (`-m "not slow"`, R installed, no `-x`): **5 failed, 4069 passed, 22 skipped, 145 deselected** (877 s). The 5 failures are the same environmental set as before (`test_loaded_ilec_feeds_tensor_mi_surface` + four `TestCalibratedPremiums`). Delta against the baseline (4061 passed): +8 passed = the tests this slice added (7 in `test_gam_rank_pivot.py`, 1 guide, 1 formula-conformance, net of the replaced refusal tests). `tests/qa/` (the golden gate) is inside that run and passes.
