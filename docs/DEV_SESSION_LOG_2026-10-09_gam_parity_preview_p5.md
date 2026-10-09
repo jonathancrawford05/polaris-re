@@ -1,6 +1,6 @@
 # Dev session log — 2026-10-09 — GAM parity preview: Slice P5 (release the preview)
 
-**Branch:** `claude/dreamy-galileo-k2tec2` (environment-designated); PR #262 (draft). **PR title class:** `feat(mgcv-parity)` for the guide-example prediction columns (INDEPENDENT); everything else in the PR is documentation, aggregation or tooling.
+**Branch:** `claude/dreamy-galileo-k2tec2` (environment-designated); PR #262 (opened from the UI; the routine delivers it as a draft, do not merge). **PR title class:** `feat(mgcv-parity)` for the guide-example prediction columns (INDEPENDENT); everything else in the PR is documentation, aggregation or tooling.
 **Box vs repo:** the box names no epic; the repo's pointer named `PLAN_gam_parity_preview.md`, next slice P5. Repo followed; no conflict on fact.
 **Perf:** one row appended (ADR-177): the PR edits `core/verification.py` and adds `gam/{example,guide_conformance}.py`, none exempt. Advisory wall-time ratio 2.2x on this box; MiB peak 33 -> 33, no structural creep.
 
@@ -42,3 +42,10 @@ No failed hypotheses to record; the one first-draft change was the example's dat
 ## Not done, and why
 - Slice 9 (rank pivoting): one slice per session; registered, not run.
 - The "second probe draw" for the factor-`by` limitation size: not run; the guide says the size was single-draw and is not re-measured. It would need R-side draws plus a tier-3 dispatch of a diagnostic and belongs with Slice 9.
+
+## PR #262 review response (changes requested on the guardrail, no code defect)
+- P0 (existing assertions rewritten): maintainer-approved wording change (Q5); listed in ADR-254 Decision 3. Awaiting the maintainer's confirmation. Question put back with the reviewer's point: the bold lead now begins "Parity comparison on N column(s)" for every mixed claim, including the ECHO-dominated `RAW_PATH_CLAIM`. Alternative that keeps the count and leads with the share: "N of M columns are parity evidence; the rest are harness-only". Not changed unilaterally: the maintainer chose the wording.
+- P1 baseline placeholder: filled below.
+- P2 notebook in a `--target runtime` image: not changed; the runtime stage carries neither `tests/` nor the other docs these tests read, and CI/`make docker-test` build the `dev` stage.
+- P2 "8 of 9" includes `gaussian_sz`, which is lpmatrix-only (its `agrees` flag is the P1 module's). Noted for the report's reader; the counting is P1's, unchanged.
+- P2 draft wording: fixed. P2 harvest: Q7-Q9 stay in the CONTINUATION as decisions.
