@@ -10,7 +10,11 @@ import pytest
 import polaris_re.analytics.gam_rank_pivot as rank_pivot
 from polaris_re.analytics.gam_model import assemble_model_design, fit_polaris_gam, pivot_design
 from polaris_re.analytics.gam_predict import predict_design
-from polaris_re.analytics.gam_rank_pivot import pivot_out, unidentified_directions
+from polaris_re.analytics.gam_rank_pivot import (
+    choose_pivot_columns,
+    pivot_out,
+    unidentified_directions,
+)
 from polaris_re.analytics.gam_term_spec import ModelSpec, TermSpec, factor_by_terms
 from polaris_re.core.exceptions import PolarisComputationError
 
@@ -119,3 +123,25 @@ def test_per_term_edf_sums_to_the_total_less_the_intercept() -> None:
     model, data, y = _model()
     fit = fit_polaris_gam(model, data, y)
     assert abs(sum(fit.edf_per_term.values()) + 1.0 - fit.edf_total) < 1e-8
+
+
+def test_the_pivot_choice_is_not_decided_by_rounding_noise() -> None:
+    """Two tier-3 runs of identical code once eliminated different columns, because the
+    candidate rows had equal norms in exact arithmetic. Ties go to the highest index and
+    the choice is stable under perturbations far above rounding noise."""
+    model, data, _ = _model()
+    design = assemble_model_design(model, data)
+    v = unidentified_directions(design["x"], design["penalty_blocks"])
+    base = choose_pivot_columns(v)
+    rng = np.random.default_rng(0)
+    for _ in range(25):
+        noisy = v * (1.0 + 1e-12 * rng.standard_normal(v.shape))
+        assert choose_pivot_columns(noisy) == base
+    # an exact tie between rows resolves to the highest index
+    tied = np.zeros((6, 1))
+    tied[[1, 3, 4], 0] = 0.5
+    assert choose_pivot_columns(tied) == (4,)
+    # two independent directions: two distinct rows, V[D] invertible
+    two = np.linalg.qr(rng.standard_normal((8, 2)))[0]
+    chosen = choose_pivot_columns(two)
+    assert len(set(chosen)) == 2 and abs(np.linalg.det(two[list(chosen)])) > 1e-6

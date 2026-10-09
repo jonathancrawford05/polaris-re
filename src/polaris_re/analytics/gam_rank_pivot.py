@@ -10,8 +10,8 @@ criterion, its edf and ``Vp``; before this module this engine inverted
 
 **The construction.** Find the orthonormal directions ``V`` (``p x r``) with ``S V = 0``
 and ``X V = 0``; choose ``r`` coefficients ``D`` such that ``V[D, :]`` is invertible
-(column-pivoted QR of ``V'``); fit on the remaining columns ``X[:, kept]`` and
-``S_j[kept, kept]``.
+(greedy Gram-Schmidt row selection on ``V``, ties to the highest index); fit on the
+remaining columns ``X[:, kept]`` and ``S_j[kept, kept]``.
 
 **Why that is the same model.** Any ``beta`` can be moved along ``V`` until
 ``beta[D] = 0`` (``V[D, :]`` invertible), and the move changes neither ``X beta``
@@ -40,7 +40,6 @@ not tuned against any ``mgcv`` output.
 from collections.abc import Sequence
 
 import numpy as np
-from scipy.linalg import qr as scipy_qr
 
 from polaris_re.core.exceptions import PolarisComputationError
 
@@ -82,14 +81,40 @@ def unidentified_directions(x: np.ndarray, penalty_blocks: Sequence[np.ndarray])
 
 
 def choose_pivot_columns(directions: np.ndarray) -> tuple[int, ...]:
-    """The ``r`` coefficient indices to eliminate: column-pivoted QR of ``V'``
-    selects ``r`` rows of ``V`` that are as well conditioned as a greedy rule can
-    make them, so ``V[D, :]`` is invertible. Returned sorted."""
+    """The ``r`` coefficient indices to eliminate, chosen so ``V[D, :]`` is invertible
+    and the choice is REPRODUCIBLE.
+
+    Greedy Gram-Schmidt row selection: take the row of ``V`` with the largest residual
+    norm, project its direction out of every row, repeat ``r`` times. **Near-ties are
+    broken to the highest column index.** Two tier-3 runs of identical code on the same
+    oracle digest eliminated different columns (21 and 28) when this was a plain
+    column-pivoted QR: the compared rows have exactly equal norms in exact arithmetic
+    (the by-level smooths are exchangeable), so which one wins was decided by rounding
+    noise that differs between machines. A pivot decided by noise makes per-term edf
+    and ``Vc`` irreproducible. Rows within ``sqrt(eps)`` of the maximum count as tied:
+    rounding noise in an eigenvector is ~1e-15..1e-13 and genuinely different rows
+    differ by far more, so the cut sits between them (derived, not tuned against any
+    ``mgcv`` output). Returned sorted.
+    """
     r = directions.shape[1]
     if r == 0:
         return ()
-    _, _, piv = scipy_qr(directions.T, mode="economic", pivoting=True)
-    return tuple(sorted(int(i) for i in piv[:r]))
+    tie = float(np.sqrt(np.finfo(np.float64).eps))
+    residual = np.array(directions, dtype=np.float64, copy=True)
+    chosen: list[int] = []
+    for _ in range(r):
+        norms = np.linalg.norm(residual, axis=1)
+        norms[chosen] = -1.0
+        best = float(norms.max())
+        if best <= 0.0:
+            raise PolarisComputationError(
+                "choose_pivot_columns: the unidentified directions are linearly dependent."
+            )
+        j = int(np.flatnonzero(norms >= (1.0 - tie) * best).max())
+        chosen.append(j)
+        u = residual[j] / float(np.linalg.norm(residual[j]))
+        residual = residual - np.outer(residual @ u, u)
+    return tuple(sorted(chosen))
 
 
 def pivot_out(
