@@ -41,11 +41,23 @@ cell <- function(name, formula, family, d, select = FALSE, weights_col = NULL) {
   if (!is.null(weights_col)) args$weights <- dfit[[weights_col]]
   m <- do.call(mgcv::gam, args)
   sm <- m$smooth
+  ssum <- summary(m)
   fac_names <- names(m$model)[vapply(m$model, is.factor, logical(1))]
   list(
     name = name, formula = formula, family = family, select = select,
     weights_column = weights_col,
     data = as.list(d),
+    # Slice P4 (ADR-253): summary.gam's own report, for GamFit.summary() to be compared with
+    summary = list(
+      n = as.integer(ssum$n),
+      scale = as.numeric(ssum$scale),
+      dev_expl = as.numeric(ssum$dev.expl),
+      reml = as.numeric(m$gcv.ubre),
+      deviance = as.numeric(m$deviance),
+      null_deviance = as.numeric(m$null.deviance),
+      edf_s = if (is.null(ssum$s.table)) numeric(0) else as.numeric(ssum$s.table[, "edf"]),
+      sp = as.numeric(m$sp)
+    ),
     mgcv = list(
       eta = as.numeric(m$linear.predictors),
       edf_total = as.numeric(sum(m$edf)),

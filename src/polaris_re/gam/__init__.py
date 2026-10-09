@@ -16,11 +16,14 @@ from polaris_re.gam.api import (
     structural_rank_deficiency,
 )
 from polaris_re.gam.formula import ParsedFormula, parse_formula
+from polaris_re.gam.summary import GamSummary, SmoothSummary
 
 __all__ = [
     "ORACLE_COLLATION",
     "GamFit",
+    "GamSummary",
     "ParsedFormula",
+    "SmoothSummary",
     "gam",
     "parse_formula",
     "r_factor_levels",

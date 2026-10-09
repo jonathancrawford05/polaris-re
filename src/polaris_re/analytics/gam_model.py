@@ -470,6 +470,14 @@ class PolarisGAMFit:
     """The training prior weights (``None`` = all one)."""
     offset: np.ndarray | None = None
     """The training offset (``None`` = zero)."""
+    n_iterations: int | None = None
+    """Newton iterations the outer search took (``None`` for ``outer="lbfgsb"`` and
+    for a fit built by hand). Reported by ``GamFit.summary()`` (preview Slice P4)."""
+    max_abs_projected_gradient: float | None = None
+    """``max |g^P|`` of the REML score at the stop, natural-log units (Newton only)."""
+    gradient_tolerance: float | None = None
+    """The score-scaled tolerance ``max |g^P|`` was tested against:
+    ``epsilon_rel * (1 + |score|)`` (Newton only)."""
 
     def vcov(self, unconditional: bool = False) -> np.ndarray:
         """The coefficient covariance (``mgcv``'s ``vcov(m)``), ``(p, p)``.
@@ -920,4 +928,15 @@ def fit_polaris_gam(
         y=y,
         prior_weights=weights,
         offset=offset,
+        n_iterations=selection.n_iterations
+        if isinstance(selection, NewtonLambdaSelection)
+        else None,
+        max_abs_projected_gradient=(
+            selection.max_abs_projected_gradient
+            if isinstance(selection, NewtonLambdaSelection)
+            else None
+        ),
+        gradient_tolerance=(
+            selection.gradient_tolerance if isinstance(selection, NewtonLambdaSelection) else None
+        ),
     )

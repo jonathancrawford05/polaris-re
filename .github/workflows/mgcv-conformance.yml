@@ -68,6 +68,9 @@ on:
       - "src/polaris_re/gam/**"
       - "scripts/gam_formula_probe.R"
       - "scripts/gam_formula_compare.py"
+      # Slice P4 (ADR-253): GamFit.summary() vs summary.gam, and the target-size fit.
+      - "scripts/gam_target_size_probe.R"
+      - "scripts/gam_summary_compare.py"
       - "src/polaris_re/analytics/gam_derivatives.py"
       - "src/polaris_re/analytics/gam_derivatives_conformance.py"
       - "src/polaris_re/analytics/gam_uncertainty.py"
@@ -918,6 +921,18 @@ jobs:
             Rscript scripts/gam_formula_probe.R \
               gam_formula_probe.json
 
+      # PREVIEW epic Slice P4 (ADR-253): the target-size cell (5,000 rows, 13+ penalty
+      # blocks, quasi-Poisson + offset, select=TRUE) under mgcv, with summary.gam's report.
+      # The formula probe above also exports summary.gam's numbers for its own cells.
+      - name: Fit the target-size cell under mgcv (preview slice P4)
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_target_size_probe.R \
+              gam_target_size_probe.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: mgcv-reference
@@ -956,6 +971,7 @@ jobs:
             gam_cr_re_ti_probe.json
             gam_predict_probe.json
             gam_formula_probe.json
+            gam_target_size_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -4084,6 +4100,22 @@ jobs:
             echo "No gam_formula_probe.json — the R probe above did not produce one."
           fi
 
+      # PREVIEW epic Slice P4 (ADR-253) — GamFit.summary() vs summary.gam(m), plus the
+      # target-size fit's convergence and cost.
+      - name: Summary vs summary.gam and the target-size fit (preview slice P4)
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 45
+        run: |
+          if [ -f gam_formula_probe.json ]; then
+            args="gam_formula_probe.json"
+            if [ -f gam_target_size_probe.json ]; then args="$args gam_target_size_probe.json"; fi
+            uv run python scripts/gam_summary_compare.py $args gam_summary_report.md
+            cat gam_summary_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_formula_probe.json — the R probe above did not produce one."
+          fi
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -4139,3 +4171,5 @@ jobs:
             gam_predict_report.md
             gam_formula_probe.json
             gam_formula_report.md
+            gam_target_size_probe.json
+            gam_summary_report.md
