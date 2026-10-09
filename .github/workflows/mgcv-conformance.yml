@@ -64,6 +64,10 @@ on:
       - "src/polaris_re/analytics/gam_vcov.py"
       - "scripts/gam_predict_probe.R"
       - "scripts/gam_predict_compare.py"
+      # Slice P3 (ADR-251): the formula front end vs mgcv on the same formula string.
+      - "src/polaris_re/gam/**"
+      - "scripts/gam_formula_probe.R"
+      - "scripts/gam_formula_compare.py"
       - "src/polaris_re/analytics/gam_derivatives.py"
       - "src/polaris_re/analytics/gam_derivatives_conformance.py"
       - "src/polaris_re/analytics/gam_uncertainty.py"
@@ -903,6 +907,17 @@ jobs:
             Rscript scripts/gam_predict_probe.R \
               gam_predict_probe.json
 
+      # PREVIEW epic Slice P3 (ADR-251): mgcv::gam(as.formula(<string>)) on eleven formula
+      # cells; Polaris receives the same strings in the `compare` job. Also reports the
+      # image's LC_COLLATE and R's own ordering of a probe string set.
+      - name: Fit formula strings under mgcv (preview slice P3)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_formula_probe.R \
+              gam_formula_probe.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: mgcv-reference
@@ -940,6 +955,7 @@ jobs:
             gam_parametric_free_sp_probe.json
             gam_cr_re_ti_probe.json
             gam_predict_probe.json
+            gam_formula_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -4055,6 +4071,19 @@ jobs:
             echo "No gam_predict_probe.json — the R probe above did not produce one."
           fi
 
+      # PREVIEW epic Slice P3 (ADR-251) — gam(<formula string>) vs mgcv::gam(<same string>).
+      - name: Formula front end vs mgcv (preview slice P3)
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f gam_formula_probe.json ]; then
+            uv run python scripts/gam_formula_compare.py \
+              gam_formula_probe.json gam_formula_report.md
+            cat gam_formula_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_formula_probe.json — the R probe above did not produce one."
+          fi
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -4108,3 +4137,5 @@ jobs:
             gam_cr_re_ti_probe_report.md
             gam_predict_probe.json
             gam_predict_report.md
+            gam_formula_probe.json
+            gam_formula_report.md
