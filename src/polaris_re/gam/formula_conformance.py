@@ -17,10 +17,11 @@ other produced. The *structure* columns are the second, cheaper column the PLAN 
 for: they check the parse, not the fit, so a mis-parse cannot hide behind a fit that
 happens to land close.
 
-**One cell is an expected refusal.** ``gaussian_factor_by_with_bare_smooth`` is
-``s(x) + s(x, by=f)``: rank-deficient (ADR-250), so Polaris REFUSES it by name. For that
-cell "agrees" means "refused on the structural condition" — the refusal is the
-verified behaviour, ``mgcv``'s fit is carried for the record and not compared.
+**No cell is an expected refusal since parity-engine Slice 9.** The rank-deficient
+forms ``s(x) + s(x, by=f)`` and ``f + s(x) + s(x, by=f)`` (ADR-250) are fitted with the
+unidentified coefficient pivoted out and compared like every other cell (``eta``,
+``edf_total``, term structure, level order). ``EXPECTED_REFUSALS`` stays as the
+mechanism for a cell whose verified behaviour is a refusal.
 """
 
 from dataclasses import dataclass, field
@@ -52,8 +53,9 @@ __all__ = [
     "fit_formula_case",
 ]
 
-EXPECTED_REFUSALS: frozenset[str] = frozenset({"gaussian_factor_by_with_bare_smooth"})
-"""Cells where the verified behaviour is a refusal (ADR-250 rank defect)."""
+EXPECTED_REFUSALS: frozenset[str] = frozenset()
+"""Cells where the verified behaviour is a refusal. Empty since Slice 9: the rank-deficient
+cell ``gaussian_factor_by_with_bare_smooth`` (ADR-250) is now fitted and compared."""
 
 _ETA_TOLERANCE = _AGREEMENT_TOLERANCE_ETA
 """ADR-221's ``eta`` gate (``2e-2``), imported, never redeclared."""

@@ -110,7 +110,6 @@ _REFUSALS: dict[str, tuple[str, dict[str, object]]] = {
         'deaths ~ sex + s(age, by=sex, bs="cr")',
         {"select": True},
     ),
-    "`s(x) + s(x, by=f)`": ('deaths ~ s(age, bs="cr") + s(age, by=sex, bs="cr")', {}),
 }
 
 
@@ -131,6 +130,18 @@ def test_the_supported_equivalent_of_a_refused_form_is_accepted() -> None:
         'deaths ~ offset(log_exposure) + sex + s(age, by=sex, bs="cr", k=6)', train, "poisson"
     )
     assert fit.converged
+
+
+def test_the_rank_deficient_form_is_in_the_supported_table_and_fitted_with_a_pivot() -> None:
+    """Slice 9 moved ``s(x) + s(x, by=f)`` from the refusal table to the supported one."""
+    assert "`s(x) + s(x, by=f)` (with or without `f`)" in GUIDE.split("## 6.")[0]
+    train, _ = load_guide_example()
+    fit = gam(
+        'deaths ~ offset(log_exposure) + s(age, bs="cr", k=6) + s(age, by=sex, bs="cr", k=6)',
+        train,
+        "poisson",
+    )
+    assert fit.converged and len(fit.pivoted_columns) == 1
 
 
 def test_predict_with_se_is_internally_consistent(example_fit) -> None:

@@ -99,13 +99,16 @@ def test_weights_column_reaches_the_fit(frame: pl.DataFrame) -> None:
     assert float(np.max(np.abs(plain.eta - weighted.eta))) > 1e-6
 
 
-def test_the_rank_deficient_smooth_plus_factor_by_is_refused_on_the_structure(
+def test_the_rank_deficient_smooth_plus_factor_by_is_fitted_with_a_pivot(
     frame: pl.DataFrame,
 ) -> None:
-    with pytest.raises(PolarisValidationError, match=r"not identified.*rank\(X\) < p.*Slice 9"):
-        gam('y ~ s(x, bs="cr", k=6) + s(x, by=g, bs="cr", k=6)', frame, "gaussian")
-    # the identified spellings of the same model are fitted
-    gam('y ~ g + s(x, by=g, bs="cr", k=6)', frame, "gaussian")
+    """Slice 9: the unidentified coefficient is pivoted out (it was refused before)."""
+    fit = gam('y ~ s(x, bs="cr", k=6) + s(x, by=g, bs="cr", k=6)', frame, "gaussian")
+    assert len(fit.pivoted_columns) == 1
+    assert fit.design["x"].shape[1] == fit.design["full_width"] - 1
+    assert fit.vcov().shape == (fit.design["full_width"],) * 2
+    # the identified spelling of the same model carries no pivot
+    assert gam('y ~ g + s(x, by=g, bs="cr", k=6)', frame, "gaussian").pivoted_columns == ()
 
 
 def test_structural_rank_deficiency_closed_form() -> None:

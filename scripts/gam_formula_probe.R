@@ -112,9 +112,12 @@ main <- function(argv) {
   d <- data.frame(x = runif(n, 0, 10), f = sample(lv3, n, TRUE), stringsAsFactors = FALSE)
   shift <- c(a = 0, b = 0.6, c = -0.5)[d$f]
   d$y <- sin(d$x + shift) + rnorm(n, sd = 0.3)
-  # the rank-deficient form: Polaris REFUSES it (structural condition, ADR-250)
+  # the rank-deficient form: Polaris pivots the unidentified coefficient out (Slice 9)
   cells[[length(cells) + 1]] <- cell("gaussian_factor_by_with_bare_smooth",
     'y ~ s(x, k = 8, bs = "cr") + s(x, by = f, k = 8, bs = "cr")', "gaussian", d)
+  # a second rank-deficient structure (Slice 9): the same plus the factor main effect
+  cells[[length(cells) + 1]] <- cell("gaussian_factor_by_bare_smooth_and_main",
+    'y ~ f + s(x, k = 8, bs = "cr") + s(x, by = f, k = 8, bs = "cr")', "gaussian", d)
   # the identified form of the same model: factor main effect + factor-by smooth
   cells[[length(cells) + 1]] <- cell("gaussian_factor_by",
     'y ~ f + s(x, by = f, k = 8, bs = "cr")', "gaussian", d)
