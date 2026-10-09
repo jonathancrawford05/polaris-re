@@ -55,6 +55,8 @@ data/*
 !data/validation/**
 !data/mgcv_exchange/
 !data/mgcv_exchange/**
+!data/gam_preview/
+!data/gam_preview/**
 !data/inputs/
 data/inputs/*
 !data/inputs/portfolio_sample/
@@ -87,3 +89,4 @@ docs/*
 !docs/DATA_LICENSING.md
 !docs/MEASUREMENT_experience_gam_hmd.md
 !docs/MEASUREMENT_experience_gam_ilec.md
+!docs/GAM_USER_GUIDE.md
