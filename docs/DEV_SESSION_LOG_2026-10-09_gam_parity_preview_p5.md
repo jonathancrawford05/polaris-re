@@ -5,7 +5,7 @@
 **Perf:** one row appended (ADR-177): the PR edits `core/verification.py` and adds `gam/{example,guide_conformance}.py`, none exempt. Advisory wall-time ratio 2.2x on this box; MiB peak 33 -> 33, no structural creep.
 
 ## Baseline
-No mortality tables here, so five environmental failures stand (`test_loaded_ilec_feeds_tensor_mi_surface`, four `TestCalibratedPremiums`). **Start of session** (`make test`, whole `tests/`, R installed): **5 failed, 4036 passed, 22 skipped, 145 deselected** — identical to the P4 log's "after". **After:** AFTER_COUNTS
+No mortality tables here, so five environmental failures stand (`test_loaded_ilec_feeds_tensor_mi_surface`, four `TestCalibratedPremiums`). **Start of session** (`make test`, whole `tests/`, R installed): **5 failed, 4036 passed, 22 skipped, 145 deselected** — identical to the P4 log's "after". **After:** **5 failed, 4061 passed, 22 skipped, 145 deselected** (same five environmental failures; +25 = `tests/test_gam/test_guide.py` 24 + 1 headline test; tables-present reviewer run: 4065 passed, 0 failed).
 
 ## Oracle Version
 Tier 1: R 4.3.3 / mgcv 1.9.1, `LC_COLLATE=C`, `OPENBLAS_NUM_THREADS=1`. Tier 3 (every committed number): CI run **37924265628** (commit `ef5fb0b`), mgcv 1.9.4 / R 4.6.1, `LC_COLLATE=en_US.UTF-8`, `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`.
