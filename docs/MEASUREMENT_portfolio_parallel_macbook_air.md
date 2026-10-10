@@ -135,10 +135,10 @@ not just the best-of-k minimum). Not committed — the tables above are the reco
 re-generate with the runbook's §3 commands.
 
 <!-- measurement-provenance
-fingerprint: dabd8c26a294051264376a6779b7861604f26d07d2c8192a590fa7d4647fa26c
-generated: 2026-08-24
+fingerprint: 9d345195817a2dceb4a0cfeaa49b2d446ac7a0619b3f7a767e9fc8aa9b53fe7c
+generated: 2026-10-10
 producer: src/polaris_re/analytics/portfolio.py
 method: asserted
-head: 0131391
-note: closure drifted 2026-08-24 by an inert change: utils/table_io.py's missing-table FileNotFoundError message (raised only when a file is absent; no successful run reaches it). RUNBOOK section 2 case (c), claim in ADR-204 amendment 1. Route (a) needs a 10-core MacBook Air; the 2026-08-23 re-run stands — shape-dependence held, peak 1.77x -> 1.78x at 4 workers, bit-identical on every row.
+head: a290801
+note: 2026-10-10 ADR-256: the only closure change is an added exception class (core/exceptions.py PolarisRankDeficiencyWarning) and a UserWarning emitted by the parity-stack fit when a design has an unidentified direction. The measured path (identified designs, no warning raised, no numeric code touched) is unchanged; not regenerated.
 -->

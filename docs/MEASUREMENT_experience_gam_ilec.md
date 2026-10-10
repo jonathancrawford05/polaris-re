@@ -300,10 +300,10 @@ because the aggregation level is an explicit parameter (ADR-182) rather than a
 buried default.
 
 <!-- measurement-provenance
-fingerprint: d75be9a8cb4ddd64f0725f5502a1c9c84e4afcd04c7a1ef21b2b02612be1d925
-generated: 2026-08-24
+fingerprint: bb92f69239b6f13901912dc84c1dafb6fb0301f9cb14a45c126a2a9a90f0e6d4
+generated: 2026-10-10
 producer: scripts/experience_diligence.py
 method: asserted
-head: 0131391
-note: closure drifted 2026-08-24 by an inert change: utils/table_io.py's missing-table FileNotFoundError message (raised only when a file is absent; no successful run reaches it). RUNBOOK section 2 case (c), claim in ADR-204 amendment 1. Route (a) needs the experience cache and was not available; the 2026-08-23 regeneration against ILEC extract 'ILEC_2012_19 - 20240429.txt' (12,477,136,749 bytes) stands.
+head: a290801
+note: 2026-10-10 ADR-256: the only closure change is an added exception class (core/exceptions.py PolarisRankDeficiencyWarning) and a UserWarning emitted by the parity-stack fit when a design has an unidentified direction. The measured path (identified designs, no warning raised, no numeric code touched) is unchanged; not regenerated.
 -->
