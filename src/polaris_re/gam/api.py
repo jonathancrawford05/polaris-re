@@ -308,9 +308,9 @@ def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
     """Allow ``select=TRUE`` with a factor-``by`` smooth only when it is the ONLY smooth of its
     covariate (Slice R1, ADR-258, pre-registered handling R1-d; an allowlist, review P1).
 
-    Measured and agreeing with ``mgcv``: ``f + s(x, by=f)`` and ``s(x, by=f)`` (60 of 60 draws).
-    A bare smooth beside the ``by`` smooth disagreed in 8 of 60 draws: ``select=TRUE`` penalises
-    the null space of every smooth, the null spaces overlap in one direction, and the data
+    Measured and agreeing with ``mgcv``: ``f + s(x, by=f)`` and ``s(x, by=f)`` (120 of 120 draws over two independent sets).
+    A bare smooth beside the ``by`` smooth disagreed in 17 of 120 draws, and a second ``by``
+    smooth (poisson) in 11 of 120: ``select=TRUE`` penalises the null space of every smooth, the null spaces overlap in one direction, and the data
     separate the four-or-more penalties that share it only weakly, so the Newton search stops,
     converged by its own test, at a point ``mgcv``'s REML scores lower (a plateau, mechanism
     class iii). Any other second smooth of the same covariate (another ``by``, a numeric
@@ -329,9 +329,10 @@ def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
             raise PolarisValidationError(
                 f"gam(): select=True with a factor-by smooth of {var!r} and another smooth of "
                 f"{var!r} (a bare smooth, a second by-smooth or a numeric by-smooth) is not "
-                "supported — on the measured shape with a bare smooth the free-sp search stops "
-                "at a point mgcv's REML scores lower in about 1 draw in 8, and the other "
-                "combinations are unmeasured (ADR-258, R1-d). Use one smooth of "
+                "supported — measured against mgcv, the free-sp search stops at a point its REML "
+                "scores lower in about 1 draw in 7 with a bare smooth and 1 in 11 with a second "
+                "by-smooth (poisson); a numeric by-smooth beside it is unmeasured (ADR-258, "
+                "R1-d). Use one smooth of "
                 f'{var!r}: f + s({var}, by=f, bs="cr"), or fit without select=True '
                 f"({_COVERAGE} §2.3 select row)."
             )
