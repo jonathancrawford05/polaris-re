@@ -3,9 +3,10 @@
 
 Usage: gam_select_bare_by_draws_compare.py <gam_select_bare_by_draws_probe.json> [report.md]
 
-Six forms x two families x 30 draws (two independent sets of 15). Polaris receives the formula-equivalent ``ModelSpec``
-(built here from the form name, the shared recipe) and the data; ``mgcv`` fits the same string.
-``gam()`` REFUSES the two bare-smooth forms (ADR-258), so this script builds the ``ModelSpec``
+Six forms x two families x 30 draws (two independent sets of 15). Polaris receives the
+formula-equivalent ``ModelSpec`` (built here from the form name, the shared recipe) and the
+data; ``mgcv`` fits the same string.
+``gam()`` REFUSES the four non-allowlisted forms (ADR-258), so this script builds the ``ModelSpec``
 itself and calls ``fit_polaris_gam`` to measure what the refusal protects against.
 
 Provenance (ADR-193):
