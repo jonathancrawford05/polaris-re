@@ -26,7 +26,7 @@ parent plan and anchors: `docs/PLAN_mgcv_parity_engine.md`
 > The active epic is **`docs/PLAN_gam_real_data_readiness.md`** (`docs/CONTINUATION_gam_real_data_readiness.md`,
 > no slice started). Its slices are R1 `select=TRUE` + factor-`by`, R2 the ILEC trial and profile,
 > R3 scale (gated on R2's measurement), R4 `tp`; **execution order R1, R2, R4, then R3 only if the
-> time ceiling is unmet** (maintainer, 2026-10-10). **Parity-engine Slice 10 is DONE as a finding
+> 10-minute ceiling is exceeded or the Polaris/`mgcv::gam` wall-time ratio is above 1.5** (maintainer, 2026-10-10). **Parity-engine Slice 10 is DONE as a finding
 > (2026-10-10, ADR-256: `mgcv`'s choice of eliminated coefficient is rounding noise on exactly tied
 > candidates, so there is no rule to reproduce; its steps 3-4 were not built); `PLAN_mgcv_parity_engine.md`
 > has no unchecked slice.** **"The PLAN's next unchecked slice" in this file

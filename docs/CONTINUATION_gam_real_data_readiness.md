@@ -12,11 +12,12 @@
 | **R1** | `select=TRUE` + factor-`by` (both forms, four families); `mgcv` stability probe first | NOT STARTED |
 | **R2** | ILEC trial + performance profile; routine builds the harness/runbook, maintainer + Cowork run it | NOT STARTED (release: R1 code merged) |
 | **R4** | `tp` (L7); bare `s(x)` accepted | NOT STARTED (executes after R2) |
-| **R3** | scale: exact speedups or `bam`/`discrete=TRUE`, decided by R2's profile and the 10-minute ceiling | NOT STARTED (executes after R4; only if the ceiling is unmet) |
+| **R3** | scale: exact speedups or `bam`/`discrete=TRUE`, decided by R2's profile and the 10-minute ceiling | NOT STARTED (executes after R4; only if the 10-minute ceiling is exceeded or the ratio is above 1.5) |
 
 ## Maintainer questions
 **Answered 2026-10-10 (PR #265 review):** Q-R2a (T1-T3 with changes: three smoker levels, `U` kept, Poisson+offset primary, S1-S3 sensitivities), Q-R2b (10-minute ceiling, Polaris fit only, fixed reference machine, ratio against `mgcv::gam`), Q-R2c (timings, sizes, agreement differences; no coefficients or contrasts), Q-R2d (`full` = the banded run's key set), Q-order (R1, R2, R4; R3 only if needed).
-**Open (recommended answers in PLAN §6):** **Q-R2b2** the Polaris/`mgcv::gam` ratio threshold; **Q-R2e** confirm `max |Δeta| / se.fit <= 0.1` as the scale-aware criterion; **Q-R2f** the maintainer's current machine as the reference machine.
+**Q-R2b2 answered (2026-10-10): report the Polaris/`mgcv::gam` ratio; above 1.5 requires investigating `bam`.**
+**Open (recommended answers in PLAN §6):** **Q-R2b2 confirmation** (applies to T1-T3 at `full` granularity only); **Q-R2e** confirm `max |Δeta| / se.fit <= 0.1` as the scale-aware criterion; **Q-R2f** the maintainer's current machine as the reference machine.
 
 ## Carried over (not part of this epic's slices)
 - Parity-engine Slice 10 is DONE as a finding (ADR-256); its standing limitations apply to any *pivoted* fit.
