@@ -1948,3 +1948,7 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > are carried into that PLAN's Slices 1-4. `NEXT` for this file: none of its
 > own until that epic closes (this supersedes `NEXT: slice 7c` in the entry
 > above, which ADR-241 marks SUPERSEDED); slice 9+ unchanged.
+
+---
+
+**2026-10-09/10 cross-reference:** Slice 9 (rank pivoting) is DONE (ADR-255, PR #263) and Slice 10 (reproduce `mgcv`'s choice of the unidentified coefficient) is registered in `PLAN_mgcv_parity_engine.md`; status lives in `CONTINUATION_gam_parity_preview.md`.

@@ -4148,6 +4148,6 @@ Provenance: INDEPENDENT comparison (Polaris two-start fit vs `mgcv` `quasipoisso
 
 ## Addendum 2026-10-09 — parity Slice 9 follow-ups (ADR-255)
 
-- **1st-order (promoted):** none new. The `Vc` refusal and the per-term-edf miss for pivoted fits are recorded limitations awaiting maintainer Q10 (CONTINUATION_gam_parity_preview), not slices.
-- **2nd-order (NICE-TO-HAVE):** make the `summary()` comparison report (not gate) per-term edf for a pivoted fit (narrows an ADR-253 gate, so maintainer-gated); a formula-probe cell for `select=TRUE` with a factor-`by` smooth (Q11) to decide whether that refusal can lift.
-- **3rd-order (parked):** deriving `mgcv`'s own pivot rule (its pivoted QR of the penalised augmented design) so `Vc` and per-term edf of a pivoted fit can be reproduced; no preview user has asked.
+- **1st-order (promoted):** reproduce `mgcv`'s choice of the unidentified coefficient (PLAN parity-engine Slice 10) so `Vc` and per-term edf of pivoted fits can be restored. *Provenance: promoted from 3rd-order by the explicit maintainer decision on PR #263 (Q10, 2026-10-10); not a routine inference.*
+- **2nd-order (NICE-TO-HAVE):** (withdrawn: the maintainer declined narrowing the per-term edf gate, Q10); a formula-probe cell for `select=TRUE` with a factor-`by` smooth (Q11) to decide whether that refusal can lift.
+- **3rd-order (parked):** none new (the pivot-rule derivation moved to 1st-order above).

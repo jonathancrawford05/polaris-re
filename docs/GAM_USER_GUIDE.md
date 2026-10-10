@@ -145,7 +145,7 @@ construct named). Nothing in the preview falls back to a guess.
   synthetic draw (`gaussian_factor_by`, ADR-249); the mechanism is a rank defect, not an
   outer-search problem (ADR-250), and since Slice 9 (ADR-255) it is fitted with the
   unidentified coefficient pivoted out. **The unconditional covariance (`Vc`,
-  `unconditional=True`) is refused for such a fit:** its second-order term depends on which
+  `unconditional=True`) is refused for such a fit (interim — parity-engine Slice 10 is registered to reproduce `mgcv`'s choice):** its second-order term depends on which
   coefficient is eliminated, and the choice that matches `mgcv` is not derivable from
   anything this engine computes (ADR-255). `Vp`-based standard errors, `eta` and `edf_total`
   do not depend on that choice; per-term edf does (§5).

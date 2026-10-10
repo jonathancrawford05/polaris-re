@@ -17,6 +17,7 @@ from polaris_re.analytics.experience_mgcv_conformance import rscript_mgcv_availa
 from polaris_re.analytics.gam_predict_conformance import (
     PREDICT_CASE_NAMES,
     PREDICT_CLAIM,
+    PredictedCase,
     PredictRecipe,
     compare_predict_case,
     fit_predict_case,
@@ -135,3 +136,59 @@ def test_probe_runs_and_the_lpmatrix_agrees_on_every_cell(tmp_path: Path) -> Non
             assert comparison.vcov_refusal is None, cell["name"]
             assert comparison.se_agrees, cell["name"]
         assert comparison.agrees, cell["name"]
+
+
+def _self_payload(case: PredictedCase) -> dict:  # type: ignore[type-arg]
+    """A payload whose mgcv side is Polaris's own output, so every other column is exactly
+    zero and only the Vc-refusal waiver is under test (a mechanism test, not parity)."""
+    assert case.fit is not None and case.se_link is not None
+    block = {
+        "lpmatrix": case.design_inrange.tolist(),
+        "link": case.link_inrange.tolist(),  # type: ignore[union-attr]
+        "response": case.response_inrange.tolist(),  # type: ignore[union-attr]
+        "se_link": case.se_link.tolist(),
+        "se_link_unconditional": case.se_link.tolist(),
+        "se_response": case.se_link.tolist(),
+        "cov_proj": case.cov_proj.tolist(),  # type: ignore[union-attr]
+        "cov_proj_unconditional": case.cov_proj.tolist(),  # type: ignore[union-attr]
+    }
+    return {
+        "family": "gaussian",
+        "link": "identity",
+        "mgcv": {
+            "inrange": block,
+            "outrange": {
+                "lpmatrix": case.design_outrange.tolist(),
+                "link": case.link_outrange.tolist(),
+            },  # type: ignore[union-attr]
+            "eta_train": case.fit.eta.tolist(),
+            "scale": case.scale,
+            "sp": [1.0],
+            "edf_total": case.fit.edf_total,
+        },
+    }
+
+
+def test_a_vc_refusal_is_waived_only_for_a_pivoted_fit() -> None:
+    """ADR-255 Decision 3: a refused Vc is a stated limitation for a pivoted fit; on an
+    un-pivoted fit the same refusal (any other cause) must still read as a miss."""
+    import dataclasses
+
+    plain = fit_predict_case(
+        {
+            **_synthetic_recipe("gaussian_cr_by_ti"),
+            "fit_polaris": True,
+            "family": "gaussian",
+            "link": "identity",
+        }
+    )  # type: ignore[typeddict-item]
+    assert plain.fit is not None and not plain.fit.pivoted_columns
+    refused = dataclasses.replace(plain, unconditional_refusal="rho Hessian not PD")
+    assert compare_predict_case(refused, _self_payload(plain)).se_agrees is False
+
+    pivoted_case = fit_predict_case(
+        {**_synthetic_recipe("gaussian_factor_by", seed=5), "fit_polaris": True}
+    )  # type: ignore[typeddict-item]
+    assert pivoted_case.fit is not None and pivoted_case.fit.pivoted_columns
+    waived = dataclasses.replace(pivoted_case, unconditional_refusal="Vc refused (pivot)")
+    assert compare_predict_case(waived, _self_payload(pivoted_case)).se_agrees is True

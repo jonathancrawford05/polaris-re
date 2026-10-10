@@ -41,3 +41,6 @@ PRODUCT_DIRECTION addendum 2026-10-09 (1st/2nd/3rd-order as classified there). M
 
 ## Baseline after
 Full suite on the final code (`-m "not slow"`, R installed, no `-x`): **5 failed, 4069 passed, 22 skipped, 145 deselected** (877 s). The 5 failures are the same environmental set as before (`test_loaded_ilec_feeds_tensor_mi_surface` + four `TestCalibratedPremiums`). Delta against the baseline (4061 passed): +8 passed = the tests this slice added (7 in `test_gam_rank_pivot.py`, 1 guide, 1 formula-conformance, net of the replaced refusal tests). `tests/qa/` (the golden gate) is inside that run and passes.
+
+## Review follow-up (2026-10-10)
+Blocker 2 fixed: the predict gate's `Vc`-refusal waiver now requires a pivoted fit (`test_a_vc_refusal_is_waived_only_for_a_pivoted_fit`). Blocker 1 cleared by the maintainer. Q10 answered NOT to accept the limitations: ADR-255 amended (Decisions 3-4 interim), Slice 10 registered in the PLAN, PRODUCT_DIRECTION promoted with provenance, coverage doc names the current pivot rule, parent CONTINUATION cross-referenced. Not done (optional P2): the report's section-1 row still reads "9 of 9" without the `Vc` caveat — it is generated text, so changing it needs a generator edit plus a re-dispatch; deferred to Slice 10, which restores the `Vc` column. No new perf row (review-feedback update).
