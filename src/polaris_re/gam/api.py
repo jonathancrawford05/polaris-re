@@ -308,13 +308,13 @@ def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
     """Allow ``select=TRUE`` with a factor-``by`` smooth only when it is the ONLY smooth of its
     covariate (Slice R1, ADR-258, pre-registered handling R1-d; an allowlist, review P1).
 
-    Measured and agreeing with ``mgcv``: ``f + s(x, by=f)`` and ``s(x, by=f)`` (120 of 120 draws over two independent sets).
-    A bare smooth beside the ``by`` smooth disagreed in 17 of 120 draws, and a second ``by``
-    smooth (poisson) in 11 of 120: ``select=TRUE`` penalises the null space of every smooth, the null spaces overlap in one direction, and the data
-    separate the four-or-more penalties that share it only weakly, so the Newton search stops,
-    converged by its own test, at a point ``mgcv``'s REML scores lower (a plateau, mechanism
-    class iii). Any other second smooth of the same covariate (another ``by``, a numeric
-    ``by``) has the same structure and no measurement, so it is refused too rather than
+    Measured and agreeing with ``mgcv``: ``f + s(x, by=f)`` and ``s(x, by=f)`` (120 of 120
+    draws over two independent sets). A bare smooth beside the ``by`` smooth disagreed in 17 of
+    120 draws, and a second ``by`` smooth (poisson) in 11 of 120. ``select=TRUE`` penalises the
+    null space of every smooth, the null spaces overlap in one direction, and the data separate
+    the four-or-more penalties that share it only weakly, so the Newton search stops, converged
+    by its own test, at a point ``mgcv``'s REML scores lower (a plateau, mechanism class iii).
+    A numeric ``by`` beside a factor ``by`` is unmeasured, so it is refused too rather than
     assumed to behave. A recorded limitation, not something to tune around.
     """
     groups: dict[str, set[str]] = {}
