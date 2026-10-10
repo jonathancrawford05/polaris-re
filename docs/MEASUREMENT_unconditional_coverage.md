@@ -91,10 +91,10 @@ The rejected-grid-point columns are the direct evidence for slice 4's first piec
 - **`mgcv` parity and coverage are different claims.** The row above says this band is the same object `mgcv` computes. It does not say that object is well-calibrated — that is what the coverage column measures, and the two could in principle disagree. Read them as two facts, not one.
 
 <!-- measurement-provenance
-fingerprint: da35794a258e9df4f67c913309b73100c0520790cc38d09e126c2a6a7ee0870a
-generated: 2026-10-02
+fingerprint: 3f7bb7de0754c8c2fdced8b55b9a0e2a1a2e2bddd2912fcae9336cf2c3a80f1d
+generated: 2026-10-10
 producer: scripts/unconditional_coverage_study.py
 method: asserted
-head: 0a52fc5
-note: 2026-10-02 slice 3c: gam_family.py gained a purely additive public Family.variance_prime accessor (returns the existing _variance_prime); no existing function body changed, so the measured path is untouched. Figures not regenerated.
+head: a290801
+note: 2026-10-10 ADR-256: the only closure change is an added exception class (core/exceptions.py PolarisRankDeficiencyWarning) and a UserWarning emitted by the parity-stack fit when a design has an unidentified direction. The measured path (identified designs, no warning raised, no numeric code touched) is unchanged; not regenerated.
 -->

@@ -108,7 +108,7 @@ with `mgcv` in the report.
 | `s(x, bs="cr", k=)` — cubic regression spline | supported | parity report §2 (every cell) |
 | `s(x, by=z, bs="cr")` — numeric `by` (varying coefficient) | supported | report §2, §1 |
 | `s(x, by=f, bs="cr")` — factor `by`, written `f + s(x, by=f, ...)` | supported | report §2 (`gaussian_factor_by`) |
-| `s(x) + s(x, by=f)` (with or without `f`) — a smooth beside a factor-`by` smooth of the same covariate | supported **with a pivot** (Slice 9, ADR-255): the one coefficient the data cannot identify is eliminated, as `mgcv` does. `eta`, `edf_total` and the standard errors (`unconditional=False`) are compared with `mgcv`; **`unconditional=True` is refused** for such a fit (§7); per-term `edf` depends on which coefficient is eliminated (on the report's two rank-deficient cells it agrees with `summary.gam` on one and misses by 1.0 on the other) | ADR-255, report §1-§3 |
+| `s(x) + s(x, by=f)` (with or without `f`) — a smooth beside a factor-`by` smooth of the same covariate | supported **with a pivot** (Slice 9, ADR-255): the one coefficient the data cannot identify is eliminated, as `mgcv` does. `eta`, `edf_total` and the standard errors (`unconditional=False`) are compared with `mgcv`; **`unconditional=True` is refused** for such a fit (§7); per-term `edf` depends on which coefficient is eliminated, and `mgcv` itself does not reproduce it between runs (ADR-256), so it is reported but not gated. Such a model emits a `PolarisRankDeficiencyWarning` when fitted | ADR-255, report §1-§3 |
 | `ti(x, z, bs="cr", k=c(.,.))` — tensor interaction | supported | report §2, §4 |
 | `s(f, bs="re")` — random-effect / level indicator | supported | report §2 |
 | factors `a`, `a:b` (with both main effects), `offset(col)` | supported | report §2 |
@@ -145,9 +145,10 @@ construct named). Nothing in the preview falls back to a guess.
   synthetic draw (`gaussian_factor_by`, ADR-249); the mechanism is a rank defect, not an
   outer-search problem (ADR-250), and since Slice 9 (ADR-255) it is fitted with the
   unidentified coefficient pivoted out. **The unconditional covariance (`Vc`,
-  `unconditional=True`) is refused for such a fit (interim — parity-engine Slice 10 is registered to reproduce `mgcv`'s choice):** its second-order term depends on which
-  coefficient is eliminated, and the choice that matches `mgcv` is not derivable from
-  anything this engine computes (ADR-255). `Vp`-based standard errors, `eta` and `edf_total`
+  `unconditional=True`) is refused for such a fit:** its second-order term depends on which
+  coefficient is eliminated, and `mgcv`'s own choice is rounding noise on exactly tied
+  candidates (its per-term edf moves by 1.0 and `Vc` `se` by up to 4% between two thread
+  counts of the same image), so there is no rule to reproduce (ADR-256). `Vp`-based standard errors, `eta` and `edf_total`
   do not depend on that choice; per-term edf does (§5).
 - **Size.** The largest verified fit is the 5,000-row, 15-penalty cell in the report. A
   30,000-row fit was run for Polaris alone (it converges in about 40 s on the development

@@ -10,7 +10,7 @@ import pytest
 
 from polaris_re.analytics.gam_model import fit_polaris_gam
 from polaris_re.analytics.gam_term_spec import ModelSpec, TermSpec
-from polaris_re.core.exceptions import PolarisValidationError
+from polaris_re.core.exceptions import PolarisRankDeficiencyWarning, PolarisValidationError
 from polaris_re.gam import GamFit, gam, r_factor_levels, structural_rank_deficiency
 from polaris_re.gam import api as gam_api
 
@@ -213,3 +213,11 @@ def test_family_with_link_and_fitted_binomial_cloglog(frame: pl.DataFrame) -> No
     fit = gam('y ~ s(x, bs="cr", k=6)', d, 'binomial(link="cloglog")')
     assert fit.model.link == "cloglog"
     assert gam('y ~ s(x, bs="cr", k=6)', d, "binomial").model.link == "logit"
+
+
+def test_the_rank_deficiency_warning_points_at_the_gam_caller(frame: pl.DataFrame) -> None:
+    """ADR-256 amendment 1: through the public entry point the warning is attributed to the
+    user's line, not to library code."""
+    with pytest.warns(PolarisRankDeficiencyWarning) as rec:
+        gam('y ~ s(x, bs="cr", k=6) + s(x, by=g, bs="cr", k=6)', frame, "gaussian")
+    assert rec[0].filename == __file__

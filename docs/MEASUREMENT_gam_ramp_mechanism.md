@@ -287,9 +287,10 @@ The quadratic report therefore duplicates already-committed figures rather than
 disclosing anything new (`DATA_LICENSING.md` §5c).
 
 <!-- measurement-provenance
-fingerprint: 4b096548e104ef9c9f9113ebdedd451957cfeb7a5b2246b7830dfcee180ecd53
-generated: 2026-08-24
+fingerprint: f9663aabc3880e3fe7995b45fc5d7b2faa17db6d8cc7eecac673fca87ba57731
+generated: 2026-10-10
 producer: src/polaris_re/analytics/experience_gam.py
-method: regenerated
-head: 0131391
+method: asserted
+head: a290801
+note: 2026-10-10 ADR-256: the only closure change is an added exception class (core/exceptions.py PolarisRankDeficiencyWarning) and a UserWarning emitted by the parity-stack fit when a design has an unidentified direction. The measured path (identified designs, no warning raised, no numeric code touched) is unchanged; not regenerated.
 -->

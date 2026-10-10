@@ -2400,6 +2400,8 @@ so performance is not the reason to want it. Maintainer decision, 2026-08-10.
 3. **Implement the rule** in `gam_rank_pivot.choose_pivot_columns` (or upstream if the mechanism is `gam.side`), derived from the source — never by trying columns until the numbers match.
 4. **Lift the `Vc` refusal** and restore per-term edf as a gated summary column for pivoted fits.
 
+**STATUS 2026-10-10: DONE AS A FINDING (ADR-256, `harness(mgcv-parity)`); steps 3-4 NOT built, by this slice's own condition.** Step 1: the mechanism is `gdiPK` in `src/gdi.c` (pivoted QR `dgeqp3` of the balanced `[R1; Es]` in the sp-dependent reparameterised basis), not `gam.side`. Step 2 (tier 3, run 38014547575, `sha256:0d54c192…`): the candidates are exactly tied (5-way, spread <= 2.4e-15) and `mgcv`'s own eliminated coefficient differs between `OPENBLAS_NUM_THREADS` 1 and 4 in 15 of 24 draws; its per-term edf then moves by exactly 1.000 and its `Vc` `se` by up to 3.9e-02, while `edf_total` and `Vp` `se` do not move. There is no rule to copy. Acceptance below is therefore NOT MET and cannot be met against this oracle; the maintainer's question is whether to stop gating per-term edf for pivoted fits (CONTINUATION Q13).
+
 **Acceptance (INDEPENDENT, tier 3, existing gates, none widened):** per-term edf within ADR-253's gate and `Vc` `se` within ADR-250's 2e-2 on both existing rank-deficient cells, **plus one new rank-deficient structure not used while developing the rule** (e.g. three smooths of one covariate, or a two-factor `by`); `eta` / `edf_total` / `Vp` stay where Slice 9 left them. **Release condition.** Next parity session after PR #263 merges.
 
 ## 4. What is explicitly out of scope

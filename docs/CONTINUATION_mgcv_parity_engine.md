@@ -1952,3 +1952,9 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 ---
 
 **2026-10-09/10 cross-reference:** Slice 9 (rank pivoting) is DONE (ADR-255, PR #263) and Slice 10 (reproduce `mgcv`'s choice of the unidentified coefficient) is registered in `PLAN_mgcv_parity_engine.md`; status lives in `CONTINUATION_gam_parity_preview.md`.
+
+**2026-10-10 Slice 10, first session: DONE AS A FINDING (ADR-256, PR #264, `harness(mgcv-parity)`).** Source made available mid-session (`cran/mgcv` 1.9-4, read-only). Mechanism: `gdiPK` in `src/gdi.c` (not `gam.side`, a no-op here). Tier 3 (run 38014547575, `sha256:0d54c192…`): the 5 candidate coefficients are exactly tied and `mgcv` eliminates a different one under `OPENBLAS_NUM_THREADS` 1 vs 4 in 15 of 24 draws; per-term edf then differs by 1.000 and the `Vc` `se` by up to 3.9e-02 *between two runs of mgcv*; `edf_total` and `Vp` `se` do not move. Steps 3-4 are not built (the PLAN's own condition: no rule to copy); ADR-255's limitations are now the standing state. **Maintainer question Q13 (recommended: yes):** stop gating per-term edf of pivoted fits in the summary comparison (report it with the ADR-256 sentence), keep `Vc` refused, keep `Vp` `se` / `eta` / `edf_total` gated? Nothing else in Slice 10 remains; the next parity work is the capability ladder (6b, L6-L11) per the ACTIVE EPIC POINTER.
+
+**Q13 ANSWERED 2026-10-10 (maintainer): yes** — per-term edf of pivoted fits no longer gated (reported); `Vc` stays refused; plus a `PolarisRankDeficiencyWarning` at fit time (ADR-256 amendment 1). Tier-3 re-dispatch of the summary comparison follows.
+
+**`docs/GAM_PARITY_REPORT.md` regenerated in PR #264** verbatim from the generator's own log output of tier-3 run 38017135360 (commit `a290801`; the later commits change no number-producing code).
