@@ -64,7 +64,8 @@ def build_report(probes: list[Path]) -> tuple[str, int, int]:
             continue
         lines.append(
             f"| {r.name} | {r.n_match} | {_f(r.dev_expl_diff)} ({_f(r.dev_expl_gate)}) | "
-            f"{_f(r.scale_rel_diff)} ({_f(r.scale_gate)}) | {_f(r.max_term_edf_diff)} | "
+            f"{_f(r.scale_rel_diff)} ({_f(r.scale_gate)}) | {_f(r.max_term_edf_diff)}"
+            f"{'' if r.per_term_edf_gated else ' (not gated: pivoted, ADR-256)'} | "
             f"{_f(r.reml_diff, '+.3e')} | {_f(r.deviance_rel_diff)} | "
             f"{_f(r.null_deviance_rel_diff)} | {_f(r.max_abs_log10_sp_diff)} | {r.agrees} |"
         )

@@ -4,6 +4,8 @@ Own-criterion checks (MEASUREMENT, not parity): closed forms for the null direct
 for the pivoted covariance. The INDEPENDENT comparison against ``mgcv`` is
 ``gam_predict_conformance`` / ``polaris_re.gam.formula_conformance`` (tier 3)."""
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -16,7 +18,7 @@ from polaris_re.analytics.gam_rank_pivot import (
     unidentified_directions,
 )
 from polaris_re.analytics.gam_term_spec import ModelSpec, TermSpec, factor_by_terms
-from polaris_re.core.exceptions import PolarisComputationError
+from polaris_re.core.exceptions import PolarisComputationError, PolarisRankDeficiencyWarning
 
 
 def _model() -> tuple[ModelSpec, dict[str, np.ndarray], np.ndarray]:
@@ -145,3 +147,20 @@ def test_the_pivot_choice_is_not_decided_by_rounding_noise() -> None:
     two = np.linalg.qr(rng.standard_normal((8, 2)))[0]
     chosen = choose_pivot_columns(two)
     assert len(set(chosen)) == 2 and abs(np.linalg.det(two[list(chosen)])) > 1e-6
+
+
+def test_a_rank_deficient_specification_warns_once_and_names_the_term() -> None:
+    model, data, y = _model()
+    with pytest.warns(PolarisRankDeficiencyWarning, match=r"1 redundant direction") as rec:
+        fit_polaris_gam(model, data, y)
+    assert len([w for w in rec if issubclass(w.category, PolarisRankDeficiencyWarning)]) == 1
+    assert "s(x)" in str(rec[0].message)
+    assert rec[0].filename == __file__  # attributed to the caller, not to the library
+
+
+def test_an_identified_specification_does_not_warn() -> None:
+    model, data, y = _model()
+    ident = ModelSpec(family="gaussian", link="identity", terms=model.terms[:1])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", PolarisRankDeficiencyWarning)
+        fit_polaris_gam(ident, data, y)

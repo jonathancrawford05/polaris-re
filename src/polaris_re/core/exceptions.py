@@ -5,7 +5,12 @@ All domain-specific errors inherit from PolarisError, which allows
 callers to catch all Polaris errors with a single except clause.
 """
 
-__all__ = ["PolarisComputationError", "PolarisError", "PolarisValidationError"]
+__all__ = [
+    "PolarisComputationError",
+    "PolarisError",
+    "PolarisRankDeficiencyWarning",
+    "PolarisValidationError",
+]
 
 
 class PolarisError(Exception):
@@ -33,4 +38,15 @@ class PolarisComputationError(PolarisError):
     - IRR solver fails to converge
     - Overflow in present value calculation
     - Mortality rates outside [0, 1] after improvement scaling
+    """
+
+
+class PolarisRankDeficiencyWarning(UserWarning):
+    """
+    Emitted when a GAM specification contains coefficients the data cannot identify.
+
+    Such a fit is valid and its fitted values, total edf and ``Vp``-based standard
+    errors are well defined, but quantities that depend on *which* redundant
+    coefficient is eliminated (per-term edf, the unconditional covariance) are not
+    identified; ``mgcv`` itself does not reproduce them between runs (ADR-256).
     """

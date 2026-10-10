@@ -74,6 +74,7 @@ existing block-padding logic in this function already handles a term with no
 penalty at all, unchanged.
 """
 
+import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Literal, NotRequired, TypedDict, overload
@@ -91,7 +92,7 @@ from polaris_re.analytics.gam_family import (
 )
 from polaris_re.analytics.gam_initial_sp import initial_log10_lambda
 from polaris_re.analytics.gam_predict import TermState, fit_term_state, predict_design
-from polaris_re.analytics.gam_rank_pivot import pivot_out
+from polaris_re.analytics.gam_rank_pivot import pivot_out, unidentified_directions
 from polaris_re.analytics.gam_reml_newton import NewtonLambdaSelection, newton_select_lambdas
 from polaris_re.analytics.gam_reml_optimize import (
     ContinuousLambdaSelection,
@@ -114,7 +115,11 @@ from polaris_re.analytics.gam_vcov import (
     coefficient_covariance,
     linear_predictor_se,
 )
-from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
+from polaris_re.core.exceptions import (
+    PolarisComputationError,
+    PolarisRankDeficiencyWarning,
+    PolarisValidationError,
+)
 
 __all__ = [
     "ModelDesign",
@@ -380,6 +385,37 @@ def pivot_design(design: ModelDesign) -> ModelDesign:
         term_blocks=design["term_blocks"],
         kept_columns=kept,
         full_width=full_width,
+    )
+
+
+def _warn_if_rank_deficient(full: ModelDesign, pivoted: ModelDesign) -> None:
+    """Warn, once per fit, when the specification has unidentified coefficients (ADR-256).
+
+    This is the single choke point: ``gam()`` and every direct ``fit_polaris_gam`` call
+    assemble and pivot here, and the test is the structural one the pivot itself uses
+    (``S_j v = 0`` for every penalty and ``X v = 0``), so it does not depend on the response
+    or the smoothing parameters. The terms named are those the redundant direction runs
+    through, not the (arbitrary) column that was eliminated.
+    """
+    if pivoted.get("kept_columns") is None:
+        return
+    v = unidentified_directions(full["x"], full["penalty_blocks"])
+    n_dir = v.shape[1]
+    involved = np.abs(v).max(axis=1) > 1e-8
+    labels = [
+        b["label"] for b in full["term_blocks"] if bool(involved[b["start"] : b["end"]].any())
+    ]
+    warnings.warn(
+        f"The model specification has {n_dir} redundant direction(s) the data cannot identify, "
+        f"running through the terms {labels}; typically a smooth and a by-factor smooth of the "
+        "same covariate share a null space. The fit is valid: fitted values, edf_total and the "
+        "Vp-based standard errors are well defined. Per-term edf and the unconditional "
+        "covariance (Vc) depend on which coefficient is eliminated and are NOT identified "
+        "(mgcv's own values change between runs, ADR-256): Vc is refused and per-term edf "
+        "should not be interpreted. To remove the redundancy, drop the bare s(x) and fit "
+        "f + s(x, by=f).",
+        PolarisRankDeficiencyWarning,
+        stacklevel=3,
     )
 
 
@@ -860,7 +896,9 @@ def fit_polaris_gam(
             "analytic_gradient, max_gtol_restarts and initial_sp_start -- it always uses the "
             "analytic gradient and its one start is mgcv's initial.spg."
         )
-    design = pivot_design(assemble_model_design(model, data))
+    full_design = assemble_model_design(model, data)
+    design = pivot_design(full_design)
+    _warn_if_rank_deficient(full_design, design)
     family = resolve_family(model.family, model.link)
     weights = (
         None

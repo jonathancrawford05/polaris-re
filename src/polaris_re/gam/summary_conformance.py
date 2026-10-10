@@ -242,6 +242,7 @@ class SummaryCaseComparison:
     dev_expl_diff: float | None
     dev_expl_gate: float | None
     max_term_edf_diff: float | None
+    per_term_edf_gated: bool
     n_terms_match: bool | None
     reml_diff: float | None
     deviance_rel_diff: float | None
@@ -269,6 +270,7 @@ def compare_summary_case(python: SummaryCaseFit, payload: SummaryPayload) -> Sum
             dev_expl_diff=None,
             dev_expl_gate=None,
             max_term_edf_diff=None,
+            per_term_edf_gated=True,
             n_terms_match=None,
             reml_diff=None,
             deviance_rel_diff=None,
@@ -303,11 +305,15 @@ def compare_summary_case(python: SummaryCaseFit, payload: SummaryPayload) -> Sum
         scale_ok = scale_diff <= gates.scale_relative
     dev_diff = abs(s.deviance_explained - mg["dev_expl"])
     rel_grad = s.rel_projected_gradient
+    # ADR-256: with a pivoted-out coefficient, mgcv's own per-term edf moves by exactly 1.0
+    # between two runs of itself (thread count only), so a gate against it measures nothing.
+    # The column is still computed and reported (max_term_edf_diff), just not gated.
+    per_term_edf_gated = not python.fit.pivoted_columns
     agrees = (
         s.n == int(mg["n"])
         and scale_ok
         and dev_diff <= gates.deviance_explained
-        and term_diff < gates.per_term_edf
+        and (term_diff < gates.per_term_edf or not per_term_edf_gated)
     )
     return SummaryCaseComparison(
         name=python.name,
@@ -318,6 +324,7 @@ def compare_summary_case(python: SummaryCaseFit, payload: SummaryPayload) -> Sum
         dev_expl_diff=float(dev_diff),
         dev_expl_gate=gates.deviance_explained,
         max_term_edf_diff=term_diff,
+        per_term_edf_gated=per_term_edf_gated,
         n_terms_match=n_terms_match,
         reml_diff=float(s.reml_score - mg["reml"]),
         deviance_rel_diff=float(abs(s.deviance - mg["deviance"]) / abs(mg["deviance"])),
