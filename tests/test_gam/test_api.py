@@ -24,7 +24,10 @@ def frame() -> pl.DataFrame:
     g = rng.choice(["b", "a", "c"], n)
     off = rng.uniform(-0.2, 0.2, n)
     y = np.sin(x) + 0.1 * z + np.where(g == "b", 0.4, 0.0) + rng.normal(0, 0.3, n)
-    return pl.DataFrame({"x": x, "z": z, "g": g, "off": off, "y": y, "wt": rng.uniform(1, 2, n)})
+    h = np.random.default_rng(8).choice(["p", "q"], n)
+    return pl.DataFrame(
+        {"x": x, "z": z, "g": g, "h": h, "off": off, "y": y, "wt": rng.uniform(1, 2, n)}
+    )
 
 
 def test_facade_reproduces_the_engine_it_wraps(frame: pl.DataFrame) -> None:
@@ -156,8 +159,11 @@ def test_select_with_a_bare_smooth_beside_a_factor_by_smooth_is_refused_by_name(
     for formula in (
         'y ~ s(x, bs="cr", k=6) + s(x, by=g, bs="cr", k=6)',
         'y ~ g + s(x, bs="cr", k=6) + s(x, by=g, bs="cr", k=6)',
+        # unmeasured combinations of smooths of one covariate are refused too (allowlist)
+        'y ~ g + h + s(x, by=g, bs="cr", k=6) + s(x, by=h, bs="cr", k=6)',
+        'y ~ g + s(x, by=g, bs="cr", k=6) + s(x, by=z, bs="cr", k=6)',
     ):
-        with pytest.raises(PolarisValidationError, match="bare smooth s\\(x\\)"):
+        with pytest.raises(PolarisValidationError, match="another smooth of 'x'"):
             gam(formula, frame, "gaussian", select=True)
 
 

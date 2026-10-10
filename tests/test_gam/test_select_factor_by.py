@@ -101,4 +101,4 @@ def test_the_refusal_names_the_construct_and_the_alternative(frame: pl.DataFrame
     with pytest.raises(PolarisValidationError) as err:
         gam('y ~ s(x, bs="cr", k=6) + s(x, by=f, bs="cr", k=6)', frame, "gaussian", select=True)
     text = str(err.value)
-    assert "s(x)" in text and "ADR-258" in text and "by=f" in text
+    assert "another smooth of 'x'" in text and "ADR-258" in text and "by=f" in text

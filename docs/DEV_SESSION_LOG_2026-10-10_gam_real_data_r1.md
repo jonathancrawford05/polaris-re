@@ -34,7 +34,12 @@ Declared in `FORMULA_CLAIM`, `PREDICT_CLAIM`, `SUMMARY_CLAIM` (unchanged) and th
 - Stability probe extended first: **MET** (24/24 equal, tier 3).
 - Per-term edf and `Vc` gated only where R1-a and R1-b hold: **MET** (summary per-term edf gated; predict `Vc` gated, 2 cells).
 - One Newton start, converge: **MET** on accepted forms (0 not converged).
-- Goldens byte-identical: no `src/` pricing path touched; `tests/qa/` not changed (CI runs it). perf row: not appended (see PR body).
+- Goldens byte-identical: no `src/` pricing path touched; `tests/qa/` not changed (CI runs it). perf row: appended (ADR-177; the row's commit hash is a pre-squash local commit, see PR body).
 
 ## Follow-ups
 Q-R1 in the CONTINUATION (the narrower reading of the refusal). Nothing opened and merely filed. Next: R2, once R1 is merged.
+
+## Review follow-up (automated review of `356779b`)
+- P0: cleared by the maintainer's Q-R1 answer (narrower refusal accepted).
+- P1 fixed: the check is now an allowlist (a factor-`by` smooth must be the only smooth of its covariate under `select=TRUE`); two-`by` and numeric-`by`-beside-factor-`by` shapes are refused as unmeasured; tests added.
+- P2 fixed: this log's perf line. Not changed: the perf row's hash (history is append-only; content valid); the draws probe's count is not a CI gate (the step is `continue-on-error`, so a gate would not turn CI red; the numbers are in the generated report); score-gap penalty order is implicitly checked by the 0.000 gap on every accepted row.

@@ -305,34 +305,36 @@ def structural_rank_deficiency(x: np.ndarray, penalty_blocks: Sequence[np.ndarra
 
 
 def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
-    """Refuse ``select=TRUE`` when a bare smooth sits beside a factor-``by`` smooth of the SAME
-    covariate (Slice R1, ADR-258, pre-registered handling R1-d).
+    """Allow ``select=TRUE`` with a factor-``by`` smooth only when it is the ONLY smooth of its
+    covariate (Slice R1, ADR-258, pre-registered handling R1-d; an allowlist, review P1).
 
-    ``select=TRUE`` penalises the null space of every by-level smooth AND of the bare smooth, so
-    the direction they share is identified, but only through four or more null-space penalties
-    whose individual ``sp`` the data barely separate. Over 15 draws per cell the Newton search
-    stopped, converged by its own criterion, at a point ``mgcv``'s REML scores lower in 8 of 60
-    fits (``eta`` up to 0.12 against a 2e-2 gate), against 0 of 60 for the forms without the
-    bare smooth. That is a recorded limitation, not something to tune around, so the construct
-    is refused by name.
+    Measured and agreeing with ``mgcv``: ``f + s(x, by=f)`` and ``s(x, by=f)`` (60 of 60 draws).
+    A bare smooth beside the ``by`` smooth disagreed in 8 of 60 draws: ``select=TRUE`` penalises
+    the null space of every smooth, the null spaces overlap in one direction, and the data
+    separate the four-or-more penalties that share it only weakly, so the Newton search stops,
+    converged by its own test, at a point ``mgcv``'s REML scores lower (a plateau, mechanism
+    class iii). Any other second smooth of the same covariate (another ``by``, a numeric
+    ``by``) has the same structure and no measurement, so it is refused too rather than
+    assumed to behave. A recorded limitation, not something to tune around.
     """
-    by_vars = {t.variables[0] for t in smooth if t.by_factor is not None}
-    bare = sorted(
-        {
-            t.variables[0]
-            for t in smooth
-            if t.basis == "cr" and t.by is None and t.by_factor is None and len(t.variables) == 1
-        }
-        & by_vars
-    )
-    if bare:
-        raise PolarisValidationError(
-            f"gam(): select=True with a bare smooth s({bare[0]}) beside a factor-by smooth of the "
-            "same covariate is not supported — the free-sp search stops at a point mgcv's REML "
-            "scores lower in about 1 draw in 8 on that shape (ADR-258, R1-d). Drop the bare "
-            f'smooth and write f + s({bare[0]}, by=f, bs="cr"), or fit without select=True '
-            f"({_COVERAGE} §2.3 select row)."
-        )
+    groups: dict[str, set[str]] = {}
+    for t in smooth:
+        if len(t.variables) != 1 or t.basis != "cr":
+            continue
+        key = f"by={t.by_factor}" if t.by_factor is not None else f"smooth:{t.label}"
+        groups.setdefault(t.variables[0], set()).add(key)
+    for var, keys in sorted(groups.items()):
+        has_factor_by = any(k.startswith("by=") for k in keys)
+        if has_factor_by and len(keys) > 1:
+            raise PolarisValidationError(
+                f"gam(): select=True with a factor-by smooth of {var!r} and another smooth of "
+                f"{var!r} (a bare smooth, a second by-smooth or a numeric by-smooth) is not "
+                "supported — on the measured shape with a bare smooth the free-sp search stops "
+                "at a point mgcv's REML scores lower in about 1 draw in 8, and the other "
+                "combinations are unmeasured (ADR-258, R1-d). Use one smooth of "
+                f'{var!r}: f + s({var}, by=f, bs="cr"), or fit without select=True '
+                f"({_COVERAGE} §2.3 select row)."
+            )
 
 
 def _build_model(

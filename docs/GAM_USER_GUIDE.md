@@ -131,7 +131,7 @@ Each of these raises `PolarisValidationError` naming the construct and the
 | a bare `s(x)` (mgcv default `tp`) | `tp` is ladder rung L7, not yet verified; write `bs="cr"` |
 | `bs="tp"`, `"ps"`, `"fs"`, `"sz"`, and any other basis | not verified (§2.1 of the coverage file) |
 | `te()`, `t2()`, `ti()` of three variables, multi-variable `s()` | not verified |
-| `select=TRUE` with a bare smooth beside a factor-`by` smooth of the same covariate (`s(x) + s(x, by=f)`, with or without `f`) | on that shape the Newton search stops, converged by its own criterion, at a point `mgcv`'s REML scores lower in 8 of 60 draws (up to 0.12 on `eta`); the forms without the bare smooth agreed in 60 of 60 (ADR-258, report §6). Drop the bare smooth, or fit without `select=TRUE` |
+| `select=TRUE` with a factor-`by` smooth AND any other smooth of the same covariate: a bare `s(x) + s(x, by=f)` (with or without `f`), a second `by` smooth, or a numeric `by` | the bare-smooth shape was measured: the Newton search stops, converged by its own criterion, at a point `mgcv`'s REML scores lower in 8 of 60 draws (up to 0.12 on `eta`); the forms without the bare smooth agreed in 60 of 60 (ADR-258, report §6). the other combinations are unmeasured and refused with it. Use one smooth per covariate, or fit without `select=TRUE` |
 | `scale=` (a fixed dispersion) | verified only inside the conformance module, not through the production fitter |
 | `s(..., sp=, fx=, m=)`, `ti(..., by=)` | not verified |
 | `a*b`, `a^2`, `a:b:c`, `-1`, `0 +`, transformed variables or responses (`log(x)`, `poly(x,2)`, `factor(g)`) | transform the column in Polars first |
