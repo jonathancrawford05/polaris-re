@@ -21,7 +21,7 @@ out_path <- if (length(args) >= 1) args[1] else "gam_pivot_stability_probe.json"
 suppressMessages(trace(mgcv:::gam.fit3,
   tracer = quote(.last <<- list(sp = sp, x = x, Eb = Eb, UrS = UrS, U1 = U1)),
   print = FALSE, where = asNamespace("mgcv")))
-one <- function(label, form, seed, perm = 1:4, n = 300, k = 8) {
+one <- function(label, form, seed, perm = 1:4, n = 300, k = 8, select = FALSE) {
   set.seed(seed); x <- runif(n); lv <- letters[1:4]
   f <- factor(sample(lv, n, TRUE), levels = lv[perm])
   g3 <- factor(sample(c("p", "q", "r"), n, TRUE))
@@ -30,8 +30,9 @@ one <- function(label, form, seed, perm = 1:4, n = 300, k = 8) {
   fm <- switch(form,
     main = y ~ s(x, bs = "cr", k = k) + s(x, by = f, bs = "cr", k = k),
     fmain = y ~ f + s(x, bs = "cr", k = k) + s(x, by = f, bs = "cr", k = k),
-    two_by = y ~ s(x, bs = "cr", k = k) + s(x, by = f, bs = "cr", k = k) + s(x, by = g, bs = "cr", k = k))
-  m <- gam(fm, data = d, method = "REML")
+    two_by = y ~ s(x, bs = "cr", k = k) + s(x, by = f, bs = "cr", k = k) + s(x, by = g, bs = "cr", k = k),
+    main_by = y ~ f + s(x, by = f, bs = "cr", k = k))
+  m <- gam(fm, data = d, method = "REML", select = select)
   L <- .last; nm <- length(L$UrS)
   rp <- mgcv:::gam.reparam(L$UrS, L$sp[1:nm], 0)
   q <- ncol(L$x); T <- diag(q); T[1:ncol(rp$Qs), 1:ncol(rp$Qs)] <- rp$Qs; T <- L$U1 %*% T
@@ -44,7 +45,7 @@ one <- function(label, form, seed, perm = 1:4, n = 300, k = 8) {
   pv_c <- predict(m, se.fit = TRUE, unconditional = TRUE)$se.fit
   pv_p <- predict(m, se.fit = TRUE, unconditional = FALSE)$se.fit
   term_edf <- vapply(m$smooth, function(sm) sum(m$edf[sm$first.para:sm$last.para]), numeric(1))
-  list(label = label, form = form, seed = seed, perm = paste(perm, collapse = ""), q = q,
+  list(label = label, form = form, seed = seed, select = select, perm = paste(perm, collapse = ""), q = q,
        rank = m$rank, observed = as.list(sort(obs)), predicted = as.list(pred),
        predicted_equals_observed = setequal(pred, obs), n_candidates = length(cand),
        candidate_spread = (max(av[cand]) - min(av[cand])) / max(av),
@@ -56,6 +57,12 @@ for (s in 1:6) cases[[length(cases) + 1]] <- one("baseline", "main", s)
 for (s in 1:6) cases[[length(cases) + 1]] <- one("relevel", "main", s, perm = c(2, 4, 1, 3))
 for (s in 1:6) cases[[length(cases) + 1]] <- one("bare_main", "fmain", s)
 for (s in 1:6) cases[[length(cases) + 1]] <- one("two_by", "two_by", s)
+# Slice R1 (ADR-258): select=TRUE gives every by-level smooth a null-space penalty, which should
+# identify the direction the bare smooth leaves free (R1-a). Is mgcv then thread-stable (R1-b)?
+for (s in 1:6) cases[[length(cases) + 1]] <- one("select_bare_main", "fmain", s, select = TRUE)
+for (s in 1:6) cases[[length(cases) + 1]] <- one("select_bare", "main", s, select = TRUE)
+for (s in 1:6) cases[[length(cases) + 1]] <- one("select_two_by", "two_by", s, select = TRUE)
+for (s in 1:6) cases[[length(cases) + 1]] <- one("select_main_by", "main_by", s, select = TRUE)
 writeLines(jsonlite::toJSON(list(
   r_version = R.version.string, mgcv_version = as.character(packageVersion("mgcv")),
   openblas_num_threads = Sys.getenv("OPENBLAS_NUM_THREADS", "unset"), cases = cases),

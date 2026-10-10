@@ -106,8 +106,8 @@ _REFUSALS: dict[str, tuple[str, dict[str, object]]] = {
     "`te()`": ("deaths ~ te(age, duration)", {}),
     "`scale=`": ('deaths ~ s(age, bs="cr")', {"scale": 1.0}),
     "`log(x)`": ("deaths ~ log(age)", {}),
-    "`select=TRUE` together with a factor-`by`": (
-        'deaths ~ sex + s(age, by=sex, bs="cr")',
+    "`select=TRUE` with a bare smooth beside a factor-`by`": (
+        'deaths ~ sex + s(age, bs="cr") + s(age, by=sex, bs="cr")',
         {"select": True},
     ),
 }

@@ -205,6 +205,32 @@ main <- function(argv) {
   cells[[length(cells) + 1]] <- cell("gaussian_level_order_heldout",
     'y ~ g + s(x, k = 8, bs = "cr")', "gaussian", d)
 
+  # Slice R1 (ADR-258): select=TRUE with a factor-by smooth -- the two supported forms x four
+  # families. mgcv gives each by-level smooth its own null-space (shrinkage) penalty under
+  # select=TRUE; Polaris appends one per level the same way. The forms with a bare smooth of the
+  # same covariate beside the factor-by smooth are REFUSED by gam() (ADR-258, R1-d) and are
+  # measured in gam_select_bare_by_draws_probe.R instead.
+  r1_forms <- list(
+    by_only = 'y ~ s(x, by = f, k = 8, bs = "cr")',
+    main_by = 'y ~ f + s(x, by = f, k = 8, bs = "cr")')
+  r1_fams <- c("gaussian", "poisson", "quasipoisson", "binomial")
+  for (fi in seq_along(r1_fams)) {
+    fam <- r1_fams[[fi]]
+    set.seed(20261100 + fi); n <- 600
+    d <- data.frame(x = runif(n, 0, 10), f = sample(lv3, n, TRUE), stringsAsFactors = FALSE)
+    shift <- c(a = 0, b = 0.6, c = -0.5)[d$f]
+    eta0 <- 0.4 * sin(d$x / 2 + shift)
+    d$y <- switch(fam,
+      gaussian = sin(d$x + shift) + rnorm(n, sd = 0.3),
+      poisson = rpois(n, exp(0.8 + eta0)),
+      quasipoisson = rnbinom(n, mu = exp(0.8 + eta0), size = 4),
+      binomial = rbinom(n, 1, plogis(0.2 + 1.2 * eta0)))
+    for (fn in names(r1_forms)) {
+      cells[[length(cells) + 1]] <- cell(paste0(fam, "_select_factor_by_", fn),
+        r1_forms[[fn]], fam, d, select = TRUE)
+    }
+  }
+
   # Slice P5 (ADR-254): the user guide's worked example. The data are the committed
   # synthetic CSVs that docs/GAM_USER_GUIDE.md and the notebook read; the formula string is
   # polaris_re.gam.example.GUIDE_FORMULA, copied here as text (a test pins the two equal).

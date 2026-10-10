@@ -13,9 +13,11 @@ raises :class:`~polaris_re.core.exceptions.PolarisValidationError` naming the
 construct and the ``MGCV_FEATURE_COVERAGE.md`` row that says why. Two refusals are
 not about syntax:
 
-* ``select=True`` is refused with a factor-``by`` smooth (the free-``sp`` search is
-  not verified on that block shape); ``cr``, numeric-``by``, ``ti``, ``re`` and the
-  parametric block are accepted (ADR-217/218, ADR-252);
+* ``select=True`` is refused only when a bare smooth of a covariate sits beside a
+  factor-``by`` smooth of the same covariate (the free-``sp`` search stops at a point
+  ``mgcv`` scores lower on that shape, ADR-258); ``cr``, numeric-``by``, factor-``by``
+  (``f + s(x, by=f)`` and ``s(x, by=f)``), ``ti``, ``re`` and the parametric block are
+  accepted (ADR-217/218, ADR-252, ADR-258);
 * a design whose **unpenalised null space is not identified by the data** (the
   structural condition behind ``rank(X) < p``, ADR-250) — most commonly
   ``s(x) + s(x, by=f)`` on one covariate — is **accepted** since parity-engine
@@ -302,6 +304,37 @@ def structural_rank_deficiency(x: np.ndarray, penalty_blocks: Sequence[np.ndarra
     return int(unidentified_directions(x, penalty_blocks).shape[1])
 
 
+def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
+    """Refuse ``select=TRUE`` when a bare smooth sits beside a factor-``by`` smooth of the SAME
+    covariate (Slice R1, ADR-258, pre-registered handling R1-d).
+
+    ``select=TRUE`` penalises the null space of every by-level smooth AND of the bare smooth, so
+    the direction they share is identified, but only through four or more null-space penalties
+    whose individual ``sp`` the data barely separate. Over 15 draws per cell the Newton search
+    stopped, converged by its own criterion, at a point ``mgcv``'s REML scores lower in 8 of 60
+    fits (``eta`` up to 0.12 against a 2e-2 gate), against 0 of 60 for the forms without the
+    bare smooth. That is a recorded limitation, not something to tune around, so the construct
+    is refused by name.
+    """
+    by_vars = {t.variables[0] for t in smooth if t.by_factor is not None}
+    bare = sorted(
+        {
+            t.variables[0]
+            for t in smooth
+            if t.basis == "cr" and t.by is None and t.by_factor is None and len(t.variables) == 1
+        }
+        & by_vars
+    )
+    if bare:
+        raise PolarisValidationError(
+            f"gam(): select=True with a bare smooth s({bare[0]}) beside a factor-by smooth of the "
+            "same covariate is not supported — the free-sp search stops at a point mgcv's REML "
+            "scores lower in about 1 draw in 8 on that shape (ADR-258, R1-d). Drop the bare "
+            f'smooth and write f + s({bare[0]}, by=f, bs="cr"), or fit without select=True '
+            f"({_COVERAGE} §2.3 select row)."
+        )
+
+
 def _build_model(
     parsed: ParsedFormula,
     df: pl.DataFrame,
@@ -410,14 +443,7 @@ def _build_model(
                 smooth_meta.append((label, call.k))
 
     if select:
-        bad = [t.label for t in smooth if t.by_factor is not None]
-        if bad:
-            raise PolarisValidationError(
-                f"gam(): select=True with the factor-by smooth(s) {bad} is not supported — "
-                "the free-sp search is not verified on a factor-by block shape, and the "
-                "(the factor-by block shape has no tier-3 free-sp comparison) "
-                f"({_COVERAGE} §2.3 select row)."
-            )
+        _refuse_select_with_bare_and_factor_by(smooth)
     if weights is not None:
         need_numeric(weights, "weights=")
     if offset is not None:
@@ -458,7 +484,8 @@ def gam(
         weights: name of a prior-weights column.
         offset: name of an offset column (alternative to ``offset(col)`` in the
             formula; not both).
-        select: ``mgcv``'s ``select=TRUE`` (refused with a factor-``by`` smooth).
+        select: ``mgcv``'s ``select=TRUE``. Refused only when a bare smooth of the same covariate
+            sits beside a factor-``by`` smooth (ADR-258).
         scale: a fixed dispersion. **Refused:** it is verified only inside the
             conformance module (ADR-236/237), not through the production fitter.
 

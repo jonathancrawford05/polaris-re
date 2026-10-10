@@ -141,9 +141,37 @@ def test_select_is_accepted_for_cr_ti_re_and_parametric_terms(frame: pl.DataFram
     assert len(mixed.log_lambda) == 3  # cr (2) + re (1)
 
 
-def test_select_with_a_factor_by_smooth_is_refused(frame: pl.DataFrame) -> None:
-    with pytest.raises(PolarisValidationError, match="factor-by smooth"):
-        gam('y ~ g + s(x, by=g, bs="cr", k=6)', frame, "gaussian", select=True)
+def test_select_with_a_factor_by_smooth_is_accepted_without_a_bare_smooth(
+    frame: pl.DataFrame,
+) -> None:
+    """Slice R1 (ADR-258) lifted the old blanket refusal for the two forms that agree with mgcv."""
+    for formula in ('y ~ g + s(x, by=g, bs="cr", k=6)', 'y ~ s(x, by=g, bs="cr", k=6)'):
+        fit = gam(formula, frame, "gaussian", select=True)
+        assert fit.converged and fit.pivoted_columns == (), formula
+
+
+def test_select_with_a_bare_smooth_beside_a_factor_by_smooth_is_refused_by_name(
+    frame: pl.DataFrame,
+) -> None:
+    for formula in (
+        'y ~ s(x, bs="cr", k=6) + s(x, by=g, bs="cr", k=6)',
+        'y ~ g + s(x, bs="cr", k=6) + s(x, by=g, bs="cr", k=6)',
+    ):
+        with pytest.raises(PolarisValidationError, match="bare smooth s\\(x\\)"):
+            gam(formula, frame, "gaussian", select=True)
+
+
+def test_the_bare_and_factor_by_refusal_is_narrow(frame: pl.DataFrame) -> None:
+    """Without select the bare form is still fitted (pivoted, Slice 9); a bare smooth of a
+    DIFFERENT covariate, or beside a numeric-by smooth, is not caught by the refusal."""
+    bare = 'y ~ s(x, bs="cr", k=6) + s(x, by=g, bs="cr", k=6)'
+    assert gam(bare, frame, "gaussian").converged
+    other = gam('y ~ s(z, bs="cr", k=5) + s(x, by=g, bs="cr", k=6)', frame, "gaussian", select=True)
+    assert other.converged
+    numeric_by = gam(
+        'y ~ s(x, bs="cr", k=6) + s(x, by=z, bs="cr", k=6)', frame, "gaussian", select=True
+    )
+    assert numeric_by.converged
 
 
 @pytest.mark.parametrize(

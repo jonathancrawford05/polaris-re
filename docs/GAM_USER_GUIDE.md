@@ -113,6 +113,7 @@ with `mgcv` in the report.
 | `s(f, bs="re")` — random-effect / level indicator | supported | report §2 |
 | factors `a`, `a:b` (with both main effects), `offset(col)` | supported | report §2 |
 | `select=TRUE` | supported with `cr`, numeric `by`, `ti`, `re`, parametric | report §2, §3 |
+| `select=TRUE` with a factor-`by` smooth: `f + s(x, by=f, bs="cr")` and `s(x, by=f, bs="cr")` | supported (Slice R1, ADR-258). Each by-level smooth gets its own null-space penalty, as in `mgcv`. The fit is **not** pivoted (no redundancy warning) and both `unconditional=False` and `unconditional=True` standard errors are available | ADR-258, report §1-§3, §6 |
 | 15-penalty quasi-Poisson `select=TRUE` fit, 5,000 rows | one cell, one draw | report §3 (target-size row) |
 | families gaussian / poisson / quasipoisson / binomial | supported | report §2 |
 
@@ -130,7 +131,7 @@ Each of these raises `PolarisValidationError` naming the construct and the
 | a bare `s(x)` (mgcv default `tp`) | `tp` is ladder rung L7, not yet verified; write `bs="cr"` |
 | `bs="tp"`, `"ps"`, `"fs"`, `"sz"`, and any other basis | not verified (§2.1 of the coverage file) |
 | `te()`, `t2()`, `ti()` of three variables, multi-variable `s()` | not verified |
-| `select=TRUE` together with a factor-`by` smooth | the free-`sp` search is not verified on that block shape |
+| `select=TRUE` with a bare smooth beside a factor-`by` smooth of the same covariate (`s(x) + s(x, by=f)`, with or without `f`) | on that shape the Newton search stops, converged by its own criterion, at a point `mgcv`'s REML scores lower in 8 of 60 draws (up to 0.12 on `eta`); the forms without the bare smooth agreed in 60 of 60 (ADR-258, report §6). Drop the bare smooth, or fit without `select=TRUE` |
 | `scale=` (a fixed dispersion) | verified only inside the conformance module, not through the production fitter |
 | `s(..., sp=, fx=, m=)`, `ti(..., by=)` | not verified |
 | `a*b`, `a^2`, `a:b:c`, `-1`, `0 +`, transformed variables or responses (`log(x)`, `poly(x,2)`, `factor(g)`) | transform the column in Polars first |

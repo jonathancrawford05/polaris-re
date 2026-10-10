@@ -96,6 +96,8 @@ def _factor_names(name: str) -> set[str]:
         "poisson_offset": set(),
         "poisson_hgam": set(),
         "gaussian_select": set(),
+        "gaussian_select_factor_by_main": {"f"},
+        "poisson_select_factor_by_only": {"f"},
         "gaussian_sz": {"f"},
     }[name]
 
@@ -133,6 +135,11 @@ def test_probe_runs_and_the_lpmatrix_agrees_on_every_cell(tmp_path: Path) -> Non
             assert comparison.unconditional_refusal is not None
             assert comparison.se_agrees
         elif cell["fit_polaris"]:
+            if cell["name"] in ("gaussian_select_factor_by_main", "poisson_select_factor_by_only"):
+                # Slice R1 (ADR-258): select=TRUE identifies the direction a bare smooth leaves
+                # free, so the fit is NOT pivoted and BOTH covariances are returned and gated.
+                assert a.fit is not None and a.fit.pivoted_columns == (), cell["name"]
+                assert comparison.unconditional_refusal is None, cell["name"]
             assert comparison.vcov_refusal is None, cell["name"]
             assert comparison.se_agrees, cell["name"]
         assert comparison.agrees, cell["name"]

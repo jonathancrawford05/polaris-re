@@ -111,6 +111,7 @@ def build(probe_dir: Path, header: list[str]) -> tuple[str, bool]:
     formula_cmp = _load("gam_formula_compare")
     summary_cmp = _load("gam_summary_compare")
     gauntlet = _load("gam_newton_gauntlet")
+    draws_cmp = _load("gam_select_bare_by_draws_compare")
 
     def formula_probe() -> Path:
         return probe_dir / "gam_formula_probe.json"
@@ -167,6 +168,12 @@ def build(probe_dir: Path, header: list[str]) -> tuple[str, bool]:
         "5. One Newton start vs mgcv's free-sp fit (outer-solver gauntlet)",
         [probe_dir / name for name in _GAUNTLET_PROBES],
         gauntlet_fn,
+    )
+
+    run(
+        "6. select=TRUE with a factor-by smooth over repeated draws (slice R1)",
+        [probe_dir / "gam_select_bare_by_draws_probe.json"],
+        lambda: draws_cmp.build_report(probe_dir / "gam_select_bare_by_draws_probe.json"),
     )
 
     verdict_rows = ["| section | cells that agree | state |", "|---|---:|---|"]
