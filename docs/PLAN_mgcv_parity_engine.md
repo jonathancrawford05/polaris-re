@@ -2400,6 +2400,8 @@ so performance is not the reason to want it. Maintainer decision, 2026-08-10.
 3. **Implement the rule** in `gam_rank_pivot.choose_pivot_columns` (or upstream if the mechanism is `gam.side`), derived from the source — never by trying columns until the numbers match.
 4. **Lift the `Vc` refusal** and restore per-term edf as a gated summary column for pivoted fits.
 
+**STATUS 2026-10-10 (first session on Slice 10): BLOCKED AT STEP 1, no code written.** `gam.side()` is a no-op for these cells (it names a by-level smooth `x` + by + level, so it never sees a shared variable); the drop is inside compiled `C_pls_fit1` / `C_gdi1` (`rank.tol = 100 * eps`), whose source is not available here (the CRAN tarball is unreachable; the session's permission classifier refused the fetch). Two tier-1 hypotheses (smallest column norm; stability under level reorder) did not hold or were inconclusive (ledger 2026-10-10). **What unblocks it:** a maintainer decision to allow fetching `mgcv`'s source (read-only, as ADR-196/205 did for R-level code) or supplying `gdi.c` / `pls_fit1`, then steps 1-4 unchanged. Release condition stands.
+
 **Acceptance (INDEPENDENT, tier 3, existing gates, none widened):** per-term edf within ADR-253's gate and `Vc` `se` within ADR-250's 2e-2 on both existing rank-deficient cells, **plus one new rank-deficient structure not used while developing the rule** (e.g. three smooths of one covariate, or a two-factor `by`); `eta` / `edf_total` / `Vp` stay where Slice 9 left them. **Release condition.** Next parity session after PR #263 merges.
 
 ## 4. What is explicitly out of scope
