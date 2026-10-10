@@ -25045,3 +25045,39 @@ Not `Vc` for a pivoted fit; not per-term edf for a pivoted fit (1 of the 2 rank-
 `GAM_USER_GUIDE.md` moves `s(x) + s(x, by=f)` from the refusal table to the supported table with the `Vc` / per-term-edf limitation; `MGCV_FEATURE_COVERAGE.md` updated; PLAN-parity Slice 9 DONE (with the two recorded limitations). A derivation of `mgcv`'s pivot rule would be the only route to `Vc` and per-term edf for pivoted fits; it is NOT registered as a slice (no preview user has asked; maintainer Q10).
 
 **Amendment 2026-10-10 (maintainer, PR #263 review): Decisions 3 and 4 are INTERIM, not accepted limitations.** The recommendation to accept the `Vc` refusal and the pivot-dependent per-term edf (CONTINUATION Q10) was declined: if `mgcv` drops the same coefficient every time for a given model and data, its choice is a rule worth reproducing. `PLAN_mgcv_parity_engine.md` Slice 10 is registered (find the mechanism in `mgcv`'s source; show the oracle's choice is stable before building; implement from the source; lift the `Vc` refusal and re-gate per-term edf; acceptance includes one new rank-deficient structure). The "highest index" tie-break of Decision 4 remains only so that Slice 9 is reproducible; it makes no claim about `mgcv`. Also from the review: the predict gate's `Vc`-refusal waiver is limited to pivoted fits (`python.fit.pivoted_columns` non-empty); a `Vc` failure on an un-pivoted fit stays a miss (`test_a_vc_refusal_is_waived_only_for_a_pivoted_fit`).
+
+
+## ADR-256: Parity-engine Slice 10 — `mgcv`'s choice of the eliminated coefficient is rounding noise on exactly tied candidates, so there is no rule to reproduce; per-term edf and `Vc` of a pivoted fit stay refused / reported (MEASUREMENT of `mgcv` against itself)
+
+**Date:** 2026-10-10. **Status:** accepted. PR title class: **`harness(mgcv-parity)`** — no Polaris-vs-`mgcv` comparison landed; the evidence is `mgcv` against itself. Mechanism class (ii). No `src/`, no test, no golden change.
+
+### Claim sentence (ADR-193)
+*`mgcv` (image digest below) computes the eliminated coefficient from its fit of a rank-deficient `s(x) + s(x, by=f)` design under `OPENBLAS_NUM_THREADS=1`; the same `mgcv` computes it under `OPENBLAS_NUM_THREADS=4`; compared on the T-basis coordinate that is exactly zero, per-term edf, `edf_total`, and the `Vp` / `Vc` `se`.* Both producers are `mgcv`; Polaris is not a producer. Per column: eliminated coordinate, per-term edf, `Vc` `se`: **MEASUREMENT (mgcv against itself)**; `edf_total`, `Vp` `se`: MEASUREMENT, found equal. Nothing here is parity evidence for or against Polaris.
+
+### Step 1 — the mechanism, from the source (read for understanding, nothing transcribed; Anchor 8 / ADR-196)
+Source: `cran/mgcv` 1.9-4 (the pinned image's version). `gam.side()` (`R/mgcv.r`) is NOT the mechanism for this model: it names a by-level smooth `term` + `by` + `by.level`, so a main smooth and a by-level smooth never share a variable and it returns before `fixDependence()` (no smooth carries `del.index`). The elimination is in `gdiPK` (`src/gdi.c`, ~L1690-1950), called from `gdi1` for every `gam.fit3` evaluation: (1) `x` and the penalty are put in `T = U1 blockdiag(Qs, I)` (`U1` = eigenbasis of the normalised total penalty, `R/mgcv.r` `totalPenaltySpace`; `Qs` = Wood (2011) §3.1 stable reparameterisation of `gam.reparam`, **sp-dependent**); (2) `R1` = R factor of `sqrt(W) x T`, columns unpivoted; (3) `M = [R1/||R1||_F ; Es/||Es||_F]` with `Es = Eb T` (`Eb` = balanced penalty root, `G$Eb`); (4) `mgcv_qr(M)` = LAPACK `dgeqp3` (`src/mat.c`), always pivoting; (5) rank = largest `r` with `rank_tol * R_cond(R[1:r,1:r]) <= 1`, `rank_tol = 100 eps` (`gam.fit3` L46); (6) the columns after `rank` in the pivot order are dropped from `R1`, `E`, `X` and `rS`, and re-inserted as exact zeros in `beta` (`undrop_rows`). The dropped coefficient is therefore a coordinate of the sp-dependent T basis, re-chosen at every evaluation.
+
+### Step 2 — the recipe reproduces the choice, and the choice is a tie (tier 1 for the mechanism, tier 3 for the stability)
+Reproducing steps (1)-(5) in R from the inputs of the last `gam.fit3` call (`scripts/gam_pivot_stability_probe.R`) gives the observed zero coordinate in 27 of 30 tier-1 draws (the other 3 are ties, below). **The candidates are exactly tied:** the null vector `v` of `M'M` has five equal-magnitude entries (the unpenalised linear coordinates of the main smooth and of the four by-level smooths, here `1/sqrt(5)`), spread at rounding level (<= 3e-15 relative) on every one-deficiency draw. A pivoted QR cannot separate them; `dgeqp3` picks by rounding noise.
+
+**Tier 3** — CI run **38014547575**, commit `5d6a7ee`, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8` (R 4.6.1 / mgcv 1.9.4), the same script under `OPENBLAS_NUM_THREADS` 1 and 4, same data (24 draws: baseline `s(x)+s(x,by=f)` x6, factor releveled x6, `f + s(x) + s(x,by=f)` x6, two factor-by terms x6):
+
+| quantity (t=1 vs t=4, same image and data) | result |
+|---|---|
+| eliminated coordinate identical | **9 of 24; differs in 15** (baseline 2/6, relevel 4/6, bare-main 5/6, two-by 4/6) |
+| per-term edf, max abs diff | exactly **1.000** in all 15 differing cases, 0 in the 9 equal |
+| `edf_total` diff | 0.0 in all 24 |
+| `Vp` `se` (mean, relative) | 0.0 in all 24 |
+| `Vc` `se` (mean, relative) | up to **3.9e-02**; 7 of 24 above 1e-02, 5 above ADR-250's 2e-02 gate |
+| candidate tie (5-way) | spread 0..2.4e-15 on every one-deficiency draw (18 of 18) |
+
+(Run 38014302311 of the previous script version gave the same pattern on the eliminated coordinate: 15 of 24 differ; its per-term columns were not yet recorded.) The coordinate also differs between independent CI runs of identical code, so the choice is not even stable on a fixed machine type.
+
+### Decisions
+1. **There is no rule to reproduce.** PLAN Slice 10's condition ("if `mgcv`'s choice is itself noise on tied candidates there is no rule to copy and today's refusal / report-only state stands") is met. Steps 3-4 (implement the rule, lift the `Vc` refusal, re-gate per-term edf) are **not done and are not registered**: copying the recipe would reproduce `dgeqp3`'s rounding, not a property of the model.
+2. ADR-255 Decisions 3-4 stop being "interim": `Vc` of a pivoted fit stays refused; per-term edf of a pivoted fit stays reported, not gated; `Vp`-based `se`, `eta` and `edf_total` stay gated (they are identical across `mgcv`'s own eliminations: 0.0 above). The deterministic Polaris pivot of Decision 4 stays so that Polaris is reproducible; it makes no claim about `mgcv`.
+3. The earlier 1.002 miss on `gaussian_factor_by_with_bare_smooth` is now explained: the reference per-term edf moves by 1.000 with the thread count, so a gate of 1 against it is a coin toss on `mgcv`'s side. Whether to stop gating that column for pivoted fits (the generated report) is a maintainer call: CONTINUATION Q13, recommended **yes** — gate per-term edf only on non-pivoted fits and report it, with the sentence above, for pivoted ones. Not done here (no generator or gate edit without that answer).
+4. What would be reproducible against `mgcv`: a pivot-invariant target. `edf_total`, `eta`, `Vp` `se` already are. A pivot-invariant unconditional covariance is not available from `mgcv` (its `Vc` is the thing that moves).
+
+### Not claimed
+Not that Polaris's `Vc` or per-term edf is wrong (no Polaris producer here); not that the tie structure holds for every rank-deficient design (24 draws of four structures; the two-factor-by draws have a two-dimensional deficiency, some with 1-4 candidates and spread up to 9.7e-02 — their ties are not exact, and their coordinates still differ); not for `select=TRUE` or other families.
