@@ -508,8 +508,13 @@ def compare_predict_case(python: PredictedCase, payload: PredictPayload) -> Pred
         else (
             rel_se is not None
             and rel_se < _SE_REL_TOLERANCE
-            and rel_se_unc is not None
-            and rel_se_unc < _SE_REL_TOLERANCE
+            # a Vc refusal is a stated limitation ONLY for a pivoted fit (Slice 9, ADR-255
+            # Decision 3): the Vp column is still gated and Vc is reported as refused.
+            # A Vc failure on an un-pivoted fit (any other cause) stays a miss.
+            and (
+                (python.unconditional_refusal is not None and python.fit.pivoted_columns != ())
+                or (rel_se_unc is not None and rel_se_unc < _SE_REL_TOLERANCE)
+            )
         )
     )
     rel_scale = None if python.scale is None else abs(python.scale - mg["scale"]) / abs(mg["scale"])

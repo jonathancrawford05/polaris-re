@@ -2370,6 +2370,8 @@ so performance is not the reason to want it. Maintainer decision, 2026-08-10.
 
 ### Slice 9: rank-deficient designs — pivot the unidentified coefficient out, as `mgcv` does
 
+> **STATUS: DONE 2026-10-09 (ADR-255, `feat(mgcv-parity)`, INDEPENDENT, tier 3 run 37977750939).** Exit criterion met for `eta`, `edf_total` and the `Vp`-based `se`; **two measured limitations**: the unconditional `Vc` of a pivoted fit is refused (not pivot-invariant) and per-term edf is pivot-dependent (summary comparison: one of two rank-deficient cells misses by 1.002). Both are INTERIM: the maintainer (2026-10-10) did not accept them and registered Slice 10 below.
+
 **Registered 2026-10-07 (maintainer: a use case for `s(x) + s(x, by=f)` exists; ADR-250).** Mechanism class **(ii)** criterion / rank handling — NOT the outer search.
 
 **The defect (measured, ADR-250).** A smooth and a factor-`by` smooth of the same covariate share their linear null space, so `rank(X) < p` and `X'WX + S` has an exactly null direction (probe draw: `rank(X)` 22 of 29, min eigenvalue 7e-15). `mgcv` pivots the unidentified coefficient out of the criterion, the edf and `Vp`; this engine does not, so `log|X'WX+S|` runs through rounding noise. Until this lands, `vcov` / `se_fit` REFUSE such a fit and P3 refuses the construct.
@@ -2383,6 +2385,22 @@ so performance is not the reason to want it. Maintainer decision, 2026-08-10.
 **Effort estimate: one slice, one session**, riskiest part being conditioning of the SVD-based detection (threshold derived, not tuned; the same `p * eps * max` rule as the covariance guard) and whether `mgcv`'s pivot choice changes any quantity compared (it should not: `eta`, edf, `se` are pivot-invariant; `sp` and coefficients are not compared).
 
 **Release condition.** After preview slice P3 (the refusal it relaxes), BEFORE P5 states the factor-`by` limitation's size; or earlier on preview-user demand. It is not a solver slice and does not touch Slice 3b. **Exit criterion.** `gaussian_factor_by` meets ADR-221 (`eta` < 2e-2, `|edf|` < 1) and ADR-250's `se` gate at tier 3, on a fit that converges.
+
+### Slice 10: reproduce `mgcv`'s choice of the unidentified coefficient
+
+**Registered 2026-10-10 (maintainer decision on PR #263, Q10).** Mechanism class **(ii)**. Supersedes the "accepted limitation" reading of ADR-255 Decisions 3 and 4, which are interim until this lands.
+
+**Why.** If `mgcv` drops the same coefficient every time for a given model and data, its choice is a rule, not arbitrary; users will compare `summary()` per-term edf and `predict(..., unconditional=TRUE)` with R.
+
+**The condition: "consistent" must be shown, not assumed.** Slice 9 found the choice among exactly tied candidates can be decided by rounding noise; `mgcv` uses LAPACK pivoted QR and could have the same exposure. If `mgcv`'s choice is itself noise on tied candidates there is no rule to copy and today's refusal / report-only state stands.
+
+**Steps (one session, more if step 2 shows real work):**
+1. **Find the mechanism in `mgcv`'s source and name it in the ADR** (function and lines, not inferred from outputs). Candidates: `gam.side()` / `fixDependence()` (identifiability side conditions for terms sharing a covariate, which delete columns from the higher-order term at setup); the rank-deficient pivoting inside `gam.fit3` / `Sl.fitChol` after reparameterisation. Settle which coefficient basis the drop happens in (`last.para - first.para + 1` still counts the redundant coefficient).
+2. **Stability check of the oracle, before any Polaris code.** On the pinned image, identify which coefficient `mgcv` eliminated on `gaussian_factor_by_with_bare_smooth` and `gaussian_factor_by_bare_smooth_and_main`; check it is identical across two `OPENBLAS_NUM_THREADS` settings and a re-ordering of factor levels or a second data draw. Record in the ledger either way; if not stable, stop and report.
+3. **Implement the rule** in `gam_rank_pivot.choose_pivot_columns` (or upstream if the mechanism is `gam.side`), derived from the source — never by trying columns until the numbers match.
+4. **Lift the `Vc` refusal** and restore per-term edf as a gated summary column for pivoted fits.
+
+**Acceptance (INDEPENDENT, tier 3, existing gates, none widened):** per-term edf within ADR-253's gate and `Vc` `se` within ADR-250's 2e-2 on both existing rank-deficient cells, **plus one new rank-deficient structure not used while developing the rule** (e.g. three smooths of one covariate, or a two-factor `by`); `eta` / `edf_total` / `Vp` stay where Slice 9 left them. **Release condition.** Next parity session after PR #263 merges.
 
 ## 4. What is explicitly out of scope
 

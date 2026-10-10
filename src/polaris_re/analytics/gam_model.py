@@ -76,7 +76,7 @@ penalty at all, unchanged.
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Literal, TypedDict, overload
+from typing import Literal, NotRequired, TypedDict, overload
 
 import numpy as np
 
@@ -91,6 +91,7 @@ from polaris_re.analytics.gam_family import (
 )
 from polaris_re.analytics.gam_initial_sp import initial_log10_lambda
 from polaris_re.analytics.gam_predict import TermState, fit_term_state, predict_design
+from polaris_re.analytics.gam_rank_pivot import pivot_out
 from polaris_re.analytics.gam_reml_newton import NewtonLambdaSelection, newton_select_lambdas
 from polaris_re.analytics.gam_reml_optimize import (
     ContinuousLambdaSelection,
@@ -121,6 +122,7 @@ __all__ = [
     "TermBlock",
     "assemble_model_design",
     "fit_polaris_gam",
+    "pivot_design",
     "resolve_family",
 ]
 
@@ -220,6 +222,13 @@ class ModelDesign(TypedDict):
     x: np.ndarray
     penalty_blocks: tuple[np.ndarray, ...]
     term_blocks: tuple[TermBlock, ...]
+    kept_columns: NotRequired[tuple[int, ...]]
+    """Present only on a design :func:`pivot_design` reduced (Slice 9): the retained
+    column indices of the FULL layout. Then ``x`` and ``penalty_blocks`` carry only
+    these columns, while ``term_blocks`` keeps describing the full layout (``mgcv``'s
+    ``last.para - first.para + 1`` counts the pivoted-out coefficients too)."""
+    full_width: NotRequired[int]
+    """The full column count, present with ``kept_columns``."""
 
 
 def _build_term_extract(term: TermSpec, data: Mapping[str, np.ndarray]) -> TermExtract:
@@ -353,6 +362,27 @@ def assemble_model_design(model: ModelSpec, data: Mapping[str, np.ndarray]) -> M
     return ModelDesign(x=x, penalty_blocks=penalty_blocks, term_blocks=tuple(term_blocks))
 
 
+def pivot_design(design: ModelDesign) -> ModelDesign:
+    """Eliminate the coefficients the data cannot identify (Slice 9, ``mgcv``'s pivoting).
+
+    Returns ``design`` unchanged when it is identified; otherwise a design whose ``x``
+    and ``penalty_blocks`` carry only the retained columns, with ``kept_columns`` and
+    ``full_width`` recording the full layout. See :mod:`~polaris_re.analytics.gam_rank_pivot`
+    for why the fitted function space, ``eta``, edf and ``log|S|_+`` are unchanged.
+    """
+    x_kept, blocks_kept, kept = pivot_out(design["x"], design["penalty_blocks"])
+    full_width = design["x"].shape[1]
+    if len(kept) == full_width:
+        return design
+    return ModelDesign(
+        x=x_kept,
+        penalty_blocks=blocks_kept,
+        term_blocks=design["term_blocks"],
+        kept_columns=kept,
+        full_width=full_width,
+    )
+
+
 def _per_term_edf(
     design: ModelDesign,
     family: Family,
@@ -381,6 +411,12 @@ def _per_term_edf(
     xtwx = x.T @ (irls_weights[:, None] * x)
     hat = np.linalg.solve(xtwx + penalty, xtwx)
     diag = np.diag(hat)
+    kept = design.get("kept_columns")
+    if kept is not None:
+        # a pivoted-out coefficient is fixed at zero and carries no degrees of freedom
+        full = np.zeros(design["full_width"], dtype=np.float64)
+        full[np.asarray(kept, dtype=np.intp)] = diag
+        diag = full
     return {tb["label"]: float(diag[tb["start"] : tb["end"]].sum()) for tb in design["term_blocks"]}
 
 
@@ -490,13 +526,52 @@ class PolarisGAMFit:
         not. See :mod:`polaris_re.analytics.gam_vcov`.
         """
         cov = self._covariance(unconditional)
-        return cov.vc if unconditional else cov.vp
+        v = cov.vc if unconditional else cov.vp
+        kept = self.design.get("kept_columns")
+        if kept is None:
+            return v
+        # Slice 9: expand to the full layout; a pivoted-out coefficient is fixed at zero,
+        # so its variance and covariances are zero (this engine's convention: mgcv's own
+        # vcov has no zero row here, and mgcv's coefficients are a different basis, Anchor 2).
+        idx = np.asarray(kept, dtype=np.intp)
+        full = np.zeros((self.design["full_width"],) * 2, dtype=np.float64)
+        full[np.ix_(idx, idx)] = v
+        return full
+
+    @property
+    def coef_full(self) -> np.ndarray:
+        """``coef`` in the full column layout (``mgcv``'s ``coef(m)``): zero at the
+        coefficients pivoted out of a structurally rank-deficient design (Slice 9)."""
+        kept = self.design.get("kept_columns")
+        if kept is None:
+            return self.coef
+        full = np.zeros(self.design["full_width"], dtype=np.float64)
+        full[np.asarray(kept, dtype=np.intp)] = self.coef
+        return full
+
+    @property
+    def pivoted_columns(self) -> tuple[int, ...]:
+        """Full-layout indices of the coefficients eliminated as unidentified (Slice 9);
+        empty for an identified design."""
+        kept = self.design.get("kept_columns")
+        if kept is None:
+            return ()
+        return tuple(sorted(set(range(self.design["full_width"])) - set(kept)))
 
     def _covariance(self, unconditional: bool) -> CoefficientCovariance:
         if self.y is None:
             raise PolarisValidationError(
                 "PolarisGAMFit.vcov: this fit carries no training response "
                 "(it was not built by fit_polaris_gam)."
+            )
+        if unconditional and self.pivoted_columns:
+            raise PolarisComputationError(
+                "PolarisGAMFit.vcov: the unconditional covariance (Vc) is refused for a fit "
+                f"with pivoted-out coefficients {list(self.pivoted_columns)} (Slice 9). Vp, "
+                "eta, edf and the Vp-based se are pivot-invariant, but eq. (7)'s V'' term "
+                "depends on the square root of V_beta, hence on which coefficient is "
+                "eliminated: re-fitting one design with different pivots moved Vc se by "
+                "1.8e-2..9.5e-2 against mgcv (tier 1, ADR-255). Use unconditional=False."
             )
         family = resolve_family(self.model.family, self.model.link)
         scale = 1.0 if family.dispersion_fixed else float(self.dispersion.fletcher)
@@ -566,6 +641,9 @@ class PolarisGAMFit:
                 "(it was not built by fit_polaris_gam)."
             )
         x_new = predict_design(self.model, self.term_states, newdata)
+        kept = self.design.get("kept_columns")
+        if kept is not None:
+            x_new = x_new[:, np.asarray(kept, dtype=np.intp)]
         eta = x_new @ self.coef
         if self.model.offset_column is not None:
             if self.model.offset_column not in newdata:
@@ -782,7 +860,7 @@ def fit_polaris_gam(
             "analytic_gradient, max_gtol_restarts and initial_sp_start -- it always uses the "
             "analytic gradient and its one start is mgcv's initial.spg."
         )
-    design = assemble_model_design(model, data)
+    design = pivot_design(assemble_model_design(model, data))
     family = resolve_family(model.family, model.link)
     weights = (
         None

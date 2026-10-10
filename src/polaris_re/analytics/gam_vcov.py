@@ -131,11 +131,11 @@ def coefficient_covariance(
             "coefficient_covariance: XᵀWX + S_lambda is numerically singular "
             f"(smallest eigenvalue {eigenvalues[0]:.3e} against largest "
             f"{eigenvalues[-1]:.3e}): a direction no term's penalty or data identifies. "
-            "The usual cause is a smooth and a factor-`by` smooth of the same covariate "
-            "(their linear null spaces coincide). mgcv fits such a model by pivoting the "
-            "unidentified coefficient out; this engine does not, and a covariance "
-            "inverted through that direction would be arbitrary, so none is returned "
-            "(ADR-250; MGCV_FEATURE_COVERAGE.md)."
+            "A structural cause (a smooth plus a factor-`by` smooth of one covariate) is "
+            "pivoted out when the model is fitted (Slice 9, gam_rank_pivot), so what "
+            "reaches here is a rank loss that depends on the weights or the fit; a "
+            "covariance inverted through that direction would be arbitrary, so none is "
+            "returned (ADR-250)."
         )
     v_unit = np.linalg.inv(information)
     v_unit = (v_unit + v_unit.T) / 2.0

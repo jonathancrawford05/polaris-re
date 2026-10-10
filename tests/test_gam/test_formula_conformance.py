@@ -66,15 +66,30 @@ def _recipe(name: str, formula: str) -> FormulaRecipe:
     )
 
 
-def test_an_expected_refusal_agrees_only_when_polaris_refuses() -> None:
-    name = next(iter(EXPECTED_REFUSALS))
-    refused = fit_formula_case(_recipe(name, 'y ~ s(x, bs="cr", k=5) + s(x, by=f, bs="cr", k=5)'))
+def test_an_expected_refusal_agrees_only_when_polaris_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mechanism is kept for a cell whose verified behaviour is a refusal. No real cell is
+    one since Slice 9, so the set is patched; an unsupported construct stands in."""
+    name = "binomial_cr"
+    monkeypatch.setattr("polaris_re.gam.formula_conformance.EXPECTED_REFUSALS", frozenset({name}))
+    refused = fit_formula_case(_recipe(name, 'y ~ s(x, bs="tp", k=5)'))
     assert refused.fit is None and refused.refusal is not None
     payload = typing.cast(FormulaPayload, {"mgcv": {}})
     assert compare_formula_case(refused, payload).agrees
     accepted = fit_formula_case(_recipe(name, 'y ~ f + s(x, by=f, bs="cr", k=5)'))
     assert accepted.fit is not None
     assert not compare_formula_case(accepted, payload).agrees
+
+
+def test_the_rank_deficient_cells_are_fitted_not_refused() -> None:
+    assert frozenset() == EXPECTED_REFUSALS
+    for formula in (
+        'y ~ s(x, bs="cr", k=5) + s(x, by=f, bs="cr", k=5)',
+        'y ~ f + s(x, bs="cr", k=5) + s(x, by=f, bs="cr", k=5)',
+    ):
+        case = fit_formula_case(_recipe("gaussian_factor_by_with_bare_smooth", formula))
+        assert case.fit is not None and case.fit.pivoted_columns
 
 
 def test_an_unexpected_refusal_is_a_disagreement() -> None:
@@ -93,7 +108,10 @@ def test_the_probe_runs_and_every_cell_agrees_at_tier_one(tmp_path: Path) -> Non
         env={"OPENBLAS_NUM_THREADS": "1", "PATH": "/usr/bin:/bin:/usr/local/bin"},
     )
     payload = json.loads(out.read_text())
-    assert {c["name"] for c in payload["cells"]} >= EXPECTED_REFUSALS
+    assert {c["name"] for c in payload["cells"]} >= {
+        "gaussian_factor_by_with_bare_smooth",
+        "gaussian_factor_by_bare_smooth_and_main",
+    }
     local_en_us = payload["collate"].startswith("en_US")
     for cell in payload["cells"]:
         if cell["name"].startswith("gaussian_level_order") and not local_en_us:

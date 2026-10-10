@@ -223,8 +223,9 @@ def _header(args: argparse.Namespace, mgcv_line: str) -> list[str]:
         "`log10(sp)`, REML score and deviance components are reported, never gated.",
         "",
         "**What this is not:** not a claim of general `mgcv` compatibility; not p-values, "
-        "`bam`, `tp`/`te`/`t2`/`fs`, free-`sp` `sz`, or a factor-`by` beside a bare smooth of "
-        "the same covariate (refused by name — `docs/GAM_USER_GUIDE.md` §6). One synthetic "
+        "`bam`, `tp`/`te`/`t2`/`fs`, free-`sp` `sz`, or the unconditional covariance `Vc` / "
+        "per-term edf of a fit with a pivoted-out coefficient (Slice 9, ADR-255: `Vc` is "
+        "refused, per-term edf is pivot-dependent). One synthetic "
         "draw per cell: this is evidence about these cells, not a coverage guarantee.",
     ]
 

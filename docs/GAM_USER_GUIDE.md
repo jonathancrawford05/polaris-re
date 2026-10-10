@@ -108,6 +108,7 @@ with `mgcv` in the report.
 | `s(x, bs="cr", k=)` — cubic regression spline | supported | parity report §2 (every cell) |
 | `s(x, by=z, bs="cr")` — numeric `by` (varying coefficient) | supported | report §2, §1 |
 | `s(x, by=f, bs="cr")` — factor `by`, written `f + s(x, by=f, ...)` | supported | report §2 (`gaussian_factor_by`) |
+| `s(x) + s(x, by=f)` (with or without `f`) — a smooth beside a factor-`by` smooth of the same covariate | supported **with a pivot** (Slice 9, ADR-255): the one coefficient the data cannot identify is eliminated, as `mgcv` does. `eta`, `edf_total` and the standard errors (`unconditional=False`) are compared with `mgcv`; **`unconditional=True` is refused** for such a fit (§7); per-term `edf` depends on which coefficient is eliminated (on the report's two rank-deficient cells it agrees with `summary.gam` on one and misses by 1.0 on the other) | ADR-255, report §1-§3 |
 | `ti(x, z, bs="cr", k=c(.,.))` — tensor interaction | supported | report §2, §4 |
 | `s(f, bs="re")` — random-effect / level indicator | supported | report §2 |
 | factors `a`, `a:b` (with both main effects), `offset(col)` | supported | report §2 |
@@ -129,8 +130,7 @@ Each of these raises `PolarisValidationError` naming the construct and the
 | a bare `s(x)` (mgcv default `tp`) | `tp` is ladder rung L7, not yet verified; write `bs="cr"` |
 | `bs="tp"`, `"ps"`, `"fs"`, `"sz"`, and any other basis | not verified (§2.1 of the coverage file) |
 | `te()`, `t2()`, `ti()` of three variables, multi-variable `s()` | not verified |
-| `s(x) + s(x, by=f)` — a smooth beside a factor-`by` smooth of the same covariate | the design is rank-deficient (`rank(X) < p`); `mgcv` pivots the unidentified coefficient out and this engine does not yet. Write `f + s(x, by=f)` instead. A real use case exists, so the fix is registered (`PLAN_mgcv_parity_engine.md` Slice 9) |
-| `select=TRUE` together with a factor-`by` smooth | not verified on that block shape; entangled with the rank handling above |
+| `select=TRUE` together with a factor-`by` smooth | the free-`sp` search is not verified on that block shape |
 | `scale=` (a fixed dispersion) | verified only inside the conformance module, not through the production fitter |
 | `s(..., sp=, fx=, m=)`, `ti(..., by=)` | not verified |
 | `a*b`, `a^2`, `a:b:c`, `-1`, `0 +`, transformed variables or responses (`log(x)`, `poly(x,2)`, `factor(g)`) | transform the column in Polars first |
@@ -141,11 +141,14 @@ construct named). Nothing in the preview falls back to a guess.
 
 ## 7. Limitations that were measured
 
-- **The factor-`by` beside a bare smooth** (§6, row 4) was first met as a miss against
-  `mgcv` on one synthetic draw (`gaussian_factor_by`, ADR-249); the mechanism turned out to
-  be a rank defect, not an outer-search problem (ADR-250), and the construct is now refused
-  rather than fitted. Its size was **not** re-measured on a second draw; the refusal is what
-  the preview ships.
+- **The factor-`by` beside a bare smooth** (§5) was first met as a miss against `mgcv` on one
+  synthetic draw (`gaussian_factor_by`, ADR-249); the mechanism is a rank defect, not an
+  outer-search problem (ADR-250), and since Slice 9 (ADR-255) it is fitted with the
+  unidentified coefficient pivoted out. **The unconditional covariance (`Vc`,
+  `unconditional=True`) is refused for such a fit (interim — parity-engine Slice 10 is registered to reproduce `mgcv`'s choice):** its second-order term depends on which
+  coefficient is eliminated, and the choice that matches `mgcv` is not derivable from
+  anything this engine computes (ADR-255). `Vp`-based standard errors, `eta` and `edf_total`
+  do not depend on that choice; per-term edf does (§5).
 - **Size.** The largest verified fit is the 5,000-row, 15-penalty cell in the report. A
   30,000-row fit was run for Polaris alone (it converges in about 40 s on the development
   box) but has no `mgcv` side — plain `gam()` does not finish at that size and `bam` is out

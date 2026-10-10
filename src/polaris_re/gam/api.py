@@ -13,14 +13,15 @@ raises :class:`~polaris_re.core.exceptions.PolarisValidationError` naming the
 construct and the ``MGCV_FEATURE_COVERAGE.md`` row that says why. Two refusals are
 not about syntax:
 
-* ``select=True`` is refused with a factor-``by`` smooth (not verified on that block
-  shape, and entangled with Slice 9); ``cr``, numeric-``by``, ``ti``, ``re`` and the
+* ``select=True`` is refused with a factor-``by`` smooth (the free-``sp`` search is
+  not verified on that block shape); ``cr``, numeric-``by``, ``ti``, ``re`` and the
   parametric block are accepted (ADR-217/218, ADR-252);
 * a design whose **unpenalised null space is not identified by the data** (the
-  structural condition behind ``rank(X) < p``, ADR-250) is refused — most commonly
-  ``s(x) + s(x, by=f)`` on one covariate. ``mgcv`` pivots the unidentified
-  coefficient out and this engine does not yet (``PLAN_mgcv_parity_engine.md``
-  Slice 9). The test is keyed on that structural condition, not on the syntax.
+  structural condition behind ``rank(X) < p``, ADR-250) — most commonly
+  ``s(x) + s(x, by=f)`` on one covariate — is **accepted** since parity-engine
+  Slice 9: the unidentified coefficient is pivoted out of the fit as ``mgcv`` does
+  (:mod:`~polaris_re.analytics.gam_rank_pivot`; :attr:`GamFit.pivoted_columns`).
+  A rank loss that depends on the weights is not structural and is not handled.
 
 **Factor coding reproduces R's** (``factor()``, ``contr.treatment``): levels sorted
 as R sorts them, the first level the reference. R sorts strings by the session's
@@ -39,7 +40,8 @@ from typing import Literal, overload
 import numpy as np
 import polars as pl
 
-from polaris_re.analytics.gam_model import PolarisGAMFit, assemble_model_design, fit_polaris_gam
+from polaris_re.analytics.gam_model import PolarisGAMFit, fit_polaris_gam
+from polaris_re.analytics.gam_rank_pivot import unidentified_directions
 from polaris_re.analytics.gam_term_spec import ModelSpec, TermSpec, factor_by_terms
 from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.gam.formula import (
@@ -70,11 +72,6 @@ _DEFAULT_LINK = {
     "quasipoisson": "log",
     "binomial": "logit",
 }
-
-_RANK_TOLERANCE = 1.0e-10
-"""Relative singular-value cutoff for the unpenalised-null-space identifiability
-test. A deficient design reads ~1e-15 (ADR-250); an identified one reads O(1e-3)
-or larger, so the cutoff sits twelve orders of magnitude from both."""
 
 
 def _collation_key(value: str, collation: str) -> tuple[object, ...]:
@@ -302,18 +299,7 @@ def structural_rank_deficiency(x: np.ndarray, penalty_blocks: Sequence[np.ndarra
     parameter — the structural form of ``rank(X) < p`` (ADR-250). It does not depend
     on ``y`` or on the fitted smoothing parameters.
     """
-    p = x.shape[1]
-    s_total = np.zeros((p, p), dtype=np.float64)
-    for block in penalty_blocks:
-        s_total += block / max(float(np.linalg.norm(block, ord=2)), 1.0e-300)
-    eigvals, eigvecs = np.linalg.eigh(s_total)
-    scale = max(float(eigvals[-1]), 1.0e-300)
-    null_basis = eigvecs[:, eigvals <= _RANK_TOLERANCE * scale]
-    if null_basis.shape[1] == 0:
-        return 0
-    sv = np.linalg.svd(x @ null_basis, compute_uv=False)
-    sv_max = max(float(sv[0]), 1.0e-300)
-    return int(null_basis.shape[1] - np.count_nonzero(sv > _RANK_TOLERANCE * sv_max))
+    return int(unidentified_directions(x, penalty_blocks).shape[1])
 
 
 def _build_model(
@@ -429,8 +415,8 @@ def _build_model(
             raise PolarisValidationError(
                 f"gam(): select=True with the factor-by smooth(s) {bad} is not supported — "
                 "the free-sp search is not verified on a factor-by block shape, and the "
-                "factor-by structure is entangled with the rank handling of Slice 9 "
-                f"({_COVERAGE} §2.3 select row; PLAN_mgcv_parity_engine.md Slice 9)."
+                "(the factor-by block shape has no tier-3 free-sp comparison) "
+                f"({_COVERAGE} §2.3 select row)."
             )
     if weights is not None:
         need_numeric(weights, "weights=")
@@ -499,17 +485,6 @@ def gam(
         parsed, data, family_name, link, weights, offset or parsed.offset, select
     )
     y = _numeric(data, parsed.response)
-    design = assemble_model_design(model, arrays)
-    deficient = structural_rank_deficiency(design["x"], design["penalty_blocks"])
-    if deficient:
-        raise PolarisValidationError(
-            f"gam(): the model is not identified — {deficient} unpenalised coefficient "
-            "direction(s) are invisible to the data (rank(X) < p), typically a smooth plus a "
-            "factor-by smooth of the same covariate, s(x) + s(x, by=f). mgcv pivots the "
-            "unidentified coefficient out; this engine does not yet "
-            f"({_COVERAGE} §2.1 factor-by note; PLAN_mgcv_parity_engine.md Slice 9). Drop "
-            "the bare s(x), or add the factor as a main effect and keep only s(x, by=f)."
-        )
     fit = fit_polaris_gam(model, arrays, y)
     if not fit.converged:
         warnings.warn(
