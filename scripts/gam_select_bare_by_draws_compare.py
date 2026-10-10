@@ -3,7 +3,7 @@
 
 Usage: gam_select_bare_by_draws_compare.py <gam_select_bare_by_draws_probe.json> [report.md]
 
-Four forms x two families x 15 draws. Polaris receives the formula-equivalent ``ModelSpec``
+Six forms x two families x 30 draws (two independent sets of 15). Polaris receives the formula-equivalent ``ModelSpec``
 (built here from the form name, the shared recipe) and the data; ``mgcv`` fits the same string.
 ``gam()`` REFUSES the two bare-smooth forms (ADR-258), so this script builds the ``ModelSpec``
 itself and calls ``fit_polaris_gam`` to measure what the refusal protects against.
@@ -46,7 +46,7 @@ CLAIM = VerificationClaim(
         "Polaris (fit_polaris_gam on the ModelSpec of the formula form, Newton REML) fits "
         "select=TRUE with a factor-by smooth on each draw; mgcv fits "
         "gam(<same string>, method='REML', select=TRUE) on the same data; compared on eta, "
-        "edf_total and log10(sp), per form, over 15 draws per family."
+        "edf_total and log10(sp), per form, over 30 draws per family."
     ),
     quantities=(
         ComparedQuantity(
@@ -71,15 +71,25 @@ CLAIM = VerificationClaim(
 )
 
 
-def _spec(form: str, levels: int, family: str, link: str) -> ModelSpec:
+def _spec(form: str, levels: int, family: str, link: str, g_levels: int = 2) -> ModelSpec:
     terms: list[TermSpec] = []
     if form.startswith("main"):
         terms.append(TermSpec(label="f", variables=("f",), basis="parametric", levels=(levels,)))
+        if "two_by" in form:
+            terms.append(
+                TermSpec(label="g", variables=("g",), basis="parametric", levels=(g_levels,))
+            )
     if "bare" in form:
         terms.append(TermSpec(label="s(x)", variables=("x",), basis="cr", k=(8,)))
     terms.extend(
         factor_by_terms(base_label="s(x):f", variable="x", k=8, by_factor="f", n_levels=levels)
     )
+    if "two_by" in form:
+        terms.extend(
+            factor_by_terms(
+                base_label="s(x):g", variable="x", k=8, by_factor="g", n_levels=g_levels
+            )
+        )
     return ModelSpec(family=family, link=link, terms=tuple(terms), select=True)
 
 
@@ -87,8 +97,13 @@ def _fit(cell: dict) -> tuple[object, np.ndarray]:  # type: ignore[type-arg]
     df = pl.DataFrame({k: v for k, v in cell["data"].items()})
     coding = gam_api._factor_coding(df, "f")
     fam, link = gam_api._family(cell["family"])
-    spec = _spec(cell["form"], len(coding.levels), fam, link)
-    arrays = {"x": df["x"].to_numpy().astype(np.float64), "f": coding.encode(df["f"], "f")}
+    g_coding = gam_api._factor_coding(df, "g")
+    spec = _spec(cell["form"], len(coding.levels), fam, link, len(g_coding.levels))
+    arrays = {
+        "x": df["x"].to_numpy().astype(np.float64),
+        "f": coding.encode(df["f"], "f"),
+        "g": g_coding.encode(df["g"], "g"),
+    }
     y = df["y"].to_numpy().astype(np.float64)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -134,6 +149,7 @@ def build_report(probe: Path) -> tuple[str, int, int]:
                 "conv": bool(fit.converged),  # type: ignore[attr-defined]
                 "gap": gap,
                 "agrees": eta_diff < _ETA_GATE and abs(edf_diff) < _EDF_GATE,
+                "draw": int(cell["name"].split("_draw")[1].split("_")[0]),
             }
         )
     lines = [
@@ -154,7 +170,7 @@ def build_report(probe: Path) -> tuple[str, int, int]:
     for (fam, form), rows in sorted(groups.items()):
         etas = sorted(r["eta"] for r in rows)
         gaps = [r["gap"] for r in rows if r["gap"] is not None]
-        accepted = "bare" not in form
+        accepted = "bare" not in form and "two_by" not in form
         lines.append(
             f"| {fam} | {form} | {'yes' if accepted else 'REFUSED (ADR-258)'} | {len(rows)} | "
             f"{sum(r['agrees'] for r in rows)} | {sum(not r['conv'] for r in rows)} | "
@@ -164,14 +180,25 @@ def build_report(probe: Path) -> tuple[str, int, int]:
         )
     tot = {True: [0, 0], False: [0, 0]}
     for (_, form), rows in groups.items():
-        k = "bare" not in form
+        k = "bare" not in form and "two_by" not in form
         tot[k][0] += sum(r["agrees"] for r in rows)
         tot[k][1] += len(rows)
     lines += [
         "",
-        f"Accepted forms (no bare smooth): {tot[True][0]} of {tot[True][1]} fits agree. "
-        f"Refused forms (bare smooth beside the by-smooth): {tot[False][0]} of {tot[False][1]} "
-        "fits agree.",
+        f"Accepted forms (`by_only`, `main_by`): {tot[True][0]} of {tot[True][1]} fits agree. "
+        f"Refused forms (a bare or second smooth of the covariate beside the factor-by "
+        f"smooth): {tot[False][0]} of {tot[False][1]} fits agree.",
+        "",
+        "Misses by form (draw number, max eta diff; draws 1-15 are the first set, 16-30 the "
+        "second): "
+        + "; ".join(
+            f"{fam}/{form}: "
+            + (
+                ", ".join(f"{r['draw']} ({r['eta']:.2e})" for r in rows if not r["agrees"])
+                or "none"
+            )
+            for (fam, form), rows in sorted(groups.items())
+        ),
     ]
     return "\n".join(lines) + "\n", tot[True][0], tot[True][1]
 
