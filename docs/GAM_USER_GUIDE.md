@@ -145,9 +145,10 @@ construct named). Nothing in the preview falls back to a guess.
   synthetic draw (`gaussian_factor_by`, ADR-249); the mechanism is a rank defect, not an
   outer-search problem (ADR-250), and since Slice 9 (ADR-255) it is fitted with the
   unidentified coefficient pivoted out. **The unconditional covariance (`Vc`,
-  `unconditional=True`) is refused for such a fit (interim — parity-engine Slice 10 is registered to reproduce `mgcv`'s choice):** its second-order term depends on which
-  coefficient is eliminated, and the choice that matches `mgcv` is not derivable from
-  anything this engine computes (ADR-255). `Vp`-based standard errors, `eta` and `edf_total`
+  `unconditional=True`) is refused for such a fit:** its second-order term depends on which
+  coefficient is eliminated, and `mgcv`'s own choice is rounding noise on exactly tied
+  candidates (its per-term edf moves by 1.0 and `Vc` `se` by up to 4% between two thread
+  counts of the same image), so there is no rule to reproduce (ADR-256). `Vp`-based standard errors, `eta` and `edf_total`
   do not depend on that choice; per-term edf does (§5).
 - **Size.** The largest verified fit is the 5,000-row, 15-penalty cell in the report. A
   30,000-row fit was run for Polaris alone (it converges in about 40 s on the development
