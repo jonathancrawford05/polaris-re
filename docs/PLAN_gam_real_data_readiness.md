@@ -1,6 +1,6 @@
 # Plan: make the GAM fitter ready for real data — factor-by with `select=TRUE`, the ILEC trial, scale, and `tp`
 
-> **STATUS: PROPOSED 2026-10-10 (maintainer-directed; ADR-257) — becomes the ACTIVE EPIC when the PR that adds it merges.** The preview epic (`PLAN_gam_parity_preview.md`) is DONE and parity-engine Slice 10 is DONE as a finding (ADR-256). Nothing in those files changes.
+> **STATUS: PROPOSED 2026-10-10, revised after the maintainer's PR review the same day (ADR-257) — becomes the ACTIVE EPIC when the PR that adds it merges.** Execution order (maintainer): **R1, then R2, then R4; R3 only if the time ceiling is unmet** (slice labels are not renumbered). The preview epic (`PLAN_gam_parity_preview.md`) is DONE and parity-engine Slice 10 is DONE as a finding (ADR-256). Nothing in those files changes.
 
 **Source:** maintainer direction, 2026-10-10: *"we now have a working HGAM fitter … fitting against [real ILEC data] … perf will likely need our attention … `bam` and `discrete=TRUE` will be obvious features to develop … the fitter [must be] performant on real data before we expose and wire this into pricing"*; factor-by with `select=TRUE` is required **before** moving to real data; `tp` (for bare `s(x)`) outranks `sz`; the maintainer has local Docker, the ILEC data and Claude Cowork on one machine.
 **Predecessors:** `PLAN_gam_parity_preview.md` (the verified subset and the public `gam()` entry point), `PLAN_mgcv_parity_engine.md` (engine, ADR-256 for the rank-deficiency finding), `PLAN_mgcv_capability_ladder.md` (rungs; L7 = `tp`, L9/L10 = `fREML`/`bam`), `MGCV_FEATURE_COVERAGE.md`.
@@ -25,12 +25,14 @@
 
 A maintainer with the ILEC file on their machine can, with one runbook and no code changes:
 
-1. fit each trial formula (§4, Slice R2) through `polaris_re.gam.gam(...)` on ILEC-derived cells, within a **stated time budget** (Q-R2, maintainer-set), with the pinned `mgcv` fitting the same formula string on the same cells;
-2. see **agreement with `mgcv`** on the existing gates (`eta` < 2e-2, |`edf_total` diff| < 1, `Vp` `se` < 2e-2; ADR-221/250), reported per formula, plus timing and size, in a **derived-scalars-only** file;
+1. fit each trial formula (§4, Slice R2) through `polaris_re.gam.gam(...)` on ILEC-derived cells within the **time ceiling** (§6: 10 minutes, Polaris fit only, on the fixed reference machine) and with a Polaris/`mgcv::gam` wall-time ratio recorded against the same cells on the same machine;
+2. see **agreement with `mgcv`** on the existing gates (`eta` < 2e-2, |`edf_total` diff| < 1, `Vp` `se` < 2e-2; ADR-221/250) **and** the scale-aware criterion below, reported per formula, plus timing and size, in a **derived-scalars-only** file;
 3. fit factor-`by` smooths with `select=TRUE` and with the bare-main-smooth form without a surprise (§4, Slice R1);
 4. write a bare `s(x)` and have it accepted as `tp` (§4, Slice R4);
 
 and nothing outside the verified subset is accepted silently (refusals by name stay).
+
+**Why a scale-aware criterion as well (maintainer review, 2026-10-10).** ADR-221's absolute gates were set on 5,000-row synthetic cells. At ~10^5 cells the fit's sampling uncertainty is far smaller, so an absolute 2e-2 on the link scale can pass a difference that is large relative to what the data can resolve. Fixed **before** the first run: every trial cell must also satisfy **max |eta_Polaris - eta_mgcv| / se.fit_mgcv <= 0.1** (a numerical disagreement must be small against the fit's own standard error; `se.fit` under `Vp`). Both the ADR-221 gates (imported, unchanged) and this ratio must hold; neither is relaxed to pass the other. The 0.1 value is a recommendation awaiting the maintainer's confirmation (Q-R2e) and, once confirmed, is not changed after R2 runs.
 
 **Explicitly not in this epic:** wiring the fitter into pricing, the CLI, dashboard or MCP (Anchor 7 stays; a maintainer decision *after* R2/R3); `sz` free-`sp` (parked, maintainer 2026-10-10); `te`/`t2`/`fs`; p-values.
 
@@ -43,7 +45,7 @@ The scheduled routine runs in a cloud sandbox with **no access to the ILEC file*
 
 **Evidence tier for those runs: tier L ("pinned image, run locally on the maintainer's machine").** It uses the *same image digest* as tier 3 (`ORACLE_IMAGE` in `mgcv-conformance.yml`), so it is the routine's own "tier 2", currently unavailable in the cloud. Rules: every number carries the digest, `OPENBLAS_NUM_THREADS` and the Polaris commit; a tier-L number may appear where tier 3 may (ADR, ledger, CONTINUATION) **only** if labelled "tier L, real data, maintainer-run"; it never replaces a tier-3 number for a synthetic cell; wall-clock times are machine-dependent and are labelled with the machine's description, never compared across machines.
 
-**The derived-scalars-only contract.** The trial script writes only: sizes (rows, cells, columns, penalties, factor level *counts*), timings per phase, iteration counts, peak memory, `edf` (total and per term), `log10(sp)`, REML score, scale, convergence flags, and the *differences* from `mgcv` (`eta` max/rms, `edf_total`, `se`). It writes **no** row, cell key, level name, exposure, death count, rate, A/E or fitted curve. A test on a synthetic fixture asserts the output keys against a whitelist and fails on any other key, so the contract is enforced, not promised.
+**The derived-scalars-only contract.** The trial script writes only: sizes (rows, cells, columns, penalties), timings per phase, iteration counts, peak memory, `edf` (total and per term), `log10(sp)`, REML score, scale, convergence flags, and the *differences* from `mgcv` (`eta` max/rms, `edf_total`, `se`). It writes **no** row, cell key, level name, factor level count, exposure, death count, rate, A/E, fitted curve, **or any model coefficient or contrast** (for example the smoker S-vs-NS effect: its size stays on the maintainer's machine). Row and cell counts of the banded run are already committed in `MEASUREMENT_experience_gam_ilec.md`; cell counts at the other granularities are new *sizes* and are covered by the Q-R2c "yes" (timings, sizes, agreement differences only). A test on a synthetic fixture asserts the output keys against a whitelist and fails on any other key, so the contract is enforced, not promised.
 
 ## 4. The slices
 
@@ -69,28 +71,33 @@ Every slice lands **(i) one user-callable capability and (ii) at least one INDEP
 
 **What the routine builds.** `scripts/gam_real_data_trial.py` (loads ILEC via `experience_loaders.load_ilec`, aggregates to the trial cells, fits with `gam()`, times each phase, calls the R companion), `scripts/gam_real_data_trial.R` (the same formula string under the pinned `mgcv`), `docs/RUNBOOK_gam_real_data_trial.md` (written so Cowork can execute it without judgement calls: environment variables, the Docker command with the digest, expected runtime, the exact output path, a checklist of "stop and report" conditions), and the output whitelist test (§3).
 
-**Trial formulas (proposed; Q-R2a finalises).** All on ILEC cells with `offset(log(exposure))` or the binomial form as the family dictates; explicit `bs="cr"`:
-- **T1 (size ladder, smooth only):** `s(attained_age, k=13) + s(duration, k=6) + ti(attained_age, duration, k=c(13,6))`, poisson(log).
-- **T2 (+ parametric block, the target's own shape):** T1 + `face_band + smoker + face_band:smoker`; also `binomial(cloglog)`, the target formula's family.
-- **T3 (+ factor-`by`, `select=TRUE`):** T2 + `s(attained_age, by=smoker)` (R1's capability) with `select=TRUE`.
-Each at **three aggregation granularities** (coarse → full key set) so the profile shows how time scales with cells and with penalties, not at one point.
+**Trial formulas (maintainer-approved with changes, 2026-10-10).** Explicit `bs="cr"`; family **Poisson(log) with `offset(log(exposure))`** where `exposure` is `Policies_Exposed` (fractional, so a binomial trial count only approximately — maintainer review); `smoker` has **three levels `NS`/`S`/`U`** (loader canonical labels; the file's codes are `NS`/`S`/`U`, not the dictionary's `N`) and **`U` is kept as its own level** in every main fit (it is not a blend of NS and S, its share is stable across 2012-2019, and excluding it drops a large part of the data).
+- **T1 (smooth only):** `s(attained_age, k=13) + s(duration, k=6) + ti(attained_age, duration, k=c(13,6))`.
+- **T2 (+ parametric block, the target's own shape):** T1 + `face_band + smoker + face_band:smoker`.
+- **T3 (+ factor-`by`, `select=TRUE`):** T2 + `s(attained_age, by=smoker)` (R1's capability).
+- **Sensitivities (each one fit, reported as agreement/timing only):** **S1** the target's own family on T2: `binomial(cloglog)` with the proportion response and `weights = exposure` (the parity plan's `bam(..., family = binomial(link = "cloglog"), weights = ExposCnt)`), labelled an approximation when exposure is fractional; **S2** T3 with `U` dropped (agreement on both fits is whitelist; the S-vs-NS contrast itself is **not** committed, per §3); **S3** T3 plus a cohort term (`issue_year = calendar_year - duration + 1`, derived from mapped columns, no loader change), to separate `U` from issue cohort.
+Each at **three aggregation granularities**: **coarse** (age x calendar year), **mid** (+ duration, sex, smoker), **full = exactly the key set of the committed banded run** (`MEASUREMENT_experience_gam_ilec.md`), so the profile is comparable with committed numbers. Collapsing rows to cells is lossless for Poisson counts with an exposure offset, so a cell fit is the same model as the row fit.
+
+**Data rules the runbook pins and the script asserts (from the maintainer's data review).** `Duration` is a 1-based policy year and `Attained_Age = Issue_Age + Duration - 1` holds across the file (assert it; it matches the loader's `(d-1)*12`); `Age_Ind` is coded `ANB`/`ALB` and the loader ignores it (no code change); zero-exposure rows are dropped **after asserting zero deaths on them**; `ExpDth_VBT2015_Cnt` is populated so `include_expected` gives SOA's independent A/E check if wanted (not required by this epic); and **before using the full 2012-2019 window** the run checks whether the 2018-2019 composition change reflects a new submitting company — a stop-and-report condition whose numbers stay local (the maintainer then picks the window). The runbook also records the corrected dictionary note: `U` is not confined to issue years before 1981.
+
+**Time and machine.** Ceiling **10 minutes, a ceiling and not a target, applying to the Polaris fit only** (not the `mgcv` oracle, which may take far longer). The reference figure of about 10 minutes for about 10M rows came from `mgcv::bam`, which this repository does not implement, so it is not an oracle time for `gam`. The comparison is `mgcv::gam` on the same banded cells on the same machine; the Polaris/`mgcv::gam` wall-time ratio is recorded and gated at a value the maintainer sets before the run (Q-R2b2). The **reference machine is fixed by the first R2 run**: the runbook records its description (CPU model, cores, RAM, OS, Docker limits, `OPENBLAS_NUM_THREADS`) in the result file, and a result from any other machine is labelled non-comparable for the budget.
 
 **The question the profile answers.** For each formula/granularity: wall time split into design assembly, IRLS/PIRLS, REML gradient/Hessian, outer iterations; peak memory; iterations; how time grows with cells (n) and coefficients (p). The decision it feeds is R3's.
 
 **Claim sentence.** *Polaris (`gam()`) fits the formula from the ILEC-derived columns; `mgcv` (pinned digest, `gam(method="REML")`) fits the same string on the same columns; compared on `eta`, `edf_total`, `Vp` `se`, per-term edf, `log10(sp)`, REML score.* INDEPENDENT; tier L. Real-data disagreements are results: they are recorded, the construct is refused or flagged, and the epic moves on (§5 rule 3).
 
-**Acceptance.** For each formula/granularity, either the existing gates are met or the disagreement is characterised with a named mechanism class (ADR-241 rule: basis / criterion / outer search / other); timings and sizes recorded; the profile table committed as derived scalars (subject to Q-R2c). **Release condition:** R1 DONE (T3 needs it); the routine half can start as soon as R1's code is merged.
+**Acceptance.** For each formula/granularity, either the existing gates **and the scale-aware criterion** are met or the disagreement is characterised with a named mechanism class (ADR-241 rule: basis / criterion / outer search / other); timings and sizes recorded; the profile table committed as derived scalars (subject to Q-R2c). **Release condition:** R1 DONE (T3 needs it); the routine half can start as soon as R1's code is merged.
 
 ### Slice R3 — scale: exact speedups, or `bam` with `discrete=TRUE`
 
 **Decided by R2's profile, not before.** Maintainer reserved scope decision (`ROUTINE_MGCV_PARITY.md`, "may not decide") is recorded here as: *`bam`/`fREML`/`discrete=TRUE` ENTER scope conditionally — if and only if R2 shows exact speedups cannot meet the time budget.* The two branches:
 - **R3-exact:** speedups that leave every output unchanged to rounding (collapse rows to unique covariate cells with exposure as weights; blocked/streamed `X'WX`; avoiding dense `n × p` temporaries). Verified by a bit-tolerance equivalence test against the current path **and** unchanged tier-3 cells. No new oracle.
 - **R3-bam:** `fREML` + discretised covariates as a **new algorithm** (ladder L9/L10; Wood/Li/Shaddick/Augustin). The oracle becomes `bam(discrete=TRUE)`; the claim sentence, gates and what "agree" means are **derived in the slice's ADR before code** (a different criterion is not a faster REML). Earlier measurement for context: `bam` vs `gam` at fixed `sp` on a `paraPen`-only model agrees to 2.1e-12, and `bam` at 125,000 rows took 1.69 s (PLAN-parity, deferral note).
-- **Release condition:** R2 recorded and the budget (Q-R2b) unmet by the unmodified fitter. If the budget is met, R3 is closed as "not needed" with the profile as evidence — a success.
+- **Release condition:** R2 recorded and the 10-minute ceiling (or the Q-R2b2 ratio) unmet by the unmodified fitter. Executes **after R4** (maintainer order). If the budget is met, R3 is closed as "not needed" with the profile as evidence — a success.
 
 ### Slice R4 — `tp` (ladder L7) so a bare `s(x)` is accepted
 
-Independent of R2/R3 (maintainer may swap its order with R3). **Claim sentence:** *Polaris builds the thin-plate regression spline design and penalty from the covariate and `k`; `mgcv` builds `smoothCon(s(x, bs="tp", k=))`; Stage A compared on `X` and `S` (exact), Stage B on `eta`/`edf`.* Then: a bare `s(x)` is parsed as `tp` (ADR-248 decision 2), the guide §6 row becomes a supported row, and tier-3 cells are added. Known cost: the eigen-decomposition of the thin-plate penalty (ladder estimate medium-large); `mgcv`'s default `tp` truncation is the usual trap — Stage A first. **Release condition:** after R1; no real-data dependency.
+Independent of R2/R3; executes **second after R2** (maintainer order: R1, R2, R4, then R3 only if needed). **Claim sentence:** *Polaris builds the thin-plate regression spline design and penalty from the covariate and `k`; `mgcv` builds `smoothCon(s(x, bs="tp", k=))`; Stage A compared on `X` and `S` (exact), Stage B on `eta`/`edf`.* Then: a bare `s(x)` is parsed as `tp` (ADR-248 decision 2), the guide §6 row becomes a supported row, and tier-3 cells are added. Known cost: the eigen-decomposition of the thin-plate penalty (ladder estimate medium-large); `mgcv`'s default `tp` truncation is the usual trap — Stage A first. **Release condition:** after R1; no real-data dependency.
 
 ## 5. Rules that keep this epic from spiralling
 
@@ -102,13 +109,14 @@ Independent of R2/R3 (maintainer may swap its order with R3). **Claim sentence:*
 6. **R3 is gated on R2's measurement.** The routine does not pick `bam` because it is the named feature in the objective.
 7. **Questions go to the maintainer the session they arise** (PR body + CONTINUATION "Maintainer questions", with a recommended answer). Work that does not depend on the answer continues.
 
-## 6. Maintainer questions (with recommended answers)
+## 6. Maintainer answers (PR review, 2026-10-10) and what is still open
 
-- **Q-R2a — trial formulas.** Are T1-T3 the right set, and is `face_band` / `smoker` / `attained_age` / `duration` the right covariate mapping for ILEC? *Recommended:* yes as proposed; add a T4 only after T3 reads.
-- **Q-R2b — time budget.** What fit time on your machine is acceptable for the T3-size model (for example: under 10 minutes, under 1 hour)? R3's branch point is this number. *Recommended:* set it before R2 runs, so the result cannot move the goalposts.
-- **Q-R2c — what may be committed.** Timings, sizes and agreement differences (no rates, counts, A/E, level names) under `DATA_LICENSING.md` §5a's position? *Recommended:* yes, in `docs/measurements/`, with the attribution block; the routine never writes them itself.
-- **Q-R2d — aggregation granularities.** Three levels proposed (coarse: age × year; mid: + duration, sex, smoker; full: + plan, face band, preferred class). *Recommended:* accept.
-- **Q-order — R3 vs R4.** *Recommended:* R1, R2, then whichever the profile makes more urgent; default R3 before R4 only if the budget is unmet.
+**Answered:** **Q-R2a** T1-T3 accepted with the changes in R2 (three smoker levels, `U` kept; Poisson with offset as the primary family; `binomial(cloglog)` as sensitivity S1; units pinned in the runbook). **Q-R2b** ceiling 10 minutes on the Polaris fit only, fixed reference machine, gate on the Polaris/`mgcv::gam` ratio (the ratio *value* is open, below). **Q-R2c** yes for timings, sizes and agreement differences; row and cell counts of the banded run are already public; level counts are dropped from the whitelist; contrasts and coefficients are excluded. **Q-R2d** accepted, with `full` = the banded run's key set. **Q-order** R1, R2, R4; R3 only if the ceiling is unmet.
+
+**Still open (recommended answers):**
+- **Q-R2b2 — the ratio threshold.** The value of Polaris/`mgcv::gam` wall time that counts as acceptable. *Recommended:* the maintainer sets it before R2 runs; until then R2 reports the ratio and gates only on the absolute ceiling, so the result cannot move the goalposts.
+- **Q-R2e — the scale-aware agreement criterion.** `max |Δeta| / se.fit <= 0.1` (DoD). *Recommended:* accept 0.1 (numerical error an order of magnitude below statistical error); fixed before R2 runs.
+- **Q-R2f — reference machine.** Is the maintainer's current machine the reference? *Recommended:* yes; the first R2 result file records its description and later results from other machines are labelled non-comparable.
 
 ## 7. Risks, in the order they are likely to bite
 

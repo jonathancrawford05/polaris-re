@@ -25,7 +25,11 @@ parent plan and anchors: `docs/PLAN_mgcv_parity_engine.md`
 > **ACTIVE EPIC POINTER (maintainer, 2026-10-10, ADR-257) — READ THIS FIRST.**
 > The active epic is **`docs/PLAN_gam_real_data_readiness.md`** (`docs/CONTINUATION_gam_real_data_readiness.md`,
 > no slice started). Its slices are R1 `select=TRUE` + factor-`by`, R2 the ILEC trial and profile,
-> R3 scale (gated on R2's measurement), R4 `tp`. **"The PLAN's next unchecked slice" in this file
+> R3 scale (gated on R2's measurement), R4 `tp`; **execution order R1, R2, R4, then R3 only if the
+> time ceiling is unmet** (maintainer, 2026-10-10). **Parity-engine Slice 10 is DONE as a finding
+> (2026-10-10, ADR-256: `mgcv`'s choice of eliminated coefficient is rounding noise on exactly tied
+> candidates, so there is no rule to reproduce; its steps 3-4 were not built); `PLAN_mgcv_parity_engine.md`
+> has no unchecked slice.** **"The PLAN's next unchecked slice" in this file
 > means that plan's next slice.** Read its §2 (definition of done), §3 (the **maintainer-run step
 > protocol** and the derived-scalars-only contract: the routine never has the ILEC data, and a
 > real-data slice ends the cloud session as WAITING ON MAINTAINER RUN) and §5 (the rules that keep it
