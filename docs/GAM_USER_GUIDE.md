@@ -151,6 +151,7 @@ construct named). Nothing in the preview falls back to a guess.
   candidates (its per-term edf moves by 1.0 and `Vc` `se` by up to 4% between two thread
   counts of the same image), so there is no rule to reproduce (ADR-256). `Vp`-based standard errors, `eta` and `edf_total`
   do not depend on that choice; per-term edf does (§5).
+- **`select=TRUE` with a bare smooth beside a factor-`by` smooth** of the same covariate is refused (§6): over 15 draws per cell the Newton search stopped, converged by its own test, at a point `mgcv` scores lower in 8 of 60 fits (ADR-258). The forms without the bare smooth agreed in 60 of 60.
 - **Size.** The largest verified fit is the 5,000-row, 15-penalty cell in the report. A
   30,000-row fit was run for Polaris alone (it converges in about 40 s on the development
   box) but has no `mgcv` side — plain `gam()` does not finish at that size and `bam` is out

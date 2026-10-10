@@ -25119,3 +25119,44 @@ After ADR-254 (preview released) and ADR-255/256 (rank-deficient designs), the f
 
 ### Not decided here
 That the 1.5 ratio trigger applies to T1-T3 at `full` granularity only (Q-R2b2 confirmation). Nothing is wired into pricing.
+
+
+## ADR-258: GAM real-data readiness Slice R1 — `select=TRUE` with a factor-`by` smooth: `f + s(x, by=f)` and `s(x, by=f)` agree with `mgcv` (INDEPENDENT, tier 3); the bare-smooth-beside-`by` forms are a recorded limitation and stay refused by name
+
+**Date:** 2026-10-10. **Status:** accepted (code and the tier-1 reading committed before the tier-3 dispatch). PR title class: **`feat(mgcv-parity)`** — every compared column is INDEPENDENT; one construct disagrees, which is the result. Mechanism class of the disagreement: (iii) outer search / plateau (see below) — not a new slice, no start strategy (PLAN §5 rules 3-4). Goldens untouched (no pricing path calls `fit_polaris_gam`).
+
+### Claim sentence (ADR-193), written before the code
+*Polaris (`gam()` → `fit_polaris_gam`) fits `select=TRUE` with a factor-`by` smooth from the formula string and the data columns (assembly, one null-space penalty per `by` level, Newton free-`sp`); `mgcv` fits `gam(<same string>, method="REML", select=TRUE)`; compared on `eta`, `edf_total`, per-smooth edf, term structure, the `Vp` and `Vc` `se` (predict cells) and `log10(sp)` (reported).* No producer takes `mgcv` output (mechanical test unchanged).
+
+### What changed
+1. `gam()` no longer refuses `select=TRUE` with a factor-`by` smooth. It refuses (by name, `PolarisValidationError`) only `select=TRUE` where a bare `cr` smooth of a covariate sits beside a factor-`by` smooth of the same covariate (`_refuse_select_with_bare_and_factor_by`). The assembler already appended a null-space penalty per `by`-level term; nothing numeric changed.
+2. Probes: 8 formula cells (`by_only`, `main_by` x 4 families), 2 predict cells (`gaussian_select_factor_by_main`, `poisson_select_factor_by_only`: `Vp` and `Vc` `se` gated), `gam_pivot_stability_probe.R` extended with `select=TRUE` cases (R1-b), and `gam_select_bare_by_draws_probe.R` / `_compare.py` (4 forms x gaussian/poisson x 15 draws), wired into the workflow and the generated parity report (section 6). The summary comparison picks the formula cells up automatically and gates their per-term edf (unpivoted fits).
+3. Tests: `tests/test_gam/test_select_factor_by.py` (R1-a structurally: the shared direction is unidentified without `select` and identified with it; one rank-1 PSD null-space block per `by` level; no pivot, no warning, `Vc` available; the refusal text). Two existing tests asserted the old blanket refusal (`test_select_with_a_factor_by_smooth_is_refused`, the guide-table refusal row): they were rewritten because the capability they pinned was deliberately lifted by this slice; the refusal they exercised now holds for the bare-smooth form only.
+
+### Pre-registered predictions (PLAN R1-a..d) and their readings
+- **R1-a (no pivot under `select`)**: HELD, structurally (closed-form test) and on every fit (no `PolarisRankDeficiencyWarning`, `pivoted_columns == ()`), tier 1 and tier 3.
+- **R1-b (`mgcv` thread-stable on these cells)**: HELD, tier 3 (run 38081942434, `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, mgcv 1.9.4 / R 4.6.1): 24 `select=TRUE` draws (`s(x)+s(x,by=f)` with and without `f`, plain `s(x)+s(x,by=f)+s(x,by=g)`, `f+s(x,by=f)`) under `OPENBLAS_NUM_THREADS` 1 vs 4: per-term edf, `edf_total`, `Vp` `se` and `Vc` `se` differ by exactly 0 in all 24, and `mgcv`'s rank equals the number of coefficients (nothing eliminated; two draws show an exactly-zero coordinate in the reparameterised basis, which is a shrunk term, not a rank loss). So per-term edf and `Vc` are gateable on the unpivoted fits, and are.
+- **R1-c (`eta` / `edf_total` inside ADR-221; `log10(sp)` reported)**: HELD on the accepted forms (below).
+- **R1-d (the free-`sp` search may stop wrongly on some per-level null-space blocks)**: **PARTLY TRUE, and it is the result.** It occurs only when a bare smooth of the covariate sits beside the `by` smooth (below).
+
+### Reading — tier 3 (the committed numbers)
+CI run **38081942434**, commit `ac78ec0`, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, mgcv 1.9.4 / R 4.6.1, `OPENBLAS_NUM_THREADS=1`. All columns INDEPENDENT.
+
+| comparison | cells | result |
+|---|---|---|
+| formula, 4 families x {`s(x,by=f)`, `f+s(x,by=f)`}, one draw each | 8 | all agree and all converge from one Newton start; `eta` <= 1.3e-03, `edf_total` <= 0.0058 (binomial / quasi-Poisson worst), per-smooth edf <= 4.5e-03 |
+| summary (`summary.gam`), same 8 cells | 8 | all agree; per-term edf gated (unpivoted) |
+| predict, 2 cells, `Vp` / `Vc` `se` | 2 | `gaussian_select_factor_by_main` 3.1e-07 / 3.3e-07; `poisson_select_factor_by_only` 1.3e-11 / 3.3e-03 (gate 2e-02); neither covariance refused |
+| 15-draw probe, accepted forms | 60 fits | **60 of 60 agree**; max `eta` diff 6.9e-04, max `edf_total` diff 6.5e-03; 0 not converged; score gap with `mgcv`'s `sp` 0.000 on every row |
+| 15-draw probe, REFUSED forms (bare `s(x)` beside the `by`) | 60 fits | **52 of 60 agree; 8 do not**: gaussian `bare_by` 14/15 (max `eta` 3.1e-02), `main_bare_by` 14/15 (3.0e-02); poisson `bare_by` 12/15 (1.2e-01), `main_bare_by` 12/15 (4.6e-02); all 60 converged by Polaris's own criterion; `mgcv`'s `sp` scores lower under Polaris's own REML in the failing draws (most negative gap -1.17) |
+
+Tier-1 readings (hypotheses; local R 4.3.3 / mgcv 1.9.1) were identical to the digit on the draws table.
+
+### The disagreement and its mechanism (class iii)
+On the bare-smooth forms the null spaces of the bare smooth and of the three `by`-level smooths overlap in one direction that `select=TRUE` now penalises, but only through four penalties the data separate weakly. In the failing draws Polaris's Newton stops, converged by its own stationarity test, at a point whose own-criterion score is higher than at `mgcv`'s `sp` (tier 3: gap down to -1.17 in the draws table; 0.000 on every accepted-form row). A tier-1 diagnostic on one such draw (hypothesis, not a committed number: local R 4.3.3 / mgcv 1.9.1) found `mgcv`'s point also stationary under Polaris's criterion and Newton restarted from it staying put (a DIAGNOSTIC start, shipped nowhere). Two stationary points of one criterion: this is the plateau/outer-search class, not a formula or basis defect (the criterion is the verified one, ADR-210/252). By PLAN §5 rules 3-4 and the pre-registered R1-d: **recorded as a limitation, construct refused by name, no start strategy, no tolerance change, no new slice.** It is not escalated to the outer-solver plan because that plan is DONE and rule 4 forbids solver work; the registered release condition is Slice 3b's. The refused forms are fitted by `gam()` without `select=TRUE` (pivoted, Slice 9), unchanged.
+
+### Not claimed
+Not `select=TRUE` with a bare smooth beside a factor-`by` smooth (8 of 60 draws disagree); not that the 15 draws are a coverage guarantee (one synthetic generator, n = 450-600, 3 levels); not larger level counts or real data (R2); not `log10(sp)` (reported only: plateau blocks differ, e.g. 0.15-0.63 on accepted cells); the stability probe (R1-b) measures `mgcv` between two thread counts, not Polaris. `tests/test_gam/test_select_factor_by.py` are MEASUREMENTS of Polaris's own structure, not parity.
+
+### Consequences
+`GAM_USER_GUIDE.md` §5 gains the supported row and §6 the narrower refusal row; `MGCV_FEATURE_COVERAGE.md` updated; PLAN R1 DONE with the limitation; R2 is next (release condition: R1 code merged).
