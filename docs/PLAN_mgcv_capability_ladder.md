@@ -7,6 +7,13 @@
 > below — this reopening only appends.** Slices 6-7 are registered below and
 > this is this epic's own next work — **not a queue-empty state.**
 
+> **RESEQUENCED AGAIN 2026-10-10 (maintainer; ADR-257).** The active epic is
+> `docs/PLAN_gam_real_data_readiness.md`. Of this ladder it takes only **L7 `tp`** (its R4) and,
+> conditionally on a real-data profile, **L9/L10 `fREML`/`bam`/`discrete=TRUE`** (its R3). **Slice 6b is
+> superseded:** `select=TRUE` on `cr + re + ti` is already supported (ADR-252); its residual,
+> `select=TRUE` with a factor-`by` smooth, is that epic's R1. L11 `sz` free-`sp` is parked; L6 `fs` and
+> L8 `te`/`t2` stay behind that epic.
+
 > **RESEQUENCED 2026-10-05 (maintainer; `ROUTINE_MGCV_PARITY.md`, SLICE 4
 > CLOSURE RULE).** This epic resumes after `docs/PLAN_gam_parity_preview.md`,
 > not directly after the outer-solver epic's Slice 4. The "resume after that

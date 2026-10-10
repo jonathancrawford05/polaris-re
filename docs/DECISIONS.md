@@ -25091,3 +25091,31 @@ Not that Polaris's `Vc` or per-term edf is wrong (no Polaris producer here); not
 
 **Amendment 1, attribution:** the warning is attributed to the caller on both paths: `fit_polaris_gam(..., warn_stacklevel=2)` for direct calls, and `gam()` passes 3 (test `test_the_rank_deficiency_warning_points_at_the_gam_caller`). The first version pointed at `api.py` through `gam()` (review P2).
 **Tracked, then done:** `docs/GAM_PARITY_REPORT.md` is generated and showed the Slice 9 run (per-term edf 1.002, no "not gated" marker); it was regenerated in this PR from tier-3 run 38017135360 (verbatim generator output).
+
+
+## ADR-257: GAM real-data readiness epic start — factor-`by` with `select=TRUE`, an ILEC trial with a local evidence tier, a measurement-gated scale decision, and `tp`
+
+**Date:** 2026-10-10. **Status:** proposed; accepted when the maintainer approves the PR (revised 2026-10-10 after the maintainer's review comments). Plan-only: no `src/`, test or golden change. Opens `docs/PLAN_gam_real_data_readiness.md` and `docs/CONTINUATION_gam_real_data_readiness.md`; the `ROUTINE_MGCV_PARITY.md` ACTIVE EPIC POINTER now names this plan. Mechanism-class and provenance rules of ADR-193 / ADR-241 are unchanged.
+
+### Context
+After ADR-254 (preview released) and ADR-255/256 (rank-deficient designs), the fitter handles a verified subset on synthetic cells only. The maintainer wants it proven on real SOA-ILEC data, with performance in view, before it is exposed or wired into pricing; and wants `select=TRUE` with factor-`by` first because the real formulas need it.
+
+### Decisions
+1. **Epic and order.** Four slices, none split: R1 `select=TRUE` + factor-`by`; R2 ILEC trial and profile; R3 scale (gated on R2); R4 `tp`. `sz` free-`sp` is parked (maintainer, 2026-10-10); `tp` is promoted because a bare `s(x)` is `tp` in `mgcv` and real formulas use bare smooths.
+2. **A new evidence tier, "tier L".** The pinned image digest run locally on the maintainer's machine (the routine's former "tier 2", unavailable in the cloud). Same digest as tier 3, so the oracle is the same object; what differs is that the machine, BLAS threads and data are the maintainer's. A tier-L number must carry the digest, `OPENBLAS_NUM_THREADS`, the Polaris commit and the machine description; it is committable where tier 3 is only when labelled "tier L, real data, maintainer-run"; it never replaces a tier-3 number on a synthetic cell; wall-clock is never compared across machines.
+3. **Derived-scalars-only contract for real data, enforced by test.** The trial writes only sizes, timings, iteration counts, memory, edf, `log10(sp)`, REML, scale, convergence flags and differences from `mgcv`; no row, key, level name, count, rate, A/E or fitted curve. A whitelist test on a synthetic fixture fails on any other key. This extends Design Anchor 6 / `DATA_LICENSING.md` from "no data in the repo" to "no data-derived quantities beyond this list".
+4. **Maintainer-run step protocol.** Real-data slices end the cloud session as "WAITING ON MAINTAINER RUN" (a legitimate stop condition) and are DONE when the maintainer's result is recorded, whatever it says. Cowork executes the runbook; the routine never has the data.
+5. **Scope of `bam` / `fREML` / `discrete=TRUE`.** The routine file reserves "whether `bam(discrete=TRUE)` enters scope early" for the maintainer. Proposed by the planning session and agreed by the maintainer in chat and in the PR review (2026-10-10), taking effect when the maintainer approves this PR: they **enter scope conditionally** — only if R2's profile shows exact speedups cannot meet the 10-minute ceiling on the Polaris fit (or the Polaris/`mgcv::gam` wall-time ratio exceeds 1.5 on a main-fit formula at `full` granularity: Q-R2b2, answered 2026-10-10). "Investigating `bam`" opens R3 with R2's profile deciding between exact speedups and `bam`; it does not pre-commit to it. R3 executes after R4. It is a different algorithm and criterion, so its claim sentence, gates and oracle are derived in its own ADR before code.
+6. **Pre-registered predictions for R1** (PLAN R1-a..d), including the pre-decided handling of a non-converging per-level null-space block: record the limitation and keep the construct refused by name; no start strategy or solver tuning.
+7. **Ladder bookkeeping.** `PLAN_mgcv_capability_ladder.md` Slice 6b is superseded for `select=TRUE` on `cr + re + ti` (supported since ADR-252); its residual, factor-`by` under `select=TRUE`, is R1.
+
+### Decided in the maintainer's review of the PR (2026-10-10)
+- **Reference machine:** the maintainer's current MacBook (Q-R2f), with the architecture/emulation and thermal fairness rules in PLAN R2.
+- **Order:** R1, R2, R4; R3 only if the ceiling is exceeded or the wall-time ratio is above 1.5.
+- **Time:** a 10-minute ceiling (not a target) on the Polaris fit only, on a fixed reference machine; compared with `mgcv::gam` on the same cells and machine, the ratio reported and a ratio above 1.5 triggering the `bam` investigation (the `bam` timing the maintainer quoted is not an oracle time for `gam`).
+- **Trial formulas:** Poisson(log) with an exposure offset as primary; `smoker` has three levels with `U` kept, plus the sensitivities S1-S3; `full` granularity = the committed banded run's key set.
+- **Commit rules:** timings, sizes and agreement differences only; level counts dropped from the whitelist; no coefficient or contrast from ILEC is committed.
+- **Scale-aware agreement criterion** `max |Δeta| / se.fit <= 0.1` as the gate, with any reading above 0.01 flagged for investigation, in addition to ADR-221's gates, fixed before R2 runs (Q-R2e, confirmed 2026-10-10).
+
+### Not decided here
+That the 1.5 ratio trigger applies to T1-T3 at `full` granularity only (Q-R2b2 confirmation). Nothing is wired into pricing.

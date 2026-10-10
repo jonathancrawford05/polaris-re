@@ -18,18 +18,30 @@
 > the box is a maintainer edit nobody else can make.
 **Repo:** `jonathancrawford05/polaris-re`
 **Connectors:** GitHub
-**Plan:** `docs/PLAN_gam_parity_preview.md` (the ACTIVE epic from 2026-10-06, ADR-248);
+**Plan:** `docs/PLAN_gam_real_data_readiness.md` (the ACTIVE epic from 2026-10-10, ADR-257; previous: `docs/PLAN_gam_parity_preview.md`, DONE);
 parent plan and anchors: `docs/PLAN_mgcv_parity_engine.md`
 **Created:** 2026-08-10, from maintainer direction plus the measurements in the parent PLAN §1.
 
-> **ACTIVE EPIC POINTER (maintainer, 2026-10-06, ADR-248) — READ THIS FIRST.**
-> The active epic is **`docs/PLAN_gam_parity_preview.md`**. Epic started 2026-10-06
-> (ADR-249); `docs/CONTINUATION_gam_parity_preview.md` is IN PROGRESS; Slices P1-P5 are DONE
-> (ADR-250, ADR-251, ADR-253, ADR-254; PR #262 approved by the maintainer for merge, Q7-Q9 answered). **The preview epic is complete and parity-engine Slice 9 (rank pivoting) is DONE 2026-10-09 (ADR-255; its two limitations, `Vc` refused and per-term edf pivot-dependent, are interim, see Slice 10). Q10 was ANSWERED 2026-10-10 (maintainer): the two limitations are NOT accepted; parity-engine Slice 10 (reproduce `mgcv`'s pivot choice; its step 2 stability check comes before any code) is registered, and the next session after PR #263 merges takes it.** "The PLAN's next unchecked slice" in
-> this file means **that** plan's next slice. Read its §2 (definition of done)
-> and §4 (the rules that keep it from spiralling) before anything else — they
-> bind this routine as firmly as the nevers below. The capability ladder
-> (6b, L6-L11) waits behind it.
+> **ACTIVE EPIC POINTER (maintainer, 2026-10-10, ADR-257) — READ THIS FIRST.**
+> The active epic is **`docs/PLAN_gam_real_data_readiness.md`** (`docs/CONTINUATION_gam_real_data_readiness.md`,
+> no slice started). Its slices are R1 `select=TRUE` + factor-`by`, R2 the ILEC trial and profile,
+> R3 scale (gated on R2's measurement), R4 `tp`; **execution order R1, R2, R4, then R3 only if the
+> 10-minute ceiling is exceeded or the Polaris/`mgcv::gam` wall-time ratio is above 1.5** (maintainer, 2026-10-10). **Parity-engine Slice 10 is DONE as a finding
+> (2026-10-10, ADR-256: `mgcv`'s choice of eliminated coefficient is rounding noise on exactly tied
+> candidates, so there is no rule to reproduce; its steps 3-4 were not built); `PLAN_mgcv_parity_engine.md`
+> has no unchecked slice.** **"The PLAN's next unchecked slice" in this file
+> means that plan's next slice.** Read its §2 (definition of done), §3 (the **maintainer-run step
+> protocol** and the derived-scalars-only contract: the routine never has the ILEC data, and a
+> real-data slice ends the cloud session as WAITING ON MAINTAINER RUN) and §5 (the rules that keep it
+> from spiralling) before anything else; they bind this routine as firmly as the nevers below.
+> Tier L ("pinned digest run locally by the maintainer", ADR-257 decision 2) is a labelled
+> evidence tier for real-data runs only.
+>
+> *Previous pointer (2026-10-06, ADR-248): `docs/PLAN_gam_parity_preview.md` — DONE (P1-P5,
+> ADR-249..254); parity-engine Slice 9 DONE (ADR-255) and Slice 10 DONE as a finding (ADR-256:
+> `mgcv`'s choice of eliminated coefficient is rounding noise on tied candidates, so there is no
+> rule to reproduce). The capability ladder (6b, L6-L11) waits behind the new epic, except L7 `tp`,
+> which is R4.*
 >
 > *Previous pointer (2026-10-03, ADR-241): `docs/PLAN_wood_outer_solver.md` —
 > DONE 2026-10-06 (ADR-248). Its §1-§2 still record why eleven slices circled
