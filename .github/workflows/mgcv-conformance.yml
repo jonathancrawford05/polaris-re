@@ -422,8 +422,8 @@ jobs:
             echo
             echo "Producer: mgcv only (MEASUREMENT of mgcv against itself and its own gdiPK recipe; no Polaris side)."
             echo
-            echo "| case | seed | observed (T basis) t=1 | observed t=4 | same across threads | recipe reproduces | candidates | spread |"
-            echo "|---|---:|---|---|---|---|---:|---:|"
+            echo "| case | seed | observed (T basis) t=1 | observed t=4 | same across threads | recipe reproduces | candidates | spread | max per-term edf diff t1 vs t4 | edf_total diff | Vc se rel diff | Vp se rel diff |"
+            echo "|---|---:|---|---|---|---|---:|---:|---:|---:|---:|---:|"
           } >> "$GITHUB_STEP_SUMMARY"
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
           import json
@@ -433,7 +433,11 @@ jobs:
           for x, y in zip(a["cases"], b["cases"]):
               same = x["observed"] == y["observed"]
               print(f"| {x['label']}/{x['form']} | {x['seed']} | {x['observed']} | {y['observed']} | "
-                    f"{same} | {x['predicted_equals_observed']} | {x['n_candidates']} | {x['candidate_spread']:.1e} |")
+                    f"{same} | {x['predicted_equals_observed']} | {x['n_candidates']} | {x['candidate_spread']:.1e} | "
+                    f"{max(abs(u - v) for u, v in zip(x['term_edf'], y['term_edf'])):.3e} | "
+                    f"{abs(x['edf_total'] - y['edf_total']):.1e} | "
+                    f"{abs(x['se_vc_mean'] - y['se_vc_mean']) / x['se_vc_mean']:.2e} | "
+                    f"{abs(x['se_vp_mean'] - y['se_vp_mean']) / x['se_vp_mean']:.2e} |")
           PY
 
       # PLAN_mgcv_parity_engine.md slice 1's one named risk, on the authoritative oracle.

@@ -41,10 +41,15 @@ one <- function(label, form, seed, perm = 1:4, n = 300, k = 8) {
   pv <- qr(M, LAPACK = TRUE)$pivot; pred <- sort(tail(pv, q - m$rank))
   bT <- as.numeric(t(T) %*% coef(m)); obs <- which(abs(bT) < 1e-10 * max(abs(bT)))
   av <- abs(svd(M)$v[, q]); cand <- which(av > 0.9 * max(av))
+  pv_c <- predict(m, se.fit = TRUE, unconditional = TRUE)$se.fit
+  pv_p <- predict(m, se.fit = TRUE, unconditional = FALSE)$se.fit
+  term_edf <- vapply(m$smooth, function(sm) sum(m$edf[sm$first.para:sm$last.para]), numeric(1))
   list(label = label, form = form, seed = seed, perm = paste(perm, collapse = ""), q = q,
        rank = m$rank, observed = as.list(sort(obs)), predicted = as.list(pred),
        predicted_equals_observed = setequal(pred, obs), n_candidates = length(cand),
-       candidate_spread = (max(av[cand]) - min(av[cand])) / max(av))
+       candidate_spread = (max(av[cand]) - min(av[cand])) / max(av),
+       edf_total = sum(m$edf), term_edf = as.list(term_edf),
+       se_vc_mean = mean(pv_c), se_vp_mean = mean(pv_p))
 }
 cases <- list()
 for (s in 1:6) cases[[length(cases) + 1]] <- one("baseline", "main", s)
