@@ -25115,7 +25115,7 @@ After ADR-254 (preview released) and ADR-255/256 (rank-deficient designs), the f
 - **Time:** a 10-minute ceiling (not a target) on the Polaris fit only, on a fixed reference machine; compared with `mgcv::gam` on the same cells and machine, the ratio reported and a ratio above 1.5 triggering the `bam` investigation (the `bam` timing the maintainer quoted is not an oracle time for `gam`).
 - **Trial formulas:** Poisson(log) with an exposure offset as primary; `smoker` has three levels with `U` kept, plus the sensitivities S1-S3; `full` granularity = the committed banded run's key set.
 - **Commit rules:** timings, sizes and agreement differences only; level counts dropped from the whitelist; no coefficient or contrast from ILEC is committed.
-- **Scale-aware agreement criterion** `max |Δeta| / se.fit <= 0.1` in addition to ADR-221's gates, fixed before R2 runs (recommended value, awaiting confirmation as Q-R2e).
+- **Scale-aware agreement criterion** `max |Δeta| / se.fit <= 0.1` as the gate, with any reading above 0.01 flagged for investigation, in addition to ADR-221's gates, fixed before R2 runs (Q-R2e, confirmed 2026-10-10).
 
 ### Not decided here
-Confirmation of the 0.1 criterion (Q-R2e), and that the 1.5 ratio trigger applies to T1-T3 at `full` granularity only (Q-R2b2 confirmation). Nothing is wired into pricing.
+That the 1.5 ratio trigger applies to T1-T3 at `full` granularity only (Q-R2b2 confirmation). Nothing is wired into pricing.

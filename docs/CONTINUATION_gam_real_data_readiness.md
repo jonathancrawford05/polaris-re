@@ -17,7 +17,7 @@
 ## Maintainer questions
 **Answered 2026-10-10 (PR #265 review):** Q-R2a (T1-T3 with changes: three smoker levels, `U` kept, Poisson+offset primary, S1-S3 sensitivities), Q-R2b (10-minute ceiling, Polaris fit only, fixed reference machine, ratio against `mgcv::gam`), Q-R2c (timings, sizes, agreement differences; no coefficients or contrasts), Q-R2d (`full` = the banded run's key set), Q-order (R1, R2, R4; R3 only if needed).
 **Q-R2b2 answered (2026-10-10): report the Polaris/`mgcv::gam` ratio; above 1.5 requires investigating `bam`.**
-**Open (recommended answers in PLAN §6):** **Q-R2b2 confirmation** (applies to T1-T3 at `full` granularity only); **Q-R2e** confirm `max |Δeta| / se.fit <= 0.1` as the scale-aware criterion. **Q-R2f answered (2026-10-10): the maintainer's current MacBook is the reference machine** (PLAN R2 records the emulation and thermal fairness rules).
+**Open (recommended answers in PLAN §6):** **Q-R2b2 confirmation** (applies to T1-T3 at `full` granularity only); **Q-R2e answered (2026-10-10): gate `max |Δeta| / se.fit` at 0.1, flag above 0.01.** **Q-R2f answered (2026-10-10): the maintainer's current MacBook is the reference machine** (PLAN R2 records the emulation and thermal fairness rules).
 
 ## Carried over (not part of this epic's slices)
 - Parity-engine Slice 10 is DONE as a finding (ADR-256); its standing limitations apply to any *pivoted* fit.
