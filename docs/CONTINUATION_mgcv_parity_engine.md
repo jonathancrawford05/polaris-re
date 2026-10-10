@@ -1958,3 +1958,5 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 **Q13 ANSWERED 2026-10-10 (maintainer): yes** — per-term edf of pivoted fits no longer gated (reported); `Vc` stays refused; plus a `PolarisRankDeficiencyWarning` at fit time (ADR-256 amendment 1). Tier-3 re-dispatch of the summary comparison follows.
 
 **`docs/GAM_PARITY_REPORT.md` regenerated in PR #264** verbatim from the generator's own log output of tier-3 run 38017135360 (commit `a290801`; the later commits change no number-producing code).
+
+**2026-10-10 pointer:** the active epic is now `docs/PLAN_gam_real_data_readiness.md` (ADR-257). This parity-engine plan has no unchecked slice.
