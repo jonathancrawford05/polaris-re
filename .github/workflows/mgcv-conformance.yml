@@ -381,8 +381,6 @@ jobs:
             Rscript scripts/ks_formula_probe.R \
               data/mgcv_exchange/synthetic \
               ks_formula_probe.json
-            gam_pivot_stability_probe_t1.json
-            gam_pivot_stability_probe_t4.json
           {
             echo
             echo "### ADR-190 — is \`Vc\` equal to \`Vb + J V_rho Jᵀ\`?"
@@ -980,6 +978,8 @@ jobs:
           path: |
             mgcv_reference.json
             ks_formula_probe.json
+            gam_pivot_stability_probe_t1.json
+            gam_pivot_stability_probe_t4.json
             smoothcon_lpmatrix_probe.json
             gam_term_extract.json
             gam_family_probe.json

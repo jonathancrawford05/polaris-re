@@ -388,7 +388,7 @@ def pivot_design(design: ModelDesign) -> ModelDesign:
     )
 
 
-def _warn_if_rank_deficient(full: ModelDesign, pivoted: ModelDesign) -> None:
+def _warn_if_rank_deficient(full: ModelDesign, pivoted: ModelDesign, *, stacklevel: int) -> None:
     """Warn, once per fit, when the specification has unidentified coefficients (ADR-256).
 
     This is the single choke point: ``gam()`` and every direct ``fit_polaris_gam`` call
@@ -415,7 +415,7 @@ def _warn_if_rank_deficient(full: ModelDesign, pivoted: ModelDesign) -> None:
         "should not be interpreted. To remove the redundancy, drop the bare s(x) and fit "
         "f + s(x, by=f).",
         PolarisRankDeficiencyWarning,
-        stacklevel=3,
+        stacklevel=stacklevel,
     )
 
 
@@ -721,6 +721,7 @@ def fit_polaris_gam(
     step_halving: bool = False,
     initial_sp_start: bool = False,
     outer: Literal["lbfgsb", "newton"] = "newton",
+    warn_stacklevel: int = 2,
 ) -> PolarisGAMFit:
     """Fit ``model`` to ``data``/``y``, selecting every smoothing parameter by
     REML — by default the safeguarded Newton search
@@ -731,6 +732,9 @@ def fit_polaris_gam(
     when ``multistart=True``).
 
     Args:
+        warn_stacklevel: ``warnings.warn`` stack level, relative to the caller of this
+            function (2 = the caller); a wrapper such as ``gam()`` passes 3 so the
+            rank-deficiency warning points at *its* caller (ADR-256).
         model: family/link/terms/weights/offset (Anchor 5 — both may be set
             at once, and neither is inferred from the other).
         data: covariate arrays keyed by name, read by
@@ -898,7 +902,7 @@ def fit_polaris_gam(
         )
     full_design = assemble_model_design(model, data)
     design = pivot_design(full_design)
-    _warn_if_rank_deficient(full_design, design)
+    _warn_if_rank_deficient(full_design, design, stacklevel=warn_stacklevel + 1)
     family = resolve_family(model.family, model.link)
     weights = (
         None

@@ -485,7 +485,7 @@ def gam(
         parsed, data, family_name, link, weights, offset or parsed.offset, select
     )
     y = _numeric(data, parsed.response)
-    fit = fit_polaris_gam(model, arrays, y)
+    fit = fit_polaris_gam(model, arrays, y, warn_stacklevel=3)
     if not fit.converged:
         warnings.warn(
             "gam(): the REML search did not meet its convergence criterion; treat the fit "

@@ -1,7 +1,7 @@
 # Dev session log — 2026-10-10 — mgcv parity: Slice 10 (reproduce `mgcv`'s pivot) — a finding, not a rule
 
 **Branch:** `claude/dreamy-galileo-2j6swv` (environment-designated; draft PR #264). **PR title class:** `harness(mgcv-parity)` — no Polaris-vs-`mgcv` comparison landed; the evidence is `mgcv` against itself. **Box vs repo:** the box names no epic; the repo's pointer (PLAN Slice 10) was followed; no conflict on fact. The first pass of this session stopped at step 1 because the compiled source was unreachable; the maintainer then allowed reading `cran/mgcv` and the slice continued (the earlier "blocked" ledger rows are marked superseded).
-**Perf:** no row (nothing under `src/polaris_re/` changed; ADR-177 amendment 1).
+**Perf:** original slice: no row (docs/scripts only). After the Q13 follow-up `src/polaris_re/` changed (exceptions, gam_model, summary_conformance, gam/api), so one row was appended (ADR-177).
 
 ## Baseline
 Code unchanged since the Slice 9 close. Full suite (`-m "not slow"`, R installed, no `-x`, this branch, code identical to `main`): **5 failed, 4070 passed, 22 skipped, 145 deselected** (726 s). The 5 failures are the standing environmental set (`test_loaded_ilec_feeds_tensor_mi_surface` + four `TestCalibratedPremiums`: no mortality tables here), the same as the Slice 9 log. Passed is +1 against that log's 4069, the test added by its review follow-up (`test_a_vc_refusal_is_waived_only_for_a_pivoted_fit`); this session added no test.
@@ -30,10 +30,16 @@ One comparison, no Polaris producer. Left: `mgcv` under `OPENBLAS_NUM_THREADS=1`
 - Step 3 implement the rule: **NOT MET, because** there is no rule (exact ties decided by rounding).
 - Step 4 lift the `Vc` refusal / restore per-term edf as a gated column: **NOT MET, because** the reference does not reproduce itself on these quantities.
 - Acceptance (per-term edf within ADR-253, `Vc` `se` within 2e-2, plus a new structure): **NOT MET and not meetable against this oracle**; `eta` / `edf_total` / `Vp` `se` stay where Slice 9 left them.
-- Goldens byte-identical: no `src/` or `tests/` change.
+- Goldens byte-identical: MET — the original slice changed no `src/` or `tests/`; the Q13 follow-up changed `src/` and added tests but no golden (`tests/qa/` passes in CI).
 
 ## Follow-ups
 Q13 in the CONTINUATION (recommended: stop gating per-term edf of pivoted fits; keep `Vc` refused). Nothing opened and merely filed. Not run: re-pointing the generated report text (`GAM_PARITY_REPORT.md` is generated; a change needs the Q13 answer and a re-dispatch).
 
 ## Follow-up (Q13 answered yes)
 Per-term edf of pivoted fits is no longer gated and `PolarisRankDeficiencyWarning` is emitted at fit time (ADR-256 amendment 1). Tier 3 (run 38017135360): summary 17 of 17, per-term edf of the two rank-deficient cells printed "not gated". Perf row appended (src changed). Lint failure on the first push was the measurement-stamp check (five documents drifted by the closure change); re-stamped as ASSERTED with a note, because the change is additive and off the measured path (main had 5 ok). Suite baseline above was taken before this follow-up; the follow-up added two tests and changed no other test.
+
+## Review follow-up (automated review of `8252af8`)
+- P1 fixed: my edit had inserted the two probe JSON names into the ADR-190 step (a stray command that failed with exit 127 under `continue-on-error`, silently dropping the ADR-190 table); they now sit in the `upload-artifact` path list where they belong. Lesson: a text replace on a repeated token (`ks_formula_probe.json`) hit the first occurrence; the workflow's own step output should have been checked, not just the job conclusion.
+- P1 fixed: PR body, ADR header and this log's header/DoD lines refreshed.
+- P2 fixed: `warn_stacklevel` so `gam()` attributes the warning to its caller (test added). P2 tracked: regenerate `GAM_PARITY_REPORT.md` after merge.
+- Baseline: the reviewer's serial local run was 4204 passed / 0 failed (mortality tables converted there); my earlier 5 failures were the table-less environment. Not a regression.
