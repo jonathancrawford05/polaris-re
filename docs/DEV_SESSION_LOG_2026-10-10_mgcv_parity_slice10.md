@@ -34,3 +34,6 @@ One comparison, no Polaris producer. Left: `mgcv` under `OPENBLAS_NUM_THREADS=1`
 
 ## Follow-ups
 Q13 in the CONTINUATION (recommended: stop gating per-term edf of pivoted fits; keep `Vc` refused). Nothing opened and merely filed. Not run: re-pointing the generated report text (`GAM_PARITY_REPORT.md` is generated; a change needs the Q13 answer and a re-dispatch).
+
+## Follow-up (Q13 answered yes)
+Per-term edf of pivoted fits is no longer gated and `PolarisRankDeficiencyWarning` is emitted at fit time (ADR-256 amendment 1). Tier 3 (run 38017135360): summary 17 of 17, per-term edf of the two rank-deficient cells printed "not gated". Perf row appended (src changed). Lint failure on the first push was the measurement-stamp check (five documents drifted by the closure change); re-stamped as ASSERTED with a note, because the change is additive and off the measured path (main had 5 ok). Suite baseline above was taken before this follow-up; the follow-up added two tests and changed no other test.
