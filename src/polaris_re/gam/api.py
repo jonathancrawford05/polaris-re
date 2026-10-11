@@ -341,7 +341,8 @@ def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
                 "is not "
                 "supported — measured against mgcv, the free-sp search stops at a point its REML "
                 "scores lower in about 1 draw in 7 with a bare smooth and 1 in 11 with a second "
-                "by-smooth (poisson) (ADR-258, R1-d). Use one smooth of "
+                "by-smooth (poisson), and for a ti term an equal-score ridge with a different "
+                "eta (ADR-258, R1-d). Use one smooth of "
                 f'{var!r}: f + s({var}, by=f, bs="cr"), or fit without select=True '
                 f"({_COVERAGE} §2.3 select row)."
             )
