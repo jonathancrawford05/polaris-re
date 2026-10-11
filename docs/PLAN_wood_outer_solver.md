@@ -178,6 +178,8 @@ everywhere. It either confirms this slice or redirects it.
 - Outcome: the transform was **not wired**. Four hypotheses refuted (ADR-244, ledger); the real defect (derivative path's formed quadratic forms) was fixed instead.
 
 ### Slice 3b — QR-augmented stable solve (Wood 2011 §3.2) — REGISTERED, not started
+
+> **Input from real-data Slice R1 (ADR-258, 2026-10-11):** 29 of 480 `select=TRUE` factor-`by` fits miss `mgcv`; a warning at the stop, a tighter `conv_tol` and a swapped start were each measured and do not explain them. Read `docs/FINDINGS_select_factor_by_outer_search.md` before designing any solver change; it lists what is refuted, the reproduction scripts and the acceptance test.
 Factor `[sqrt(W) X; E]` instead of forming `X'WX + S`, so the factor's condition number is `sqrt(cond H)` (~6e5, not 3.5e11) for the fit, `log|H|` and the `tr(H^-1 S_j)` terms. Needs a non-negative `W` (the observed weight can be negative for a non-canonical link), so the cloglog case needs a design decision first. **Release condition:** a Slice 4 gauntlet case fails on gradient precision with `max |g|` within 2x of its tolerance, or ADR-244's `S`-representation floor (gradient 2.6e-05 at `mgcv`'s point) comes within 10x of a tolerance. Until then it is not needed: the measured floor is 6-100x below the search's tolerance. Mechanism class (iv).
 
 ### Slice 4 — surface: one deterministic solver for every free-`sp` fit — ✅ DONE 2026-10-06 (ADR-245..248)
