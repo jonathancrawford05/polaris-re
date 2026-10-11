@@ -54,6 +54,7 @@ from polaris_re.core.verification import (
 __all__ = [
     "PREDICT_CASE_NAMES",
     "PREDICT_CLAIM",
+    "SELECT_CASE_NAMES",
     "PredictCaseComparison",
     "PredictPayload",
     "PredictRecipe",
@@ -73,7 +74,14 @@ PREDICT_CASE_NAMES: tuple[str, ...] = (
     "gaussian_sz",
     "poisson_hgam",
     "gaussian_select",
+    "gaussian_select_factor_by_main",
+    "poisson_select_factor_by_only",
 )
+
+SELECT_CASE_NAMES: frozenset[str] = frozenset(
+    {"gaussian_select", "gaussian_select_factor_by_main", "poisson_select_factor_by_only"}
+)
+"""Cells fitted with ``select=TRUE`` (the last two are Slice R1, ADR-258)."""
 
 _ETA_TOLERANCE = _AGREEMENT_TOLERANCE_ETA
 """ADR-221's ``eta`` gate (``2e-2``), imported, never redeclared (Anchor W5)."""
@@ -153,6 +161,8 @@ def predict_model_spec(name: str, n_levels: dict[str, int], offset_column: str |
         "poisson_offset": ("poisson", "log"),
         "poisson_hgam": ("poisson", "log"),
         "gaussian_select": ("gaussian", "identity"),
+        "gaussian_select_factor_by_main": ("gaussian", "identity"),
+        "poisson_select_factor_by_only": ("poisson", "log"),
         "gaussian_sz": ("gaussian", "identity"),
     }[name]
     terms: tuple[TermSpec, ...]
@@ -200,6 +210,19 @@ def predict_model_spec(name: str, n_levels: dict[str, int], offset_column: str |
         )
     elif name == "gaussian_select":
         terms = (cr("s(x)", "x", 8), cr("s(z)", "z", 6), cr("s(w)", "w", 6))
+    elif name == "gaussian_select_factor_by_main":
+        terms = (
+            TermSpec(label="f", variables=("f",), basis="parametric", levels=(n_levels["f"],)),
+            *factor_by_terms(
+                base_label="s(x):f", variable="x", k=8, by_factor="f", n_levels=n_levels["f"]
+            ),
+        )
+    elif name == "poisson_select_factor_by_only":
+        terms = tuple(
+            factor_by_terms(
+                base_label="s(x):f", variable="x", k=8, by_factor="f", n_levels=n_levels["f"]
+            )
+        )
     elif name == "gaussian_sz":
         terms = (
             TermSpec(
@@ -217,7 +240,7 @@ def predict_model_spec(name: str, n_levels: dict[str, int], offset_column: str |
         link=link,
         terms=terms,
         offset_column=offset_column,
-        select=name == "gaussian_select",
+        select=name in SELECT_CASE_NAMES,
     )
 
 
