@@ -77,9 +77,11 @@ Review the file by eye; it should read as sizes, timings and differences only. T
 it as `docs/measurements/gam_real_data_trial_<date>.json` (DATA_LICENSING.md §5) or paste it to the
 next session. Delete `$WORK` afterwards (it holds data-derived cell files and per-row `mgcv` output).
 
+T3 runs three ways (T3a `select=FALSE`, T3b `select=TRUE` with the ADR-258 refusal skipped, T3c the
+allowlisted shape); T3b is expected to show the ~1-in-7 plateau misses, which is the point.
+
 ## 5. What the output means
-- `status`: `fitted`; `refused` (Polaris `gam()` refuses the formula by name; T3 as written is
-  expected to be refused, ADR-258/259 — `mgcv` is then not run); `not_run`; `failed`.
+- `status`: `fitted`; `refused` (Polaris `gam()` refuses the formula by name; `mgcv` is then not run); `not_run`; `failed`.
 - Gates (all four must hold; none relaxed): `eta` < 2e-2, `|edf_total|` < 1, `Vp` `se` rel < 2e-2,
   `max |d eta| / se.fit_mgcv` <= 0.1 (flag above 0.01). `score_gap_at_mgcv_sp` > 0 means `mgcv`'s
   `sp` scores worse than Polaris's under Polaris's criterion; < 0 means the outer search stopped

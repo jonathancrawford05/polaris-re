@@ -22,9 +22,14 @@ source("scripts/gam_real_data_trial.R")   # defines extract_mgcv; does not run m
 # script ASSERTS equality with the Python table, so a drift fails loudly.
 T1S <- 's(attained_age, bs="cr", k=13) + s(duration, bs="cr", k=6) + ti(attained_age, duration, bs="cr", k=c(13, 6))'
 T2B <- "face_band + smoker + face_band:smoker"
+BY <- 's(attained_age, bs="cr", k=13, by=smoker)'
 forms <- list(
   T1  = list(formula = paste0("deaths ~ ", T1S, " + offset(log_exposure)"), select = FALSE),
   T2  = list(formula = paste0("deaths ~ ", T1S, " + ", T2B, " + offset(log_exposure)"), select = FALSE),
+  T3a = list(formula = paste0("deaths ~ ", T1S, " + ", T2B, " + ", BY, " + offset(log_exposure)"),
+             select = FALSE),
+  T3b = list(formula = paste0("deaths ~ ", T1S, " + ", T2B, " + ", BY, " + offset(log_exposure)"),
+             select = TRUE),
   T3c = list(formula = paste0('deaths ~ s(duration, bs="cr", k=6) + ', T2B,
                               ' + s(attained_age, bs="cr", k=13, by=smoker) + offset(log_exposure)'),
              select = TRUE))

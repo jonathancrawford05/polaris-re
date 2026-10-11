@@ -76,7 +76,7 @@ def build_report(probe: Path) -> str:
         "",
         f"{met} of {len(fitted)} fitted cells meet all four gates; "
         f"{sum(r[1] == 'REFUSED' for r in rows)} refused by name "
-        "(T3 itself is not in this rehearsal: `gam()` refuses it, ADR-258).",
+        "(T3b runs with `allow_unverified_select`, which skips the ADR-258 refusal to measure it).",
     ]
     return "\n".join(lines)
 

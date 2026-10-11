@@ -153,6 +153,8 @@ class TrialFormula:
     reported separately and never read as the approved T3)."""
     drop_unknown_smoker: bool = False
     """S2: drop the ``U`` smoker level before aggregating."""
+    allow_unverified_select: bool = False
+    """T3b: skip the ADR-258 refusal to MEASURE the limitation on real data."""
     needs_issue_year: bool = False
     """S3: needs ``issue_year = calendar_year - duration + 1`` (derived, no loader change)."""
 
@@ -177,7 +179,18 @@ class TrialFormula:
 FORMULAS: Final[tuple[TrialFormula, ...]] = (
     TrialFormula("T1", f"deaths ~ {_T1_SMOOTH} + {_OFFSET}"),
     TrialFormula("T2", f"deaths ~ {_T1_SMOOTH} + {_T2_BLOCK} + {_OFFSET}"),
-    TrialFormula("T3", f"deaths ~ {_T1_SMOOTH} + {_T2_BLOCK} + {_BY} + {_OFFSET}", select=True),
+    TrialFormula(
+        "T3a",
+        f"deaths ~ {_T1_SMOOTH} + {_T2_BLOCK} + {_BY} + {_OFFSET}",
+        select=False,
+    ),
+    TrialFormula(
+        "T3b",
+        f"deaths ~ {_T1_SMOOTH} + {_T2_BLOCK} + {_BY} + {_OFFSET}",
+        select=True,
+        allow_unverified_select=True,
+        role="candidate",
+    ),
     TrialFormula(
         "T3c",
         f'deaths ~ s(duration, bs="cr", k=6) + {_T2_BLOCK} + {_BY} + {_OFFSET}',
@@ -194,24 +207,25 @@ FORMULAS: Final[tuple[TrialFormula, ...]] = (
     TrialFormula(
         "S2",
         f"deaths ~ {_T1_SMOOTH} + {_T2_BLOCK} + {_BY} + {_OFFSET}",
-        select=True,
+        select=False,
         role="sensitivity",
         drop_unknown_smoker=True,
     ),
     TrialFormula(
         "S3",
         f'deaths ~ {_T1_SMOOTH} + {_T2_BLOCK} + {_BY} + s(issue_year, bs="cr", k=8) + {_OFFSET}',
-        select=True,
+        select=False,
         role="sensitivity",
         needs_issue_year=True,
     ),
 )
-"""T3 is the formula as the PLAN wrote it. Under ``select=TRUE`` it contains a bare
-``s(attained_age)`` and a ``ti(attained_age, duration)`` beside the factor-``by`` smooth, which
-ADR-258 refuses by name (17/120 and 1/60 draws disagree with ``mgcv``). The trial therefore
-records T3 (and S2, S3, which contain it) as ``refused`` with the refusal text, exactly as PLAN §5
-rule 3 pre-decides, and ``T3c`` is the allowlisted shape (no bare age smooth, no ``ti`` over age)
-offered so the maintainer's run is not wasted. ``T3c`` is NOT an approved formula (Q-R2g)."""
+"""The PLAN's T3 (`T1 smooths + T2 block + s(attained_age, by=smoker)`, `select=TRUE`) holds a plain
+`s(attained_age)` and a `ti` over age beside the factor-`by` smooth, which `gam()` refuses under
+`select=TRUE` (ADR-258; the refusal is about the smooth structure, not the basis syntax). The
+maintainer (2026-10-11) asked for ALL THREE routes, to learn from the contrast: **T3a** the same
+formula with `select=FALSE` (a pivoted fit, Slice 9); **T3b** the same formula with `select=TRUE`
+and the refusal skipped by `allow_unverified_select` (measures the limitation on real data); **T3c**
+the allowlisted shape without the plain age smooth and the `ti`. S2 and S3 are built on T3a."""
 
 
 def required_columns(formula: TrialFormula, granularity: str) -> tuple[str, ...]:
@@ -424,6 +438,7 @@ def fit_polaris(
                 formula.family,
                 weights=formula.weights,
                 select=formula.select,
+                allow_unverified_select=formula.allow_unverified_select,
             )
         run.caught = caught  # type: ignore[attr-defined]
         return f
@@ -725,7 +740,7 @@ OUTPUT_KEYS: Final[frozenset[str]] = frozenset(
 """Every key a committed result may carry. Adding one is a maintainer decision (Q-R2c)."""
 
 _VOCAB: Final = re.compile(
-    r"^(?:T[123]c?|S[123]|coarse|mid|full|main|sensitivity|candidate|fitted|refused|not_run"
+    r"^(?:T[12]|T3[abc]|S[123]|coarse|mid|full|main|sensitivity|candidate|fitted|refused|not_run"
     r"|failed|native|container|tier L|poisson|quasipoisson|gaussian"
     r"|binomial\(link=\"cloglog\"\)|binomial"
     r"|cr|ti|re|cr_by_level|cr_by_numeric|other|AC|battery|on|off|unknown)$"

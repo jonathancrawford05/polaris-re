@@ -114,10 +114,14 @@ def test_the_gates_are_the_imported_ones_and_the_scaled_gate_is_the_maintainers(
 
 def test_formula_table_matches_the_plan() -> None:
     names = [f.name for f in t.FORMULAS]
-    assert names == ["T1", "T2", "T3", "T3c", "S1", "S2", "S3"]
-    assert [f.role for f in t.FORMULAS] == ["main"] * 3 + ["candidate"] + ["sensitivity"] * 3
+    assert names == ["T1", "T2", "T3a", "T3b", "T3c", "S1", "S2", "S3"]
+    assert [f.role for f in t.FORMULAS] == ["main"] * 3 + ["candidate"] * 2 + ["sensitivity"] * 3
     assert _by_name("S1").family == 'binomial(link="cloglog")' and _by_name("S1").weights
-    assert _by_name("T3").select and not _by_name("T2").select
+    assert _by_name("T3b").select and not _by_name("T3a").select and not _by_name("T2").select
+    assert (
+        _by_name("T3b").allow_unverified_select
+        and _by_name("T3a").formula == _by_name("T3b").formula
+    )
     assert "offset(log_exposure)" in _by_name("T1").formula
 
 
@@ -142,7 +146,7 @@ def test_each_granularity_aggregates_losslessly(
 
 
 def test_s2_drops_the_unknown_smoker_level_and_nothing_else(loader_cells: pl.DataFrame) -> None:
-    with_u = t.aggregate_cells(loader_cells, _by_name("T3"), "mid")
+    with_u = t.aggregate_cells(loader_cells, _by_name("T3a"), "mid")
     without = t.aggregate_cells(loader_cells, _by_name("S2"), "mid")
     assert "U" in with_u["smoker"].to_list() and "U" not in without["smoker"].to_list()
 
@@ -190,13 +194,19 @@ def test_data_rules_pass_on_the_fixture_and_fail_when_broken(loader_cells: pl.Da
 # --- the Polaris side -----------------------------------------------------------------------
 
 
-def test_t3_as_the_plan_wrote_it_is_refused_by_name(loader_cells: pl.DataFrame) -> None:
-    """A refusal is a RESULT (PLAN §5 rule 3). T3 holds a bare s(attained_age) and a ti over age
-    beside the factor-by smooth; ADR-258 refuses that under select=TRUE."""
-    spec = _by_name("T3")
+def test_t3_as_written_is_refused_unless_the_diagnostic_switch_is_on(
+    loader_cells: pl.DataFrame,
+) -> None:
+    """The ADR-258 refusal is about the smooth structure (a plain s(age) and a ti over age beside
+    s(age, by=smoker) under select=TRUE), not about basis syntax. T3b skips it on purpose."""
+    from polaris_re.gam import gam
+
+    spec = _by_name("T3b")
     data = t.to_factor_frame(t.aggregate_cells(loader_cells, spec, "mid"), ["face_band", "smoker"])
-    side = t.fit_polaris(spec, data, repeats=1, profile=False)
-    assert side.status == "refused" and side.refusal and "select=True" in side.refusal
+    with pytest.raises(PolarisValidationError, match="select=True"):
+        gam(spec.formula, data, "poisson", select=True)
+    side = t.fit_polaris(_by_name("T3c"), data, repeats=1, profile=False)
+    assert side.status == "fitted"
 
 
 def test_provenance_is_declared_per_column() -> None:
@@ -227,7 +237,7 @@ def test_end_to_end_run_cell_writes_only_whitelisted_scalars(
     work = tmp_path / "work"
     work.mkdir()
     loader_cells.write_parquet(work / cli.LOADER_CELLS)
-    for name, gran in (("T3c", "mid"), ("T3", "mid")):
+    for name, gran in (("T3c", "mid"), ("T1", "coarse")):
         rc = cli.main(
             [
                 "run-cell",
@@ -251,7 +261,7 @@ def test_end_to_end_run_cell_writes_only_whitelisted_scalars(
     assert ok["status"] == "fitted" and ok["agreement"]["n_terms_unmatched"] == 0
     assert ok["agreement"]["ratio_comparable"] is True
     assert ok["agreement"]["eta_scaled_max"] < 0.1
-    assert json.loads((work / "results" / "T3_mid.json").read_text())["status"] == "refused"
+    assert json.loads((work / "results" / "T1_coarse.json").read_text())["status"] == "fitted"
     # the committed collation passes the whitelist and holds no per-row array
     rc = cli.main(
         [
