@@ -46,3 +46,6 @@ Q-R1 in the CONTINUATION (the narrower reading of the refusal). Nothing opened a
 
 ## Review gap closed (two-`by` case, run 38093283085, `ebeeb92`)
 The draws probe now measures `s(x,by=f)+s(x,by=g)` with and without `f`,`g` and a second independent set of draws (30 per cell). Accepted forms 120/120; bare-smooth forms 103/120; two-`by` forms 109/120 (poisson `two_by` 21/30, eta up to 0.28). The allowlist therefore accepts exactly the forms with evidence and refuses the shapes with a recorded disagreement or no measurement (numeric `by`). Adding `g` first changed the random stream and exposed one poisson `by_only` miss on a generator that omitted a `g` effect; the committed probe draws `g` from a separate stream so the original 60 draws are unchanged.
+
+## Re-review P2 closed (`ti` beside the by smooth, run 38099911877, commit `39f39ad`)
+Measured `f + s(x,by=f) + ti(x,z)` over the same 30 draws x 2 families (z from its own stream; earlier draws unchanged): 59 of 60 agree (gaussian draw 21 misses: eta 3.5e-02, edf 0.69, score gap 0.000, a flat ridge). Held to the accepted forms' standard (0 misses in 120) it is refused: the allowlist counts a `ti` involving the covariate as another smooth. Judgement call on 1 miss in 60; reversible by lifting the `ti` branch if the maintainer prefers.
