@@ -38,3 +38,6 @@ Q-R2g in the CONTINUATION (T3 refusal, granularity key sets, duration). Nothing 
 
 ## Perf
 One `perf/history.jsonl` row appended (ADR-177): the PR adds a non-`*_conformance.py` module under `src/polaris_re/gam/`, so amendment 2's exemption does not apply.
+
+## Maintainer follow-up (same day)
+Bare-smooth clarification: the ADR-258 refusal is about structure, not basis syntax (every trial term writes `bs="cr"`). Maintainer decisions: duration = numeric integer policy year capped at 26, unbanded; run all three T3 routes (T3a `select=FALSE`, T3b refusal skipped via `gam(allow_unverified_select=True)`, T3c). Tier-3 re-run 38153826617 (head `f539b9c`): 9/10 cells meet the gates (details in ADR-259). PR CI green on that head (lint fix SIM102 pushed first).
