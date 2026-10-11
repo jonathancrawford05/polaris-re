@@ -456,9 +456,8 @@ def _build_model(
                 )
                 smooth_meta.append((label, call.k))
 
-    if select:
-        if not allow_unverified_select:
-            _refuse_select_with_bare_and_factor_by(smooth)
+    if select and not allow_unverified_select:
+        _refuse_select_with_bare_and_factor_by(smooth)
     if weights is not None:
         need_numeric(weights, "weights=")
     if offset is not None:
