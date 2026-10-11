@@ -71,6 +71,7 @@ on:
       # Slice R1 (ADR-258): select=TRUE + factor-by over repeated draws.
       - "scripts/gam_select_bare_by_draws_probe.R"
       - "scripts/gam_select_bare_by_draws_compare.py"
+      - "scripts/gam_select_stop_diagnostic.py"
       # Slice P4 (ADR-253): GamFit.summary() vs summary.gam, and the target-size fit.
       - "scripts/gam_target_size_probe.R"
       - "scripts/gam_summary_compare.py"
@@ -4168,6 +4169,21 @@ jobs:
             echo "No gam_select_bare_by_draws_probe.json — the R probe above did not produce one."
           fi
 
+      # Slice R1 (ADR-258) — DIAGNOSTIC: is Polaris's Newton stop the reason for the misses, and
+      # would a warning at the stop catch them? Re-fits every draw; asserts nothing.
+      - name: Newton stop diagnostic on the select=TRUE draws (slice R1)
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 40
+        run: |
+          if [ -f gam_select_bare_by_draws_probe.json ]; then
+            uv run python scripts/gam_select_stop_diagnostic.py \
+              gam_select_bare_by_draws_probe.json gam_select_stop_report.md
+            cat gam_select_stop_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_select_bare_by_draws_probe.json — the R probe above did not produce one."
+          fi
+
       # PREVIEW epic Slice P4 (ADR-253) — GamFit.summary() vs summary.gam(m), plus the
       # target-size fit's convergence and cost.
       - name: Summary vs summary.gam and the target-size fit (preview slice P4)
@@ -4260,5 +4276,6 @@ jobs:
             gam_formula_report.md
             gam_select_bare_by_draws_probe.json
             gam_select_bare_by_draws_report.md
+            gam_select_stop_report.md
             gam_target_size_probe.json
             gam_summary_report.md

@@ -91,6 +91,8 @@ def _spec(form: str, levels: int, family: str, link: str, g_levels: int = 2) -> 
                 base_label="s(x):g", variable="x", k=8, by_factor="g", n_levels=g_levels
             )
         )
+    if form.endswith("_numby"):
+        terms.append(TermSpec(label="s(x):w", variables=("x",), basis="cr", k=(8,), by="w"))
     if form.endswith("_ti"):
         terms.append(TermSpec(label="ti(x,z)", variables=("x", "z"), basis="ti", k=(5, 5)))
     return ModelSpec(family=family, link=link, terms=tuple(terms), select=True)
@@ -107,6 +109,7 @@ def _fit(cell: dict) -> tuple[object, np.ndarray]:  # type: ignore[type-arg]
         "f": coding.encode(df["f"], "f"),
         "g": g_coding.encode(df["g"], "g"),
         "z": df["z"].to_numpy().astype(np.float64),
+        "w": df["w"].to_numpy().astype(np.float64),
     }
     y = df["y"].to_numpy().astype(np.float64)
     with warnings.catch_warnings():
@@ -119,7 +122,9 @@ def _bucket(form: str) -> str:
     re-review P2; refused after one recorded miss); anything else is also refused."""
     if form in ("by_only", "main_by"):
         return "core"
-    return "ti" if form.endswith("_ti") else "refused"
+    if form.endswith("_ti"):
+        return "ti"
+    return "numby" if form.endswith("_numby") else "refused"
 
 
 def _asarray(v: float | list[float]) -> np.ndarray:
@@ -190,7 +195,7 @@ def build_report(probe: Path) -> tuple[str, int, int]:
             f"{max(abs(r['edf']) for r in rows):.3e} | "
             f"{(min(gaps) if gaps else float('nan')):+.3f} |"
         )
-    tot = {"core": [0, 0], "ti": [0, 0], "refused": [0, 0]}
+    tot = {"core": [0, 0], "ti": [0, 0], "numby": [0, 0], "refused": [0, 0]}
     for (_, form), rows in groups.items():
         k = _bucket(form)
         tot[k][0] += sum(r["agrees"] for r in rows)
@@ -201,7 +206,9 @@ def build_report(probe: Path) -> tuple[str, int, int]:
         f"Refused forms (a bare or second smooth of the covariate beside the factor-by "
         f"smooth): {tot['refused'][0]} of {tot['refused'][1]} fits agree. "
         f"`ti(x,z)` beside the by smooth (`main_by_ti`): {tot['ti'][0]} of {tot['ti'][1]} fits "
-        "agree.",
+        "agree. "
+        f"Numeric `by` beside the factor `by` (`main_by_numby`): {tot['numby'][0]} of "
+        f"{tot['numby'][1]} fits agree.",
         "",
         "Misses by form (draw number, max eta diff; draws 1-15 are the first set, 16-30 the "
         "second): "

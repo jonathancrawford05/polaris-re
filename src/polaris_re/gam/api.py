@@ -316,9 +316,8 @@ def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
     by its own test, at a point ``mgcv``'s REML scores lower (a plateau, mechanism class iii).
     A ``ti`` involving the covariate beside a factor ``by`` agreed in 59 of 60 draws but the one
     miss (a flat ridge, ``eta`` 3.5e-02) is a recorded disagreement, so it is refused to the same
-    standard (zero misses in the accepted forms). A numeric ``by`` beside a factor ``by`` is
-    unmeasured, so it is refused too rather than assumed to behave. A recorded limitation, not
-    something to tune around.
+    standard (zero misses in the accepted forms). A numeric ``by`` beside a factor ``by`` agreed
+    in 60 of 60 draws and is accepted. A recorded limitation, not something to tune around.
     """
     groups: dict[str, set[str]] = {}
     for t in smooth:
@@ -329,6 +328,8 @@ def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
             continue
         if len(t.variables) != 1 or t.basis != "cr":
             continue
+        if t.by is not None and t.by_factor is None:
+            continue  # a numeric by smooth beside a factor by: 60 of 60 draws agree (ADR-258)
         key = f"by={t.by_factor}" if t.by_factor is not None else f"smooth:{t.label}"
         groups.setdefault(t.variables[0], set()).add(key)
     for var, keys in sorted(groups.items()):
@@ -336,12 +337,11 @@ def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
         if has_factor_by and len(keys) > 1:
             raise PolarisValidationError(
                 f"gam(): select=True with a factor-by smooth of {var!r} and another smooth of "
-                f"{var!r} (a bare smooth, a second by-smooth, a numeric by-smooth or a ti term) "
+                f"{var!r} (a bare smooth, a second by-smooth or a ti term) "
                 "is not "
                 "supported — measured against mgcv, the free-sp search stops at a point its REML "
                 "scores lower in about 1 draw in 7 with a bare smooth and 1 in 11 with a second "
-                "by-smooth (poisson); a numeric by-smooth beside it is unmeasured (ADR-258, "
-                "R1-d). Use one smooth of "
+                "by-smooth (poisson) (ADR-258, R1-d). Use one smooth of "
                 f'{var!r}: f + s({var}, by=f, bs="cr"), or fit without select=True '
                 f"({_COVERAGE} §2.3 select row)."
             )

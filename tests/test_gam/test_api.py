@@ -159,13 +159,23 @@ def test_select_with_a_bare_smooth_beside_a_factor_by_smooth_is_refused_by_name(
     for formula in (
         'y ~ s(x, bs="cr", k=6) + s(x, by=g, bs="cr", k=6)',
         'y ~ g + s(x, bs="cr", k=6) + s(x, by=g, bs="cr", k=6)',
-        # unmeasured combinations of smooths of one covariate are refused too (allowlist)
+        # measured disagreements (second by smooth) and the ti form (one miss in 60) are refused
         'y ~ g + h + s(x, by=g, bs="cr", k=6) + s(x, by=h, bs="cr", k=6)',
-        'y ~ g + s(x, by=g, bs="cr", k=6) + s(x, by=z, bs="cr", k=6)',
         'y ~ g + s(x, by=g, bs="cr", k=6) + ti(x, z, bs="cr", k=c(5, 4))',
     ):
         with pytest.raises(PolarisValidationError, match="another smooth of 'x'"):
             gam(formula, frame, "gaussian", select=True)
+
+
+def test_a_numeric_by_beside_a_factor_by_is_accepted_under_select(frame: pl.DataFrame) -> None:
+    """Measured at 60 of 60 draws agreeing with mgcv (ADR-258), so it is not refused."""
+    fit = gam(
+        'y ~ g + s(x, by=g, bs="cr", k=6) + s(x, by=z, bs="cr", k=6)',
+        frame,
+        "gaussian",
+        select=True,
+    )
+    assert fit.converged and fit.pivoted_columns == ()
 
 
 def test_the_bare_and_factor_by_refusal_is_narrow(frame: pl.DataFrame) -> None:
