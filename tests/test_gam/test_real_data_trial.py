@@ -153,21 +153,13 @@ def test_s3_adds_the_derived_cohort_column(loader_cells: pl.DataFrame) -> None:
     assert (cells["issue_year"] == cells["calendar_year"] - cells["duration"] + 1).all()
 
 
-def test_banded_durations_are_the_committed_banded_runs_representatives(
+def test_duration_is_numeric_integer_policy_year_capped_not_banded(
     loader_cells: pl.DataFrame,
 ) -> None:
     cells = t.aggregate_cells(loader_cells, _by_name("T1"), "mid")
-    assert sorted(cells["duration"].unique().to_list()) == [
-        1.0,
-        2.0,
-        3.0,
-        4.0,
-        8.0,
-        13.0,
-        18.0,
-        23.0,
-        31.0,
-    ]
+    got = sorted(cells["duration"].unique().to_list())
+    assert got == [1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 11.0, 14.0, 17.0, 21.0, 24.0, 26.0]  # 27 -> 26
+    assert max(got) == float(t.DURATION_CAP)
 
 
 def test_the_binned_face_band_never_reaches_the_engine_under_its_own_name(

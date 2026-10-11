@@ -31,7 +31,7 @@ forms <- list(
 
 make_cells <- function(seed) {
   set.seed(seed)
-  g <- expand.grid(issue = 25:64, duration = c(1, 2, 3, 4, 8, 13, 18, 23, 31),
+  g <- expand.grid(issue = seq(25, 64, 3), duration = 1:26,
                    calendar_year = 2014:2016, smoker = c("NS", "S", "U"),
                    face_band = c("B00", "B01", "B02"), stringsAsFactors = FALSE)
   g$attained_age <- g$issue + g$duration - 1

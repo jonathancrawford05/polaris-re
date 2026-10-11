@@ -41,6 +41,8 @@ of the same architecture and pass `--polaris-env container --polaris-arch linux/
 (or whatever step 1 printed, prefixed `linux/`). If you do not, pass the truth and accept
 `ratio_comparable=false`.
 
+Duration is the numeric integer policy year 1..26 (26 = 26 and above), unbanded.
+
 ## 2. The 2018-2019 composition check (terminal only)
 ```bash
 uv run python scripts/gam_real_data_trial.py check-window --ilec "$ILEC"

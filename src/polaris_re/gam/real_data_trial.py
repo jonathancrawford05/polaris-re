@@ -48,7 +48,6 @@ from typing import Final
 import numpy as np
 import polars as pl
 
-from polaris_re.analytics.experience_diligence import band_duration_months
 from polaris_re.analytics.experience_gam import COUNT_MEASURES
 from polaris_re.analytics.gam_model import resolve_family
 from polaris_re.analytics.gam_predict_conformance import _SE_REL_TOLERANCE
@@ -119,6 +118,10 @@ _GRANULARITY_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "mid": ("attained_age", "calendar_year", "duration_months", "sex", "smoker"),
     "full": ("attained_age", "calendar_year", "duration_months", "sex", "smoker", "uw_class"),
 }
+
+DURATION_CAP: Final = 26
+"""Policy years from this value up are one level of the numeric ``duration`` (maintainer,
+2026-10-11: all integer durations to a ceiling of 26, as a numeric covariate; not banded)."""
 
 EXPOSURE: Final = COUNT_MEASURES[0]
 DEATHS: Final = COUNT_MEASURES[1]
@@ -271,21 +274,23 @@ def assert_data_rules(cells: pl.DataFrame) -> None:
 
 
 def aggregate_cells(
-    cells: pl.DataFrame, formula: TrialFormula, granularity: str, *, bands: bool = True
+    cells: pl.DataFrame,
+    formula: TrialFormula,
+    granularity: str,
+    *,
+    duration_cap: int = DURATION_CAP,
 ) -> pl.DataFrame:
     """Collapse loader cells to the fit's key set, adding the derived model columns.
 
     Collapsing rows to cells is lossless for Poisson counts with an exposure offset (PLAN R2).
-    ``duration_months`` is replaced by the banded representative of the committed banded run
-    (:func:`band_duration_months`) when ``bands`` is true, so ``full`` is comparable with the
-    committed measurement; ``duration`` is the representative in policy years.
+    ``duration`` is the numeric policy year, every integer value kept and capped at
+    :data:`DURATION_CAP` (maintainer, 2026-10-11): no banding.
     """
     keys = list(required_columns(formula, granularity))
     frame = cells
     if formula.drop_unknown_smoker:
         frame = frame.filter(pl.col("smoker") != "U")
-    if bands:
-        frame = band_duration_months(frame)
+    frame = frame.with_columns(pl.col("duration_months").clip(upper_bound=(duration_cap - 1) * 12))
     grouped = frame.group_by(keys).agg(pl.col(EXPOSURE).sum(), pl.col(DEATHS).sum())
     return trial_frame(grouped.sort(keys))
 
