@@ -162,6 +162,7 @@ def test_select_with_a_bare_smooth_beside_a_factor_by_smooth_is_refused_by_name(
         # unmeasured combinations of smooths of one covariate are refused too (allowlist)
         'y ~ g + h + s(x, by=g, bs="cr", k=6) + s(x, by=h, bs="cr", k=6)',
         'y ~ g + s(x, by=g, bs="cr", k=6) + s(x, by=z, bs="cr", k=6)',
+        'y ~ g + s(x, by=g, bs="cr", k=6) + ti(x, z, bs="cr", k=c(5, 4))',
     ):
         with pytest.raises(PolarisValidationError, match="another smooth of 'x'"):
             gam(formula, frame, "gaussian", select=True)

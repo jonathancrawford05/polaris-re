@@ -5,7 +5,7 @@
 #
 # Why draws: one synthetic sample per cell cannot separate a form that is wrong from a draw that
 # is unlucky. Draws 1-15 are the first set, 16-30 an independent second set (added with the
-# two-by forms, ADR-258 review P1): 30 draws x 2 families x 6 forms = 360 mgcv fits.
+# two-by forms, ADR-258 review P1): 30 draws x 2 families x 7 forms = 420 mgcv fits.
 # mgcv fits gam(<formula>, method = "REML", select = TRUE) on each draw and exports eta,
 # edf_total, sp and the REML score; scripts/gam_select_bare_by_draws_compare.py fits the same
 # strings and data in Polaris through its own front end. Polaris reads nothing under "mgcv".
@@ -17,6 +17,7 @@
 #   main_bare_by  y ~ f + s(x) + s(x, by = f)      (likewise refused)
 #   two_by        y ~ s(x, by = f) + s(x, by = g)   (g a 2-level factor; refused as UNMEASURED
 #   main_two_by   y ~ f + g + s(x, by = f) + s(x, by = g)   until this probe, ADR-258 review P1)
+#   main_by_ti    y ~ f + s(x, by = f) + ti(x, z)   (ti beside the by smooth; ADR-258 re-review P2)
 #
 # USAGE: Rscript scripts/gam_select_bare_by_draws_probe.R [out.json]
 suppressPackageStartupMessages({ library(mgcv); library(jsonlite) })
@@ -27,7 +28,8 @@ forms <- list(
   bare_by = 'y ~ s(x, k = 8, bs = "cr") + s(x, by = f, k = 8, bs = "cr")',
   main_bare_by = 'y ~ f + s(x, k = 8, bs = "cr") + s(x, by = f, k = 8, bs = "cr")',
   two_by = 'y ~ s(x, by = f, k = 8, bs = "cr") + s(x, by = g, k = 8, bs = "cr")',
-  main_two_by = 'y ~ f + g + s(x, by = f, k = 8, bs = "cr") + s(x, by = g, k = 8, bs = "cr")')
+  main_two_by = 'y ~ f + g + s(x, by = f, k = 8, bs = "cr") + s(x, by = g, k = 8, bs = "cr")',
+  main_by_ti = 'y ~ f + s(x, by = f, k = 8, bs = "cr") + ti(x, z, k = c(5, 5), bs = "cr")')
 
 one <- function(name, fam, form, d) {
   dfit <- d; dfit$f <- factor(dfit$f); dfit$g <- factor(dfit$g)
@@ -51,6 +53,7 @@ main <- function(argv) {
            else rpois(n, exp(0.8 + 0.4 * sin(d$x / 2 + shift)))
     set.seed(9000 + seed)  # g comes from its own stream so the draws above are unchanged
     d$g <- sample(c("p", "q"), n, TRUE)
+    d$z <- runif(n, 0, 5)
     for (form in names(forms))
       cells[[length(cells) + 1]] <- one(sprintf("%s_draw%02d_%s", fam, seed, form), fam, form, d)
   }

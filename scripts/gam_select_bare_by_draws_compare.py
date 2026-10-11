@@ -3,7 +3,7 @@
 
 Usage: gam_select_bare_by_draws_compare.py <gam_select_bare_by_draws_probe.json> [report.md]
 
-Six forms x two families x 30 draws (two independent sets of 15). Polaris receives the
+Seven forms x two families x 30 draws (two independent sets of 15). Polaris receives the
 formula-equivalent ``ModelSpec`` (built here from the form name, the shared recipe) and the
 data; ``mgcv`` fits the same string.
 ``gam()`` REFUSES the four non-allowlisted forms (ADR-258), so this script builds the ``ModelSpec``
@@ -91,6 +91,8 @@ def _spec(form: str, levels: int, family: str, link: str, g_levels: int = 2) -> 
                 base_label="s(x):g", variable="x", k=8, by_factor="g", n_levels=g_levels
             )
         )
+    if form.endswith("_ti"):
+        terms.append(TermSpec(label="ti(x,z)", variables=("x", "z"), basis="ti", k=(5, 5)))
     return ModelSpec(family=family, link=link, terms=tuple(terms), select=True)
 
 
@@ -104,11 +106,20 @@ def _fit(cell: dict) -> tuple[object, np.ndarray]:  # type: ignore[type-arg]
         "x": df["x"].to_numpy().astype(np.float64),
         "f": coding.encode(df["f"], "f"),
         "g": g_coding.encode(df["g"], "g"),
+        "z": df["z"].to_numpy().astype(np.float64),
     }
     y = df["y"].to_numpy().astype(np.float64)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return fit_polaris_gam(spec, arrays, y), y
+
+
+def _bucket(form: str) -> str:
+    """``core`` = the two allowlisted forms; ``ti`` = ``ti(x,z)`` beside the by smooth (ADR-258
+    re-review P2; refused after one recorded miss); anything else is also refused."""
+    if form in ("by_only", "main_by"):
+        return "core"
+    return "ti" if form.endswith("_ti") else "refused"
 
 
 def _asarray(v: float | list[float]) -> np.ndarray:
@@ -171,7 +182,7 @@ def build_report(probe: Path) -> tuple[str, int, int]:
     for (fam, form), rows in sorted(groups.items()):
         etas = sorted(r["eta"] for r in rows)
         gaps = [r["gap"] for r in rows if r["gap"] is not None]
-        accepted = "bare" not in form and "two_by" not in form
+        accepted = _bucket(form) == "core"
         lines.append(
             f"| {fam} | {form} | {'yes' if accepted else 'REFUSED (ADR-258)'} | {len(rows)} | "
             f"{sum(r['agrees'] for r in rows)} | {sum(not r['conv'] for r in rows)} | "
@@ -179,16 +190,18 @@ def build_report(probe: Path) -> tuple[str, int, int]:
             f"{max(abs(r['edf']) for r in rows):.3e} | "
             f"{(min(gaps) if gaps else float('nan')):+.3f} |"
         )
-    tot = {True: [0, 0], False: [0, 0]}
+    tot = {"core": [0, 0], "ti": [0, 0], "refused": [0, 0]}
     for (_, form), rows in groups.items():
-        k = "bare" not in form and "two_by" not in form
+        k = _bucket(form)
         tot[k][0] += sum(r["agrees"] for r in rows)
         tot[k][1] += len(rows)
     lines += [
         "",
-        f"Accepted forms (`by_only`, `main_by`): {tot[True][0]} of {tot[True][1]} fits agree. "
+        f"Accepted forms (`by_only`, `main_by`): {tot['core'][0]} of {tot['core'][1]} fits agree. "
         f"Refused forms (a bare or second smooth of the covariate beside the factor-by "
-        f"smooth): {tot[False][0]} of {tot[False][1]} fits agree.",
+        f"smooth): {tot['refused'][0]} of {tot['refused'][1]} fits agree. "
+        f"`ti(x,z)` beside the by smooth (`main_by_ti`): {tot['ti'][0]} of {tot['ti'][1]} fits "
+        "agree.",
         "",
         "Misses by form (draw number, max eta diff; draws 1-15 are the first set, 16-30 the "
         "second): "
@@ -201,7 +214,7 @@ def build_report(probe: Path) -> tuple[str, int, int]:
             for (fam, form), rows in sorted(groups.items())
         ),
     ]
-    return "\n".join(lines) + "\n", tot[True][0], tot[True][1]
+    return "\n".join(lines) + "\n", tot["core"][0], tot["core"][1]
 
 
 def main(probe: Path, out: Path | None) -> None:
