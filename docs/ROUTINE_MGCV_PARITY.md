@@ -23,8 +23,9 @@ parent plan and anchors: `docs/PLAN_mgcv_parity_engine.md`
 **Created:** 2026-08-10, from maintainer direction plus the measurements in the parent PLAN §1.
 
 > **ACTIVE EPIC POINTER (maintainer, 2026-10-10, ADR-257) — READ THIS FIRST.**
-> The active epic is **`docs/PLAN_gam_real_data_readiness.md`** (`docs/CONTINUATION_gam_real_data_readiness.md`,
-> no slice started). Its slices are R1 `select=TRUE` + factor-`by`, R2 the ILEC trial and profile,
+> The active epic is **`docs/PLAN_gam_real_data_readiness.md`** (`docs/CONTINUATION_gam_real_data_readiness.md`;
+> **R1 DONE 2026-10-11, ADR-258, PR #266 — next slice is R2**; the `select=TRUE` solver findings are in
+> `docs/FINDINGS_select_factor_by_outer_search.md`). Its slices are R1 `select=TRUE` + factor-`by`, R2 the ILEC trial and profile,
 > R3 scale (gated on R2's measurement), R4 `tp`; **execution order R1, R2, R4, then R3 only if the
 > 10-minute ceiling is exceeded or the Polaris/`mgcv::gam` wall-time ratio is above 1.5** (maintainer, 2026-10-10). **Parity-engine Slice 10 is DONE as a finding
 > (2026-10-10, ADR-256: `mgcv`'s choice of eliminated coefficient is rounding noise on exactly tied

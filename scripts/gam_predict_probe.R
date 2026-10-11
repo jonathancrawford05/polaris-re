@@ -35,6 +35,7 @@
 #                          (the four-term ANOVA-shaped HGAM, log link; carried
 #                          from P1 and added in the P2 session)
 #   gaussian_select        s(x)+s(z)+s(w), select=TRUE, w is pure noise (plateau row)
+#   gaussian_select_factor_by_main / poisson_select_factor_by_only   select=TRUE + factor by (R1)
 #   gaussian_sz            s(f,x,bs="sz",xt=list(bs="cr"))  -- lpmatrix ONLY
 #                          (free-sp sz is not verified; no Polaris fit is made)
 #
@@ -237,6 +238,27 @@ main <- function(argv) {
   cells[[9]] <- cell("gaussian_select",
     y ~ s(x, k = 8, bs = "cr") + s(z, k = 6, bs = "cr") + s(w, k = 6, bs = "cr"),
     gaussian(), d, "y", list(x = 1, z = 1, w = 1), list(), 109, select = TRUE)
+
+  # 10-11. Slice R1 (ADR-258): select=TRUE with a factor-by smooth. Vp and Vc se are gated here
+  # (no bare smooth beside the by smooth, so the fit is not pivoted; the bare-smooth forms are
+  # refused, ADR-258).
+  set.seed(20261101)
+  n <- 450
+  d <- data.frame(x = runif(n, 0, 10), f = sample(lv3, n, TRUE))
+  shift <- c(a = 0, b = 0.6, c = -0.5)[d$f]
+  d$y <- sin(d$x + shift) + rnorm(n, sd = 0.3)
+  cells[[10]] <- cell("gaussian_select_factor_by_main",
+    y ~ f + s(x, by = f, k = 8, bs = "cr"),
+    gaussian(), d, "y", list(x = 1), list(f = lv3), 110, select = TRUE)
+
+  set.seed(20261102)
+  n <- 600
+  d <- data.frame(x = runif(n, 0, 10), f = sample(lv3, n, TRUE))
+  shift <- c(a = 0, b = 0.6, c = -0.5)[d$f]
+  d$y <- rpois(n, exp(0.8 + 0.4 * sin(d$x / 2 + shift)))
+  cells[[11]] <- cell("poisson_select_factor_by_only",
+    y ~ s(x, by = f, k = 8, bs = "cr"),
+    poisson(), d, "y", list(x = 1), list(f = lv3), 111, select = TRUE)
 
   out <- list(
     schema_version = 1L,

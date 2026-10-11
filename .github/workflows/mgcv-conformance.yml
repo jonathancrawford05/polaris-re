@@ -68,6 +68,10 @@ on:
       - "src/polaris_re/gam/**"
       - "scripts/gam_formula_probe.R"
       - "scripts/gam_formula_compare.py"
+      # Slice R1 (ADR-258): select=TRUE + factor-by over repeated draws.
+      - "scripts/gam_select_bare_by_draws_probe.R"
+      - "scripts/gam_select_bare_by_draws_compare.py"
+      - "scripts/gam_select_stop_diagnostic.py"
       # Slice P4 (ADR-253): GamFit.summary() vs summary.gam, and the target-size fit.
       - "scripts/gam_target_size_probe.R"
       - "scripts/gam_summary_compare.py"
@@ -960,6 +964,16 @@ jobs:
             Rscript scripts/gam_formula_probe.R \
               gam_formula_probe.json
 
+      # Slice R1 (ADR-258): select=TRUE with a factor-by smooth, 4 forms x 2 families x 15 draws
+      # under mgcv; the comparison is in the `compare` job.
+      - name: Fit select=TRUE factor-by draws under mgcv (slice R1)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_select_bare_by_draws_probe.R \
+              gam_select_bare_by_draws_probe.json
+
       # PREVIEW epic Slice P4 (ADR-253): the target-size cell (5,000 rows, 13+ penalty
       # blocks, quasi-Poisson + offset, select=TRUE) under mgcv, with summary.gam's report.
       # The formula probe above also exports summary.gam's numbers for its own cells.
@@ -1012,6 +1026,7 @@ jobs:
             gam_cr_re_ti_probe.json
             gam_predict_probe.json
             gam_formula_probe.json
+            gam_select_bare_by_draws_probe.json
             gam_target_size_probe.json
 
   # ---------------------------------------------------------------------------
@@ -4141,6 +4156,34 @@ jobs:
             echo "No gam_formula_probe.json — the R probe above did not produce one."
           fi
 
+      # Slice R1 (ADR-258) — select=TRUE + factor-by over repeated draws, Polaris vs mgcv.
+      - name: select=TRUE factor-by draws vs mgcv (slice R1)
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f gam_select_bare_by_draws_probe.json ]; then
+            uv run python scripts/gam_select_bare_by_draws_compare.py \
+              gam_select_bare_by_draws_probe.json gam_select_bare_by_draws_report.md
+            cat gam_select_bare_by_draws_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_select_bare_by_draws_probe.json — the R probe above did not produce one."
+          fi
+
+      # Slice R1 (ADR-258) — DIAGNOSTIC: is Polaris's Newton stop the reason for the misses, and
+      # would a warning at the stop catch them? Re-fits every draw; asserts nothing.
+      - name: Newton stop diagnostic on the select=TRUE draws (slice R1)
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 40
+        run: |
+          if [ -f gam_select_bare_by_draws_probe.json ]; then
+            uv run python scripts/gam_select_stop_diagnostic.py \
+              gam_select_bare_by_draws_probe.json gam_select_stop_report.md
+            cat gam_select_stop_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_select_bare_by_draws_probe.json — the R probe above did not produce one."
+          fi
+
       # PREVIEW epic Slice P4 (ADR-253) — GamFit.summary() vs summary.gam(m), plus the
       # target-size fit's convergence and cost.
       - name: Summary vs summary.gam and the target-size fit (preview slice P4)
@@ -4231,5 +4274,8 @@ jobs:
             gam_predict_report.md
             gam_formula_probe.json
             gam_formula_report.md
+            gam_select_bare_by_draws_probe.json
+            gam_select_bare_by_draws_report.md
+            gam_select_stop_report.md
             gam_target_size_probe.json
             gam_summary_report.md
