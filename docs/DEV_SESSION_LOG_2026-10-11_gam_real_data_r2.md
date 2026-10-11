@@ -6,7 +6,7 @@
 Tier 1 (scratch only): local apt R 4.3.3 / mgcv 1.9.1, `OPENBLAS_NUM_THREADS=1` (needed `apt-get update` first; same versions as the previous session). Tier 3 (every committed number): CI run **38143339633**, commit `0446c3c`, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, mgcv 1.9.4 / R 4.6.1. Tier 2 (docker daemon): not available. Tier L: not yet (the maintainer's run).
 
 ## Baseline (full suite, `pytest tests/ -m "not slow"`)
-First run (with this session's new module wrongly placed in `analytics/`): 4084 passed, 6 failed, 22 skipped, 145 deselected (717 s). The 6th failure was mine (`test_analytics_never_imports_the_gam_facade`; module moved to `gam/`). The other 5 are the standing table-less failures (4 `tests/test_synthetic_block.py::TestCalibratedPremiums`, `test_experience_loaders.py::test_loaded_ilec_feeds_tensor_mi_surface`) — identical to R1's log. Final run after the change: see the PR body (FINAL_COUNTS below).
+First run (with this session's new module wrongly placed in `analytics/`): 4084 passed, 6 failed, 22 skipped, 145 deselected (717 s). The 6th failure was mine (`test_analytics_never_imports_the_gam_facade`; module moved to `gam/`). The other 5 are the standing table-less failures (4 `tests/test_synthetic_block.py::TestCalibratedPremiums`, `test_experience_loaders.py::test_loaded_ilec_feeds_tensor_mi_surface`) — identical to R1's log. Final run after the change: 4110 passed, 5 failed (the standing five, identical to R1), 22 skipped, 145 deselected (719 s). 4084 + 26 new tests = 4110.
 
 ## Gap Before
 No trial harness, runbook or output contract existed; R2 was NOT STARTED. Provenance: no comparison existed. The real-data gap is unmeasured and stays so.
@@ -35,3 +35,6 @@ Declared in `real_data_trial.CLAIM`; the rehearsal report prints it via `evidenc
 
 ## Follow-ups
 Q-R2g in the CONTINUATION (T3 refusal, granularity key sets, duration). Nothing opened and merely filed. Next session: if the maintainer's result file is recorded, read it and record R2; else stop (do not start R4).
+
+## Perf
+One `perf/history.jsonl` row appended (ADR-177): the PR adds a non-`*_conformance.py` module under `src/polaris_re/gam/`, so amendment 2's exemption does not apply.
