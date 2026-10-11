@@ -3,7 +3,7 @@
 **Plan:** `docs/PLAN_gam_real_data_readiness.md`
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md` (plus the maintainer-run step protocol, PLAN §3)
 **Created:** 2026-10-10, plan-writing session (ADR-257).
-**Status:** **IN PROGRESS. Slice R1 DONE 2026-10-11 (ADR-258, tier 3 runs 38081942434 / 38102487555; PR #266 accepted by the maintainer for merge).** The solver findings for the refused shapes are in `docs/FINDINGS_select_factor_by_outer_search.md`. **Slice R2 routine half DONE 2026-10-11 (ADR-259, `harness(mgcv-parity)`); R2 is WAITING ON MAINTAINER RUN** (follow `docs/RUNBOOK_gam_real_data_trial.md`; the result is recorded when the maintainer commits or pastes the JSON). Tier 3 rehearsal run 38143339633: 5 of 6 synthetic cells meet all gates, one class-iii miss.
+**Status:** **IN PROGRESS. Slice R1 DONE 2026-10-11 (ADR-258, tier 3 runs 38081942434 / 38102487555; PR #266 accepted by the maintainer for merge).** The solver findings for the refused shapes are in `docs/FINDINGS_select_factor_by_outer_search.md`. **Slice R2 routine half DONE 2026-10-11 (ADR-259, `harness(mgcv-parity)`); R2 is WAITING ON MAINTAINER RUN** (follow `docs/RUNBOOK_gam_real_data_trial.md`; the result is recorded when the maintainer commits or pastes the JSON). Tier 3 rehearsal run 38153826617 (integer durations, T3 three ways): 9 of 10 synthetic cells meet all gates, one class-iii miss.
 
 ## Slice status
 

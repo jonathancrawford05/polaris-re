@@ -207,6 +207,9 @@ def test_t3_as_written_is_refused_unless_the_diagnostic_switch_is_on(
         gam(spec.formula, data, "poisson", select=True)
     side = t.fit_polaris(_by_name("T3c"), data, repeats=1, profile=False)
     assert side.status == "fitted"
+    # the switch itself: T3b fits (refusal skipped), through the same entry point
+    b = t.fit_polaris(spec, data, repeats=1, profile=False)
+    assert b.status == "fitted" and b.fit is not None and b.fit.model.select
 
 
 def test_provenance_is_declared_per_column() -> None:

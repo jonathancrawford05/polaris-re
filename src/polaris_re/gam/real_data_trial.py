@@ -56,7 +56,7 @@ from polaris_re.analytics.gam_select_free_sp_conformance import (
     _AGREEMENT_TOLERANCE_EDF,
     _AGREEMENT_TOLERANCE_ETA,
 )
-from polaris_re.core.exceptions import PolarisValidationError
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.verification import (
     ComparedQuantity,
     ComparisonProvenance,
@@ -429,6 +429,8 @@ def fit_polaris(
     The signature takes no ``mgcv`` output (ADR-193 mechanical test).
     """
 
+    caught_last: list[warnings.WarningMessage] = []
+
     def run() -> GamFit:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -440,7 +442,7 @@ def fit_polaris(
                 select=formula.select,
                 allow_unverified_select=formula.allow_unverified_select,
             )
-        run.caught = caught  # type: ignore[attr-defined]
+        caught_last[:] = caught
         return f
 
     try:
@@ -448,7 +450,7 @@ def fit_polaris(
     except PolarisValidationError as exc:
         return PolarisSide(status="refused", refusal=str(exc))
     assert isinstance(fit, GamFit)
-    caught = getattr(run, "caught", [])
+    caught = list(caught_last)
     side = PolarisSide(
         status="fitted",
         fit=fit,
@@ -568,7 +570,15 @@ def _score_gap(fit: GamFit, mgcv: Mapping[str, object]) -> float:
             weights=fit.prior_weights,
         )
         return float(score - fit.reml_score)
-    except Exception:  # a measurement that cannot be formed is nan, never a crash
+    except (
+        PolarisValidationError,
+        PolarisComputationError,
+        KeyError,
+        ValueError,
+        np.linalg.LinAlgError,
+    ):
+        # a measurement that cannot be formed (pivoted design, other penalty count) is nan;
+        # anything else is a real defect and propagates
         return float("nan")
 
 
