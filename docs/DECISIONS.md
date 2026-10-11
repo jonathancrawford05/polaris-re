@@ -25170,3 +25170,30 @@ Not `select=TRUE` with a bare smooth (17 of 120 draws) or a second factor-`by` s
 
 ### Consequences
 `GAM_USER_GUIDE.md` §5 gains the supported row and §6 the narrower refusal row; `MGCV_FEATURE_COVERAGE.md` updated; PLAN R1 DONE with the limitation; R2 is next (release condition: R1 code merged).
+
+
+## ADR-259: GAM real-data readiness Slice R2 (routine half) — the ILEC trial harness, runbook and output contract; T3 as written is refused by `gam()`; a synthetic rehearsal at tier 3 finds one class-iii miss in six
+
+**Date:** 2026-10-11. **Status:** accepted for the routine half; **R2 is WAITING ON MAINTAINER RUN** (PLAN §3). PR class: **`harness(mgcv-parity)`** — the real-data comparison is not yet produced; the tier-3 rehearsal is INDEPENDENT but on synthetic cells and does not close R2. No pricing path touched; goldens untouched.
+
+### Claim sentence (ADR-193), written before the code
+*Polaris (`gam()`) fits the trial formula from the ILEC-derived cell columns; `mgcv` (pinned digest, `gam(method="REML")`) fits the same string on the same columns; compared on `eta`, `edf_total`, per-smooth edf, the `Vp` `se.fit`, `log10(sp)`, the REML score and the scale.* `fit_polaris` takes cells and a formula, the R companion takes cells and a spec; only `compare` sees both and it produces neither (mechanical test pinned in `tests/test_gam/test_real_data_trial.py`). Per column: eta, edf_total, `se.fit`, per-smooth edf, `log10(sp)`, REML, scale INDEPENDENT; wall times, peak memory, iteration counts, phase split MEASUREMENT of each engine against itself (the ratio is a timing reading, never agreement); the score gap is MEASUREMENT of Polaris against its own criterion.
+
+### Decisions
+1. **Where it lives.** `polaris_re.gam.real_data_trial` (not `analytics/`: a layering test forbids `analytics` importing the `gam` facade; caught by the baseline run). Scripts: `gam_real_data_trial.py` (prepare / run-cell / all / collect, restartable, one subprocess per cell for clean peak memory), `gam_real_data_trial.R`, `RUNBOOK_gam_real_data_trial.md`.
+2. **Output contract enforced, not promised.** `OUTPUT_KEYS` whitelist; string leaves must match a fixed vocabulary or a per-key pattern; lists capped at 64; per-smooth results are positional with no label (a factor-`by` label carries a level name); `face_band` levels are renamed `B00..` before they reach any engine or file; refusal text is length-capped. Scratch files (cells, per-row `mgcv` output) stay in a local `--work` directory.
+3. **Gates unchanged and imported:** ADR-221 `eta` 2e-2 and `|edf_total|` < 1, ADR-250 `Vp` `se` 2e-2 relative, plus the maintainer's `max |d eta| / se.fit <= 0.1` (flag above 0.01). The score gap `score_gap_at_mgcv_sp` and `n_coef_diff` are added as scalars so a real-data miss arrives already classified (iii outer search vs i design).
+4. **Granularity reading (Q-R2g, recommended, awaiting confirmation).** The PLAN's `coarse`/`mid` key sets lack variables the formulas need, so each granularity is its key set UNIONED with the formula's variables; `full` is the banded run's six keys (`attained_age, calendar_year, duration_months, sex, smoker, uw_class`) plus `band` (T2+ need `face_band`; the committed banded run has no `band` key, so `full`'s cell count is a new size, not 126,223). Duration uses the banded run's representative values (policy years 1,2,3,4,8,13,18,23,31).
+5. **T3 as written is refused.** It holds a bare `s(attained_age)` and a `ti` over age beside `s(attained_age, by=smoker)` under `select=TRUE`, which ADR-258 refuses by name (17/120 draws disagree). Per PLAN §5 rule 3 the trial records `refused` (S2 and S3 contain T3 and are refused too). **`T3c`** (`s(duration)` + parametric block + `s(attained_age, by=smoker)`, `select=TRUE`) is run beside it so the trip is not wasted; it is a *candidate*, not an approved formula.
+
+### Tier-3 rehearsal (synthetic cells with the real data's structure; run 38143339633, commit `0446c3c`, oracle `sha256:0d54c192…` mgcv 1.9.4 / R 4.6.1)
+Six cells (T1, T2, T3c x two seeds; 9,720 cells each; integer ages, banded-duration values, age = issue + duration - 1). **5 of 6 meet all four gates.** T1: `eta` <= 1.5e-04, scaled `eta` <= 3.3e-03, `edf` <= 7.5e-03. T3c: `eta` <= 1.3e-04. Coefficient counts are identical in all six cells. **One miss: T2 seed 7001** (`eta` 3.1e-02, `edf_total` +1.00, scaled `eta` 0.45, score gap -0.148): `mgcv`'s point scores better under Polaris's criterion, i.e. the outer search stopped on a plateau (**mechanism class iii**, ADR-241). Recorded as a limitation and a gauntlet case, not a slice, no start strategy (PLAN §5 rules 3-4). It is on a trial formula (T2), so it blocks T2's DoD if the real run repeats it; the real run decides.
+
+### A tier-1 finding that tier 3 did NOT confirm (kept so nobody re-runs it)
+Local R 4.3.3 / mgcv 1.9.1 showed T1/T2 disagreeing badly on the lattice data (`eta` 0.05-0.13, `edf` up to 3, score gap +0.5..+2.6) because 1.9.1's `gam.side()` cut the `ti(attained_age, duration)` block from 60 to 49 columns while Polaris keeps 60. At tier 3 (mgcv 1.9.4) the coefficient counts are equal in all six cells and T1 agrees. The tier-1 disagreement is a **mgcv-version difference** (1.9.1 vs the pinned 1.9.4), not a Polaris defect; no slice is registered on it (ROUTINE nevers: a tier-1 number is a hypothesis). If the real run shows `n_coef_diff != 0`, the question reopens at tier L.
+
+### Not claimed
+Nothing about real ILEC data. The 1.5 wall-time trigger, the 10-minute ceiling and the real-data agreement are unmeasured until the maintainer's run.
+
+### Consequences
+`RUNBOOK_gam_real_data_trial.md` written; `mgcv-conformance.yml` gains the rehearsal probe and compare steps (non-gating, `continue-on-error`); CONTINUATION: R2 WAITING ON MAINTAINER RUN with Q-R2g.
