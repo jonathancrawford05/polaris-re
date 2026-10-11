@@ -72,6 +72,11 @@ on:
       - "scripts/gam_select_bare_by_draws_probe.R"
       - "scripts/gam_select_bare_by_draws_compare.py"
       - "scripts/gam_select_stop_diagnostic.py"
+      # Slice R2 (ADR-259): the ILEC trial pipeline, synthetic rehearsal.
+      - "scripts/gam_real_data_trial.R"
+      - "scripts/gam_real_data_trial.py"
+      - "scripts/gam_real_data_trial_rehearsal_probe.R"
+      - "scripts/gam_real_data_trial_rehearsal_compare.py"
       # Slice P4 (ADR-253): GamFit.summary() vs summary.gam, and the target-size fit.
       - "scripts/gam_target_size_probe.R"
       - "scripts/gam_summary_compare.py"
@@ -974,6 +979,17 @@ jobs:
             Rscript scripts/gam_select_bare_by_draws_probe.R \
               gam_select_bare_by_draws_probe.json
 
+      # Slice R2 (ADR-259): the ILEC trial's formulas on synthetic cells with the real data's
+      # structure, fitted by the SAME R extraction the maintainer's run uses.
+      - name: Fit the ILEC-trial rehearsal cells under mgcv (slice R2)
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_real_data_trial_rehearsal_probe.R \
+              gam_real_data_trial_rehearsal_probe.json
+
       # PREVIEW epic Slice P4 (ADR-253): the target-size cell (5,000 rows, 13+ penalty
       # blocks, quasi-Poisson + offset, select=TRUE) under mgcv, with summary.gam's report.
       # The formula probe above also exports summary.gam's numbers for its own cells.
@@ -1027,6 +1043,7 @@ jobs:
             gam_predict_probe.json
             gam_formula_probe.json
             gam_select_bare_by_draws_probe.json
+            gam_real_data_trial_rehearsal_probe.json
             gam_target_size_probe.json
 
   # ---------------------------------------------------------------------------
@@ -4167,6 +4184,20 @@ jobs:
             cat gam_select_bare_by_draws_report.md >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No gam_select_bare_by_draws_probe.json — the R probe above did not produce one."
+          fi
+
+      # Slice R2 (ADR-259) — the ILEC trial pipeline on synthetic cells, Polaris vs mgcv.
+      - name: ILEC-trial rehearsal vs mgcv (slice R2)
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          if [ -f gam_real_data_trial_rehearsal_probe.json ]; then
+            uv run python scripts/gam_real_data_trial_rehearsal_compare.py \
+              gam_real_data_trial_rehearsal_probe.json gam_real_data_trial_rehearsal_report.md
+            cat gam_real_data_trial_rehearsal_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_real_data_trial_rehearsal_probe.json — the R probe above did not produce one."
           fi
 
       # Slice R1 (ADR-258) — DIAGNOSTIC: is Polaris's Newton stop the reason for the misses, and
