@@ -119,7 +119,8 @@ def _fit(cell: dict) -> tuple[object, np.ndarray]:  # type: ignore[type-arg]
 
 def _bucket(form: str) -> str:
     """``core`` = the two allowlisted forms; ``ti`` = ``ti(x,z)`` beside the by smooth (ADR-258
-    re-review P2; refused after one recorded miss); anything else is also refused."""
+    re-review P2; refused after one recorded miss); ``numby`` = a numeric ``by`` beside the factor
+    ``by`` (accepted); anything else is refused."""
     if form in ("by_only", "main_by"):
         return "core"
     if form.endswith("_ti"):
@@ -187,7 +188,7 @@ def build_report(probe: Path) -> tuple[str, int, int]:
     for (fam, form), rows in sorted(groups.items()):
         etas = sorted(r["eta"] for r in rows)
         gaps = [r["gap"] for r in rows if r["gap"] is not None]
-        accepted = _bucket(form) == "core"
+        accepted = _bucket(form) in ("core", "numby")
         lines.append(
             f"| {fam} | {form} | {'yes' if accepted else 'REFUSED (ADR-258)'} | {len(rows)} | "
             f"{sum(r['agrees'] for r in rows)} | {sum(not r['conv'] for r in rows)} | "

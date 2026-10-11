@@ -49,3 +49,9 @@ The draws probe now measures `s(x,by=f)+s(x,by=g)` with and without `f`,`g` and 
 
 ## Re-review P2 closed (`ti` beside the by smooth, run 38099911877, commit `39f39ad`)
 Measured `f + s(x,by=f) + ti(x,z)` over the same 30 draws x 2 families (z from its own stream; earlier draws unchanged): 59 of 60 agree (gaussian draw 21 misses: eta 3.5e-02, edf 0.69, score gap 0.000, a flat ridge). Held to the accepted forms' standard (0 misses in 120) it is refused: the allowlist counts a `ti` involving the covariate as another smooth. Judgement call on 1 miss in 60; reversible by lifting the `ti` branch if the maintainer prefers.
+
+## Maintainer follow-up: numeric `by`, the stopping rule and a warning (run 38102487555, commit `5837d69`)
+- **Numeric `by` beside the factor `by`:** 60 of 60 agree (tier 3); the unmeasured refusal is lifted.
+- **Warning at the stop:** no indicator separates the 29 misses (of 480) from the agreeing fits (best AUC 0.71; 20 of 29 caught costs 161 of 451 false alarms). Not built.
+- **Tolerance:** `conv_tol` 1e-7..1e-9 fixes 5-6 of 29 and breaks none. 16 of 29 misses score above `mgcv`'s point (11 remain so after tightening: different stationary points); 13 of 29 score equal (flat ridge).
+- **Tier-1 hypotheses (local mgcv 1.9.1, not committable):** started from Polaris's own start, `mgcv` still lands on its usual `eta` in 24 of 29 missed draws (its path is robust to the start); Polaris started from `mgcv`'s `initial.sp` reaches `mgcv`'s `eta` in 17 of 29, but a control that perturbs Polaris's own start by N(0, 0.2) or N(0, 0.4) per entry reaches it in 48% / 55% of 87 starts, so that 59% says nothing special about `mgcv`'s start. Reading: a basin lottery in Polaris's path, with `mgcv`'s path steadier; the lever is the step/path logic, not the tolerance or the start. Not pursued (rule 4).
