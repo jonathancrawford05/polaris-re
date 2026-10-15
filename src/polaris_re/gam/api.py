@@ -356,6 +356,7 @@ def _build_model(
     weights: str | None,
     offset: str | None,
     select: bool,
+    allow_unverified_select: bool = False,
 ) -> tuple[ModelSpec, dict[str, np.ndarray], dict[str, _FactorCoding], list[tuple[str, int]]]:
     data: dict[str, np.ndarray] = {}
     codings: dict[str, _FactorCoding] = {}
@@ -455,7 +456,7 @@ def _build_model(
                 )
                 smooth_meta.append((label, call.k))
 
-    if select:
+    if select and not allow_unverified_select:
         _refuse_select_with_bare_and_factor_by(smooth)
     if weights is not None:
         need_numeric(weights, "weights=")
@@ -481,6 +482,7 @@ def gam(
     offset: str | None = None,
     select: bool = False,
     scale: float | None = None,
+    allow_unverified_select: bool = False,
 ) -> GamFit:
     """Fit an ``mgcv`` GAM formula from the verified subset by REML.
 
@@ -499,6 +501,10 @@ def gam(
             formula; not both).
         select: ``mgcv``'s ``select=TRUE``. Refused only when a bare smooth of the same covariate
             sits beside a factor-``by`` smooth (ADR-258).
+        allow_unverified_select: a DIAGNOSTIC switch. Skips the ADR-258 refusal of ``select=True``
+            with a factor-``by`` smooth beside another smooth of its covariate, so the fit runs
+            although ~1 draw in 7 disagrees with ``mgcv`` (outer-search plateau). For measuring
+            that limitation; never for results anyone relies on.
         scale: a fixed dispersion. **Refused:** it is verified only inside the
             conformance module (ADR-236/237), not through the production fitter.
 
@@ -522,7 +528,14 @@ def gam(
         )
     family_name, link = _family(family)
     model, arrays, codings, smooth_meta = _build_model(
-        parsed, data, family_name, link, weights, offset or parsed.offset, select
+        parsed,
+        data,
+        family_name,
+        link,
+        weights,
+        offset or parsed.offset,
+        select,
+        allow_unverified_select,
     )
     y = _numeric(data, parsed.response)
     fit = fit_polaris_gam(model, arrays, y, warn_stacklevel=3)

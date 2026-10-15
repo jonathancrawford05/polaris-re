@@ -67,7 +67,7 @@ Every slice lands **(i) one user-callable capability and (ii) at least one INDEP
 
 **Acceptance (INDEPENDENT, tier 3, existing gates, none widened):** every form × family cell meets `eta` < 2e-2, |`edf_total`| < 1, `Vp` `se` < 2e-2, converges from one Newton start; per-term edf and `Vc` `se` are gated **only** on cells where R1-a and R1-b hold, and reported otherwise. **Release condition:** first slice; no precondition.
 
-### Slice R2 — the ILEC trial and the performance profile (WAITING ON MAINTAINER RUN)
+### Slice R2 — the ILEC trial and the performance profile (WAITING ON MAINTAINER RUN; routine half DONE 2026-10-11, ADR-259)
 
 **What the routine builds.** `scripts/gam_real_data_trial.py` (loads ILEC via `experience_loaders.load_ilec`, aggregates to the trial cells, fits with `gam()`, times each phase, calls the R companion), `scripts/gam_real_data_trial.R` (the same formula string under the pinned `mgcv`), `docs/RUNBOOK_gam_real_data_trial.md` (written so Cowork can execute it without judgement calls: environment variables, the Docker command with the digest, expected runtime, the exact output path, a checklist of "stop and report" conditions), and the output whitelist test (§3).
 
