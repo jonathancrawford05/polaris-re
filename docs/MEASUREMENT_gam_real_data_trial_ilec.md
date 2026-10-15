@@ -43,6 +43,17 @@ maintainer has chosen to publish these findings while the request is pending, as
 
 ## Results
 
+**Parity comparison** — independently produced on both sides: `eta at the cell rows (gated: ADR-221 and the scaled criterion)`, `edf_total (gated: ADR-221)`, `Vp se.fit (gated: ADR-250 relative 2e-2)`, `per-smooth edf, log10(sp), REML score, scale (reported, never gated)`.
+
+*Claim:* Polaris (gam() -> fit_polaris_gam, Newton REML) fits the trial formula from the ILEC-derived cell columns; mgcv (pinned digest, gam(method='REML')) fits the same string on the same columns; compared on eta, edf_total, per-smooth edf, the Vp se.fit, log10(sp), the REML score and the scale. The same comparison runs on real cells (tier L, maintainer-run) and on synthetic cells (CI, tier 3).
+
+| quantity | left producer | right producer | provenance | parity evidence |
+|---|---|---|---|---|
+| `eta at the cell rows (gated: ADR-221 and the scaled criterion)` | GamFit.eta | mgcv m$linear.predictors | INDEPENDENT | yes |
+| `edf_total (gated: ADR-221)` | GamFit.edf_total | mgcv sum(m$edf) | INDEPENDENT | yes |
+| `Vp se.fit (gated: ADR-250 relative 2e-2)` | GamFit.predict(se_fit=True) | mgcv predict.gam(se.fit=TRUE) | INDEPENDENT | yes |
+| `per-smooth edf, log10(sp), REML score, scale (reported, never gated)` | GamFit.summary() | mgcv m$edf, m$sp, m$gcv.ubre, m$scale | INDEPENDENT | yes |
+
 Times are best-of-repeats wall-clock seconds, as recorded. `score gap` is `score_gap_at_mgcv_sp`.
 `eta scaled` is `eta_scaled_max`, against a flag threshold of 0.01 and a gate of 0.1.
 
@@ -50,7 +61,7 @@ Times are best-of-repeats wall-clock seconds, as recorded. `score gap` is `score
 |---|---|---|---|---|---|---|---|
 | S1 coarse / mid / full | not_run | — | — | — | — | — | — |
 | S2 coarse | fitted | met | 115.9 | 566.2 | 0.012 | 1 | −0.0054 |
-| S2 mid | fitted | **not met (eta)** | 208.6 | 1452.1 | 0.104 | 1 | −0.0210 |
+| S2 mid | fitted | **not met (eta, scaled)** | 208.6 | 1452.1 | 0.104 | 1 | −0.0210 |
 | S2 full | failed | — | 807.0 | — | — | — | — |
 | S3 coarse | fitted | met | 215.1 | 1237.9 | 0.034 | 1 | −0.0048 |
 | S3 mid | fitted | **not met (eta)** | 486.4 | 2762.7 | 0.097 | 1 | −0.2929 |
@@ -60,7 +71,7 @@ Times are best-of-repeats wall-clock seconds, as recorded. `score gap` is `score
 | T1 full | fitted | met | 57.4 | 206.7 | 0.032 | 0 | −0.0099 |
 | T2 coarse | fitted | met | 144.2 | 760.1 | 0.038 | 0 | −0.0087 |
 | T2 mid | fitted | met | 257.0 | 1590.7 | 0.045 | 0 | +0.0058 |
-| T2 full | failed | — | 648.1 | — | — | — | — |
+| T2 full | failed | — | 642.9 | — | — | — | — |
 | T3a coarse | fitted | met | 275.4 | 1312.0 | 0.019 | 1 | −0.00064 |
 | T3a mid | fitted | met | 473.5 | 3670.3 | 0.027 | 1 | −0.0141 |
 | T3a full | failed | — | 1220.0 | — | — | — | — |
@@ -87,10 +98,12 @@ which must be a proportion. The trial refuses S1 when any aggregated cell has mo
 exposure. The existing data rules check only zero-exposure cells, so this condition is not caught
 earlier. Its extent has not been measured in this trial. This is a finding about the extract.
 
-**3. Two gates are missed.** S2 mid and S3 mid miss the eta gate (max |Δη| 0.037 and 0.047, against
-0.02). T3b mid misses the se gate (relative se difference 0.022, against 0.02). Gates were not relaxed.
+**3. Four gates are missed, in three cells.** S2 mid misses the eta gate (max |Δη| 0.037, against
+0.02) and the scaled gate (eta scaled 0.104, against 0.1). S3 mid misses the eta gate (max |Δη| 0.047;
+its scaled value 0.097 passes). T3b mid misses the se gate (relative se difference 0.022, against 0.02).
+Gates were not relaxed.
 
-**4. Polaris exceeds the 600 s ceiling on six cells:** T2 full (648 s), S2 full (807 s), T3b mid
+**4. Polaris exceeds the 600 s ceiling on six cells:** T2 full (643 s), S2 full (807 s), T3b mid
 (841 s), T3a full (1220 s), S3 full (1871 s), T3b full (2117 s).
 
 **5. `n_coef_diff` is non-zero for S2, S3 and T3a.** The two designs have different widths for those
