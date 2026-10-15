@@ -17,6 +17,7 @@ mechanical diff without disturbing prose that a human wrote.
 | `experience_gam_ilec.{json,md}` | `--source ilec --year-df 3` |
 | `experience_gam_ilec_duration_banded.{json,md}` | `--source ilec --year-df 3 --duration-bands` |
 | `experience_gam_ilec_duration_banded_quadratic.{json,md}` | `--source ilec --year-df 2 --year-degree 2 --duration-bands` |
+| `gam_real_data_trial_2026-10-15.json` | `scripts/gam_real_data_trial.py collect` after `all` (tier L, runbook `RUNBOOK_gam_real_data_trial.md`). Written reading: `docs/MEASUREMENT_gam_real_data_trial_ilec.md` |
 
 The three ILEC runs are all kept **on purpose**; each pair's difference is itself a
 finding. Pooled versus banded shows duration mix confounding the trend (ADR-182

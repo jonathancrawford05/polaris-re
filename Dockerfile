@@ -87,7 +87,7 @@ COPY docs/measurements/ ./docs/measurements/
 # tests/test_docs/test_data_attribution.py — and independently the right thing to
 # ship alongside another party's experience data.
 COPY docs/DATA_LICENSING.md ./docs/
-COPY docs/MEASUREMENT_experience_gam_hmd.md docs/MEASUREMENT_experience_gam_ilec.md ./docs/
+COPY docs/MEASUREMENT_experience_gam_hmd.md docs/MEASUREMENT_experience_gam_ilec.md docs/MEASUREMENT_gam_real_data_trial_ilec.md ./docs/
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

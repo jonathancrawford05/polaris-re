@@ -33,6 +33,7 @@ ATTRIBUTION_BEARING = (
     REPO_ROOT / "docs" / "measurements" / "README.md",
     REPO_ROOT / "docs" / "MEASUREMENT_experience_gam_hmd.md",
     REPO_ROOT / "docs" / "MEASUREMENT_experience_gam_ilec.md",
+    REPO_ROOT / "docs" / "MEASUREMENT_gam_real_data_trial_ilec.md",
 )
 
 
