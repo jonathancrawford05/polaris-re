@@ -424,6 +424,22 @@ than describing them. Removing them is a re-run of
 and §5's insured-versus-population comparison are all ratios. Per §3d this reduces
 exposure rather than eliminating it, and it is not a substitute for §6.
 
+### 5d. Decision, 2026-10-15: publish new findings while the permission request is pending
+
+The maintainer decided on 2026-10-15 to publish the GAM real-data trial findings
+(`docs/MEASUREMENT_gam_real_data_trial_ilec.md` and `docs/measurements/gam_real_data_trial_2026-10-15.json`)
+while the SOA permission request in §6 is still pending. The SOA reply received the same day is an
+acknowledgement only (§6), and it grants nothing. This decision extends the §5a caveat to new
+ILEC-derived content, and it is not a finding that the Terms permit publication.
+
+What the trial output contains, checked against §1a: per-cell fit diagnostics, timings, score gaps
+and aggregated cell counts (`n_cells`). It contains no exposure or death totals, no per-row values,
+and no actual or expected death counts.
+
+The triggers in §5b apply to these findings as they do to §5a. In particular, a substantive SOA reply
+in either direction must be recorded here, and no reply by 2026-11-06 must be treated as a reason to
+revisit publication, not as permission.
+
 ---
 
 ## 6. Permission request to the SOA
@@ -433,6 +449,7 @@ exposure rather than eliminating it, and it is not a substitute for §6.
 | Drafted | 2026-08-07 |
 | **Sent** | **2026-08-08**, by the maintainer from their own address, so any permission granted attaches to them personally |
 | Acknowledged | Automated reply only — the SOA noted it is handling a high volume of queries. **Not a substantive response**, and it grants nothing |
+| Holding reply | **2026-10-15.** SOA's publications team has the request and has put the ticket on hold until it hears back. Quoted: "I've sent your request to our publications team and will put this ticket on hold until I hear back. Thanks for your patience!" **Not a substantive response**, and it grants nothing |
 | Follow-up due | **2026-09-07** (~30 days) — a short, polite chase |
 | **90-day trigger** (§5b) | **2026-11-06.** Silence at that date is not permission and is not a steady state |
 
