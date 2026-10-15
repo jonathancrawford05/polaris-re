@@ -197,7 +197,8 @@ MANIFEST: tuple[MeasurementSource, ...] = (
         producer="scripts/gam_real_data_trial.py",
         regeneration=(
             "MAINTAINER-RUN, tier L: follow docs/RUNBOOK_gam_real_data_trial.md (the `all` "
-            "subcommand writes docs/measurements/gam_real_data_trial_<date>.json), THEN update "
+            "subcommand writes the collected JSON to `--out`; commit it as "
+            "docs/measurements/gam_real_data_trial_<date>.json), THEN update "
             "this written reading from that file. The document is a reading of the raw JSON, "
             "not harness output; do not point the command at this path."
         ),
