@@ -1,7 +1,7 @@
 #!/bin/sh
 # bam_discrete_probe_run.sh -- run ONE method for ONE cell in its own process and report peak RSS.
 #
-# USAGE: scripts/bam_discrete_probe_run.sh <cell_dir> <gam|bam>
+# USAGE: scripts/bam_discrete_probe_run.sh <cell_dir> <gam|bam|bam_nodisc>
 #   e.g. scripts/bam_discrete_probe_run.sh "$WORK/T1_mid" gam
 #        scripts/bam_discrete_probe_run.sh "$WORK/T1_mid" bam
 # Writes <cell_dir>/probe_<method>.json and <cell_dir>/probe_<method>.time.
