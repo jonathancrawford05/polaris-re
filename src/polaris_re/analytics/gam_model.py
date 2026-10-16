@@ -552,7 +552,7 @@ class PolarisGAMFit:
     ``epsilon_rel * (1 + |score|)`` (Newton only)."""
     fit_method: str = "REML"
     """``"REML"`` for :func:`fit_polaris_gam`'s Laplace-REML search; ``"fREML-discrete"`` for
-    :func:`~polaris_re.gam.bam_fit.fit_polaris_bam` (``bam(method="fREML", discrete=TRUE)``'s
+    the ``gam`` package's ``fit_polaris_bam`` (``bam(method="fREML", discrete=TRUE)``'s
     performance iteration, which does NOT minimise the exact REML — the smoothing parameters
     are the iteration's end state). A fit with the second value refuses the quantities that
     are defined by the exact REML (``vcov(unconditional=True)``)."""
