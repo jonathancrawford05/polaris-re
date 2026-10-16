@@ -157,8 +157,8 @@ column above is the authority.
 | Analytic REML gradient | ✅ | Wood (2011), ADR-220 |
 | `select = TRUE` | ✅ tier 3 | null-space double penalty (ADR-217); **objective item 3, DONE** |
 | **Scale-estimated REML** | ✅ tier 3 (2026-09-26, **L5**, ADR-231) | `gam_reml.reml_score_general`'s free-scale branch — Wood (2011) eq. (4) profiled over the unknown scale, `phi_hat = Dp/(n-Mp)`. Unblocks Gaussian and quasi-Poisson (both registered); Gamma and Tweedie are not yet registered families regardless. See §2.1/§2.2 for the fit- and score-level readings |
-| **`fREML`** | **NO** | `bam`'s criterion; a *different* criterion, not a faster REML |
-| **`bam`** | **NO** | **objective item 2**; deferred 2026-08-10 (PLAN §3) |
+| **`fREML`** | **PARTIAL (2026-10-16, ADR-260 amend. 4)** | `bgam.fitd`'s performance iteration, Poisson/binomial fixed scale, via `gam(method="fREML", discrete=True)`; INDEPENDENT tier-3 agreement on 4 synthetic cells; real data unrun |
+| **`bam`** | **PARTIAL (WIP)** | see `fREML`; design padded-frame not replicated (3e-3 residual), no real-data run, no `reml_score`/`summary()`/`Vc` |
 | **`discrete = TRUE`** | **NO** | **objective item 2**; a different algorithm (Wood/Li/Shaddick/Augustin) |
 | **Unpenalized parametric block** | ✅ tier 3 (2026-09-27, **L4**, ADR-233) | `gam_basis_parametric.parametric_design` — `mgcv`'s own `contr.treatment` dummy coding, zero smoothing parameters. Closes the LAST rung `PLAN_mgcv_capability_ladder.md`'s ORIGINAL five slices name; the target formula's own `FaceSize + Smoke + FaceSize:Smoke` is expressible |
 | **`cr` + `re` + `ti` fit jointly, one model** | ✅ tier 3, **fixed AND free `sp`** (2026-09-28, ADR-234, Slice 6) | Each basis was individually verified; composed, `gaussian(identity)` fixed/free `sp` and `poisson(log)` free `sp` agree with `mgcv` (`eta` ≤ 3e-5, run 36476048762). One dataset; `select=TRUE` and quasi-Poisson dispersion not exercised on it |

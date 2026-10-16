@@ -75,6 +75,9 @@ on:
       # Slice R3 Stage A (ADR-260 amendment 1): bam(discrete=TRUE) discretisation vs mgcv.
       - "scripts/bam_binning_probe.R"
       - "scripts/bam_binning_compare.py"
+      # Slice R3 Stage B (ADR-260 amendment 4): the bgam.fitd port vs bam(discrete=TRUE).
+      - "scripts/bam_fitd_probe.R"
+      - "scripts/bam_fitd_compare.py"
       # Slice R2 (ADR-259): the ILEC trial pipeline, synthetic rehearsal.
       - "scripts/gam_real_data_trial.R"
       - "scripts/gam_real_data_trial.py"
@@ -991,6 +994,16 @@ jobs:
           docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
             Rscript scripts/bam_binning_probe.R bam_binning_probe.json
 
+      # Slice R3 Stage B (ADR-260 amendment 4): bam(discrete=TRUE) re-run with maxit = 1, 2, ...
+      # (the iteration trace), bam's own design, and exact-REML gam, on 4 ILEC-shaped cells.
+      - name: bam performance-iteration trace under mgcv (slice R3 stage B)
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/bam_fitd_probe.R bam_fitd_probe.json
+
       # Slice R2 (ADR-259): the ILEC trial's formulas on synthetic cells with the real data's
       # structure, fitted by the SAME R extraction the maintainer's run uses.
       - name: Fit the ILEC-trial rehearsal cells under mgcv (slice R2)
@@ -1056,6 +1069,7 @@ jobs:
             gam_formula_probe.json
             gam_select_bare_by_draws_probe.json
             bam_binning_probe.json
+            bam_fitd_probe.json
             gam_real_data_trial_rehearsal_probe.json
             gam_target_size_probe.json
 
@@ -4200,6 +4214,20 @@ jobs:
             echo "No bam_binning_probe.json — the R probe above did not produce one."
           fi
 
+      # Slice R3 Stage B (ADR-260 amendment 4) — Polaris's bgam.fitd port vs bam(discrete=TRUE):
+      # end to end (INDEPENDENT) and on bam's own design (ECHO diagnostic).
+      - name: bam performance iteration vs mgcv (slice R3 stage B)
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f bam_fitd_probe.json ]; then
+            uv run python scripts/bam_fitd_compare.py \
+              bam_fitd_probe.json bam_fitd_report.md
+            cat bam_fitd_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No bam_fitd_probe.json — the R probe above did not produce one."
+          fi
+
       # Slice R1 (ADR-258) — select=TRUE + factor-by over repeated draws, Polaris vs mgcv.
       - name: select=TRUE factor-by draws vs mgcv (slice R1)
         if: always()
@@ -4336,6 +4364,8 @@ jobs:
             gam_select_bare_by_draws_report.md
             bam_binning_probe.json
             bam_binning_report.md
+            bam_fitd_probe.json
+            bam_fitd_report.md
             gam_select_stop_report.md
             gam_target_size_probe.json
             gam_summary_report.md
