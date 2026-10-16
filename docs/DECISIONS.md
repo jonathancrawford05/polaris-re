@@ -25200,3 +25200,42 @@ Nothing about real ILEC data. The 1.5 wall-time trigger, the 10-minute ceiling a
 
 ### Consequences
 `RUNBOOK_gam_real_data_trial.md` written; `mgcv-conformance.yml` gains the rehearsal probe and compare steps (non-gating, `continue-on-error`); CONTINUATION: R2 WAITING ON MAINTAINER RUN with Q-R2g.
+
+## ADR-260: GAM real-data readiness Slice R3 — `bam(method="fREML", discrete=TRUE, select=TRUE)` is the parity reference; the R2 gates are unchanged; `gam` at mid measures the approximation cost and is not a gate
+
+**Date:** 2026-10-15. **Status:** PROPOSED, awaiting maintainer acceptance. No `src/` code is written under this ADR. PR class: **`measurement + decision`**, not yet `feature`.
+
+### Context (measured, not assumed)
+R2 is DONE (maintainer run, 2026-10-15; `docs/measurements/gam_real_data_trial_2026-10-15.json`). The 10-minute ceiling was exceeded on six cells, so R3 is needed. The `mgcv` oracle failed at `full` granularity (out of memory at 15.66 GB), so `full` has no `gam` reference.
+
+A first-step probe (`scripts/bam_discrete_probe.R`, PR #270, run on the maintainer's Mac, native R) compared `gam(method="REML")` with `bam(method="fREML", discrete=TRUE)` on the same cells, in separate processes:
+
+| cell | rows | time gam → bam | peak RSS gam → bam | max \|Δη\| | max rel \|Δse.fit\| | edf_total gam / bam |
+|---|---|---|---|---|---|---|
+| T1_mid | 109,158 | 24.6 s → 0.5 s | 1996 → 295 MB | 0.0205 | 0.018 | 62.654 / 62.503 |
+| S2_mid | 648,372 | 387.8 s → 3.4 s | 9037 → 935 MB | 0.0192 | 0.015 | 90.480 / 90.435 |
+| S2_full | 2,758,413 (per the JSON's `n_cells`) | — → 14.1 s | — → 2748 MB | — | — | — / 90.464 |
+
+Per-smooth edf moves more than the totals: `s(duration)` in T1_mid is 4.84 under `gam` and 3.96 under `bam`; `s(attained_age):smokerNS` in S2_mid is 9.05 and 10.04.
+
+These differences are between two algorithms. They are not Polaris-versus-oracle differences.
+
+### Claim sentence (ADR-193), written before any code
+*Polaris (`fit_polaris`, with `select=TRUE`, `discrete=TRUE` and `method="fREML"`) builds the discretised fit that `mgcv::bam(method="fREML", discrete=TRUE, select=TRUE)` builds on the same cells; compared on `eta`, the `Vp` `se.fit`, `edf_total`, per-smooth edf, `log10(sp)`, the fREML score and the scale, with the R2 gates unchanged.* The `gam` fit is a documented baseline that measures the approximation cost; it is not part of the parity claim.
+
+### Decisions
+1. **The parity reference is `bam`, not `gam`.** A Polaris `bam` fit is compared with `bam(method="fREML", discrete=TRUE, select=TRUE)` on the same cells and settings. Comparing it with `gam` would measure the approximation, not Polaris.
+2. **The R2 gates are unchanged.** `eta` 2e-2, `|edf_total|` < 1, `Vp` `se.fit` 2e-2 relative, and `max |Δη| / se.fit` ≤ 0.1 with a flag above 0.01. They test Polaris against its oracle. If Polaris reproduces `bam`'s algorithm, they pass with room. If it drifts (different smoothing parameters, a different score, different binning), the gates fail, which is the purpose.
+3. **The `gam`-versus-`bam` gap is a reported quantity, not a gate.** The probe's `|Δη|` of 0.0205 at T1_mid is above the 0.02 gate, and that is expected for an approximation. It is recorded here as the cost of `discrete=TRUE`, and it is not treated as a failure.
+4. **Polaris must reproduce `bam`'s discretisation exactly.** `bam` bins each covariate by a rule. Polaris must use the same rule. A different rule would produce an `eta` gap of about the size measured above, and the gates would correctly fail. **Open:** the binning rule (number of bins and placement) must be read from the pinned `mgcv` source before code, not assumed.
+5. **Full-granularity reference.** Option 2, as recorded in the continuation doc, with a clarification: `gam` at mid is the baseline for the approximation cost. Parity at `full` is checked against `bam` at `full`, which needs a Polaris `bam` fit at `full`. A stability check (`bam` at `full` against `bam` at `mid` on a shared model structure) is a separate, weaker check and is labelled as such. **Open:** the maintainer confirms that `full` parity against `bam` is the claim, and that stability is only supporting evidence.
+6. **Scope of R3-bam.** R3 closes when a Polaris `bam` fit at `full` is within the 10-minute ceiling and passes the unchanged gates against `bam`. If the ceiling is met by R3-exact, the maintainer records that instead (PLAN §4).
+
+### Consequences
+- No code under this ADR. The next step after acceptance is the binning-rule read from `mgcv` source, then a Stage A test of the binning against `bam` (as the plan's Stage A/B pattern requires).
+- The per-smooth edf differences need an interpretation before the claim is written. The totals agree; the split between smooths does not.
+- R4 (`tp`) stays after R3, per the 2026-10-15 order change.
+
+### Open questions for the maintainer
+- Confirm decision 5: is `full` parity against `bam` the claim, with stability as supporting evidence?
+- Confirm that `discrete=TRUE` is part of the reference, as in PLAN's R3-bam definition.
