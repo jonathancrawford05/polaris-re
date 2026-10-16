@@ -4,6 +4,7 @@ Prints scalars only: the agreement and the time/memory difference. The per-row a
 the scratch JSON files, which are never committed.
 
 USAGE: python scripts/bam_discrete_probe_compare.py <cell_dir>
+(optional: also run bam_discrete_probe_run.sh <cell_dir> bam_nodisc to attribute the gap)
 """
 
 import json
@@ -40,6 +41,20 @@ def main(cell_dir: Path) -> None:
     )
     print(f"edf_total  gam {gam['edf_total']:.3f}   bam {bam['edf_total']:.3f}")
     print(f"max |d eta| = {d_eta:.4g}   max rel |d se.fit| = {rel_se:.4g}")
+    print(f"unique values per covariate (sizes): {gam.get('n_unique')}  (<= 1000 means no binning)")
+    nd = cell_dir / "probe_bam_nodisc.json"
+    if nd.is_file():
+        nod = json.loads(nd.read_text())
+        pairs = {
+            "gam vs bam(discrete=FALSE)": (gam, nod),
+            "bam(discrete=FALSE) vs bam(discrete=TRUE)": (nod, bam),
+        }
+        for label, (x, y) in pairs.items():
+            e = max(abs(a - b) for a, b in zip(x["eta"], y["eta"], strict=True))
+            print(f"max |d eta| {label} = {e:.4g}")
+        print(
+            f"iterations: gam n/a   bam(discrete=FALSE) {nod.get('iter')}   bam {bam.get('iter')}"
+        )
     print("per-smooth edf (gam, bam):")
     for g, b in zip(gam["smooths"], bam["smooths"], strict=True):
         print(f"  {g['label']}: {g['edf']:.3f}, {b['edf']:.3f}")
