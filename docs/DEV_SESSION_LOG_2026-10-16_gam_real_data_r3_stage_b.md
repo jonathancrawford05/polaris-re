@@ -41,3 +41,6 @@ Registered, not filed: the padded-frame question is in ADR-260 amendment 4 and t
 
 ## Perf
 No `perf/history.jsonl` row appended: ADR-177 amendment 2 covers only `*_conformance.py` modules, and this PR touches `gam_model.py`/`gam_initial_sp.py`/`api.py`. However `fit_polaris_gam` is unchanged and no pricing path calls it; I judged the perf probe's import closure not to include `polaris_re.gam`, but did not verify mechanically. The reviewer should append the row if the check says so (ambiguous = append, per the routine).
+
+## PR #273 review round (same day)
+Review: APPROVE with P1-1 (perf row), P1-2 (derived headlines), P2-1 (dates), P2-2 (reml_score note); all addressed. Maintainer comment replaced the "no" recommendation with a measure-first rule; executed: seed spread (REFERENCE_INTERNAL) 6.51e-3 >= residual 3.17e-3 on the discriminating cell, tier 3 run 38938280500, so R's RNG is not ported (ADR-260 amendment 5); `tero` ported, effect on the residual nil. Provenance of the new table: spread REFERENCE_INTERNAL; Polaris vs bam-at-each-seed INDEPENDENT (`SEED_CLAIM`). Re-scope question: not needed, the maintainer kept the single WIP scope.
