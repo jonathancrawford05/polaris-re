@@ -37,3 +37,6 @@ Registered, not merely filed: Stage B is R3's remaining scope (CONTINUATION "R3 
 
 ## Perf
 No `perf/history.jsonl` row: the only `src/polaris_re/` file touched is `gam/bam_binning_conformance.py`, a `*_conformance.py` module outside the perf probe's import closure (ADR-177 amendment 2).
+
+## Addendum — the maintainer's local ILEC probe (2026-10-16)
+Hypothesis R3A-H1's verdict above ("refuted: the gap is performance iteration, not binning") was **half right**. The real-cell run (tier L-native, REFERENCE_INTERNAL, mgcv 1.9.4 / R 4.6.1 / arm64, 1 thread, not the pinned digest) confirms no binning but shows `bam(discrete=FALSE)` vs `bam(discrete=TRUE)` at 0.019 (T1_mid) against 1.2e-6 on the synthetic cell, and gam vs `bam(discrete=FALSE)` at 0.0020. The gap belongs to the `discrete=TRUE` path (`bgam.fitd`), not to `fREML` in general; amendment 1's finding 2 is marked amended and ADR-260 amendment 3 has the table. Provenance: every column REFERENCE_INTERNAL (mgcv vs mgcv, Polaris absent). A tier-1 ILEC-shaped synthetic cell reproduces the pattern (HYPOTHESIS). A probe defect (the offset column listed as a covariate in `n_unique`) was found in the first reading and fixed. Gap After is unchanged: Polaris still has no `bam` fit.

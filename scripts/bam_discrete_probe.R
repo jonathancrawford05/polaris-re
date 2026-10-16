@@ -30,6 +30,13 @@ main <- function(argv) {
   f <- as.formula(spec$formula)
   sel <- isTRUE(spec$select)
 
+  # covariates only: drop the offset's and the weights' variables (their unique counts are not
+  # a discretisation question; the first reading listed them by mistake, 2026-10-16)
+  tt <- terms(f)
+  off_vars <- if (is.null(attr(tt, "offset"))) character(0) else
+    all.vars(attr(tt, "variables")[[attr(tt, "offset") + 1]])
+  cov_vars <- setdiff(all.vars(f)[-1], c(off_vars, spec$weights))
+
   t0 <- proc.time()[["elapsed"]]
   m <- if (method == "gam") {
     mgcv::gam(f, data = d, family = fam, weights = w, method = "REML", select = sel)
@@ -56,7 +63,7 @@ main <- function(argv) {
     iter = if (is.null(m$iter)) NA else m$iter,
     # SIZES only (derived scalars): unique values per covariate in the formula, to check the
     # "<= 1000 unique values, so nothing is binned" premise on the real cells.
-    n_unique = vapply(intersect(all.vars(f)[-1], names(d)),
+    n_unique = vapply(intersect(cov_vars, names(d)),
                       function(v) length(unique(d[[v]])), numeric(1))
   )
   jsonlite::write_json(out, out_path, digits = NA, auto_unbox = TRUE,
