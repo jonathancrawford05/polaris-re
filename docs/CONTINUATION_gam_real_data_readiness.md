@@ -12,7 +12,7 @@
 | **R1** | `select=TRUE` + factor-`by` (both forms, four families); `mgcv` stability probe first | **DONE** (ADR-258): `f + s(x,by=f)` and `s(x,by=f)` accepted, 60/60 draws agree; bare-smooth-beside-`by` forms refused by name (8/60 draws disagree, class iii) |
 | **R2** | ILEC trial + performance profile; routine builds the harness/runbook, maintainer + Cowork run it | **DONE 2026-10-15.** Maintainer run recorded: 15 fitted, 6 failed (memory-limited full cells), 3 not run. The 10-minute ceiling was exceeded on six cells, so R3 is needed. Gate misses recorded, not relaxed (see Loose ends) |
 | **R4** | `tp` (L7); bare `s(x)` accepted | NOT STARTED (after R3, per the 2026-10-15 order change; maintainer to confirm) |
-| **R3** | scale: exact speedups or `bam`/`discrete=TRUE`, decided by R2's profile and the 10-minute ceiling | **NEXT. Maintainer selected R3-bam on 2026-10-15** (`bam` with `select=TRUE`). The release condition is met (ceiling exceeded). **ADR before any code**: the claim sentence, gates and agreement criterion are derived first (PLAN §4, R3-bam) |
+| **R3** | scale: exact speedups or `bam`/`discrete=TRUE`, decided by R2's profile and the 10-minute ceiling | **NEXT. Maintainer selected R3-bam on 2026-10-15** (`bam` with `select=TRUE`; ADR-260 PROPOSED, awaiting acceptance; parity reference is `bam`, gates unchanged). The release condition is met (ceiling exceeded). **ADR before any code**: the claim sentence, gates and agreement criterion are derived first (PLAN §4, R3-bam) |
 
 ## Maintainer decisions (2026-10-15)
 - **R2 is recorded as DONE.** The run is on `main` (#267, merged; the review fixes from #268 are in). Result: 15 fitted, 6 failed, 3 not run. Polaris exceeded the 10-minute ceiling on six cells: T2 full 642.9 s, S2 full 807.0 s, T3b mid 841.4 s, T3a full 1220.0 s, S3 full 1870.7 s, T3b full 2116.9 s. The ratio condition could not be evaluated at `full`, because the `mgcv` oracle ran out of memory there. The ceiling condition alone meets the release condition.
@@ -28,6 +28,25 @@
 5. **`numpy` `slogdet` RuntimeWarnings are unexamined** on the score-gap path (`reml_score_general`, `gam_reml.py` line 409). They are not cross-checked against each cell's score gap. This matters for R3, which changes the fitting path. *Owner: routine, before the R3 ADR.*
 6. **Full-granularity cells need more memory or another machine** (six cells failed). This is a data-movement decision. *Owner: maintainer.*
 7. **The `full` ratio cannot be measured on this host**, because the `mgcv` oracle fails there. The R3 ADR must say what evidence counts instead. *Owner: routine, in the R3 ADR.*
+
+## R3 pick-up (for the next dev session)
+
+**Scope, confirmed by the maintainer (2026-10-15):** R3 requires building the `bam` machinery in Polaris, not a measurement. The dev session owns the build. ADR-260 (parity reference `bam(method="fREML", discrete=TRUE, select=TRUE)`, R2 gates unchanged) must be ACCEPTED before any code is written. The session flips its status from PROPOSED to ACCEPTED in its first commit.
+
+**Build components**
+1. Discretisation: Polaris bins each covariate exactly as `mgcv::bam(discrete=TRUE)` does. The rule is read from the pinned `mgcv` 1.9.4 source first (not assumed).
+2. Discretised accumulation of `X'WX` and `X'Wz` from the binned covariates, with `select=TRUE` working over the discretised terms.
+3. The fREML outer criterion, matching `bam`'s, so smoothing parameters are selected the same way.
+4. Public entry point: `fit_polaris` (or a sibling) accepts `discrete=TRUE, method="fREML"` and refuses any combination the ADR does not cover, by name.
+
+**Stages (tests drive the build)**
+- **Stage A (claim written before code, ADR-193):** Polaris's binning and discretised design match `bam` exactly. Exact equality test on synthetic tier-3 cells in CI. The cloud session has no ILEC data.
+- **Stage B:** Polaris `bam` fit against `bam(discrete=TRUE)` on the same cells, with the unchanged R2 gates (eta 2e-2, |edf_total| < 1, `Vp` se 2e-2 relative, scaled 0.1 with flag 0.01). Synthetic cells in CI first.
+- **Real data (maintainer, Mac):** the probe scripts (PR #270) then the trial cells at mid, then full. Full-granularity parity against `bam` is the R3 release check.
+
+**Done when:** Stage A and Stage B pass in CI on synthetic cells, and the maintainer's real-data `bam` run at full is within the 10-minute ceiling and passes the unchanged gates against `bam`. Then R3 is recorded DONE and R4 starts.
+
+**Not in this session:** R4 (`tp`), pricing, CLI, dashboard or MCP wiring (Anchor 7), and any change to the R2 gates or to the reference.
 
 ## Maintainer questions
 **Q-R2g (new, ADR-259) — three readings I made that you should confirm or correct.** (1) **T3 as written is refused by `gam()`**: it has a bare `s(attained_age)` and `ti(attained_age, duration)` beside `s(attained_age, by=smoker)` under `select=TRUE` (ADR-258). The trial records the refusal (and S2/S3, which contain T3) and ALSO runs `T3c` = `s(duration) + face_band + smoker + face_band:smoker + s(attained_age, by=smoker)`, `select=TRUE`, a candidate I did not approve for you. *Recommended:* accept `T3c` as the T3 for this epic (it is the shape R1 verified), or name the formula you want. (2) **Granularities:** each is its key set unioned with the formula's variables; `full` = the banded run's six keys plus `band` (the committed banded run has no `band`, so `full`'s cell count is new, not 126,223). *Recommended:* accept. (3) **Duration: ANSWERED 2026-10-11 (maintainer): numeric integer policy year, all values to a cap of 26, no banding** (implemented). (2) granularities: ANSWERED, accepted. (1) T3: the maintainer asked whether adding `bs=` specs avoids the "bare" classification; it does not (already explicit; the refusal is the plain-smooth-beside-`by` evidence, ADR-258). **ANSWERED 2026-10-11: run all three** (T3a `select=FALSE`, T3b refusal skipped via `allow_unverified_select`, T3c); S2/S3 on T3a. Q-R2g is closed.
