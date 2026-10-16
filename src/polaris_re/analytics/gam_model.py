@@ -550,6 +550,12 @@ class PolarisGAMFit:
     gradient_tolerance: float | None = None
     """The score-scaled tolerance ``max |g^P|`` was tested against:
     ``epsilon_rel * (1 + |score|)`` (Newton only)."""
+    fit_method: str = "REML"
+    """``"REML"`` for :func:`fit_polaris_gam`'s Laplace-REML search; ``"fREML-discrete"`` for
+    :func:`~polaris_re.gam.bam_fit.fit_polaris_bam` (``bam(method="fREML", discrete=TRUE)``'s
+    performance iteration, which does NOT minimise the exact REML — the smoothing parameters
+    are the iteration's end state). A fit with the second value refuses the quantities that
+    are defined by the exact REML (``vcov(unconditional=True)``)."""
 
     def vcov(self, unconditional: bool = False) -> np.ndarray:
         """The coefficient covariance (``mgcv``'s ``vcov(m)``), ``(p, p)``.
@@ -595,6 +601,14 @@ class PolarisGAMFit:
         return tuple(sorted(set(range(self.design["full_width"])) - set(kept)))
 
     def _covariance(self, unconditional: bool) -> CoefficientCovariance:
+        if unconditional and self.fit_method != "REML":
+            raise PolarisValidationError(
+                "PolarisGAMFit.vcov: unconditional=True is refused for a "
+                f"{self.fit_method!r} fit. Vc is defined at a REML optimum by the exact REML "
+                "Hessian; a performance-iteration fit is not at one, and bam's own Vc comes "
+                "from the iteration's last working-model Hessian (not ported). Use "
+                "unconditional=False (Vp)."
+            )
         if self.y is None:
             raise PolarisValidationError(
                 "PolarisGAMFit.vcov: this fit carries no training response "
