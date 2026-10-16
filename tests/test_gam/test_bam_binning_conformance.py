@@ -173,6 +173,20 @@ def test_compare_flags_a_wrong_partition() -> None:
     assert not merged[0].agrees
 
 
+def test_compare_reports_a_variable_mgcv_discretised_and_polaris_did_not() -> None:
+    df = pl.DataFrame({"y": [0.0] * 4, "x": [1.0, 2.0, 3.0, 4.0]})
+    case = BinningCase("c", 'y ~ s(x, bs="cr", k=3)', df)
+    rows = compare_binning_case(
+        case,
+        {"x": 4, "z": 4},
+        {"x": [1, 2, 3, 4], "z": [1, 2, 3, 4]},
+        {"x": [1, 2, 3, 4], "z": [1, 2, 3, 4]},
+    )
+    missing = [r for r in rows if r.variable == "z"]
+    assert len(missing) == 1
+    assert not missing[0].agrees
+
+
 @pytest.mark.skipif(not rscript_mgcv_available(), reason="Rscript with mgcv not available")
 def test_the_probe_runs_and_every_variable_agrees(tmp_path: Path) -> None:
     out = tmp_path / "bb.json"

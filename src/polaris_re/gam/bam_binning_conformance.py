@@ -3,8 +3,9 @@ readiness epic Slice R3, Stage A (``docs/PLAN_gam_real_data_readiness.md`` §4, 
 amendment 1).
 
 **Claim sentence (ADR-193), written before the code.** *"Polaris
-(:func:`compress_covariates` / :func:`discretise_frame`, a port of the rule read from
-``mgcv`` 1.9.1's ``compress.df`` / ``discrete.mf`` source) discretises the covariate
+(:func:`compress_covariates` / :func:`discretise_frame`, a port of the rule read from the
+``mgcv`` **1.9.1** ``compress.df`` / ``discrete.mf`` source; the pinned 1.9.4 was checked by
+behaviour only, through the tier-3 probe, not by reading its source) discretises the covariate
 columns of a formula from the formula string and the raw data columns; ``mgcv`` (the pinned
 digest) discretises them through ``mgcv:::discrete.mf`` on the same formula and data;
 compared on the number of unique covariate rows per term (``nr``), the discretised value
@@ -369,6 +370,21 @@ def compare_binning_case(
                 partition_equal=_same_partition(term.index, np.asarray(mgcv_index[var])),
             )
         )
+    for var in mgcv_nr:
+        if var not in mine:
+            # mgcv discretised a variable Polaris did not: a disagreement, never silently dropped
+            rows.append(
+                BinningComparison(
+                    case.name,
+                    var,
+                    -1,
+                    int(mgcv_nr[var]),
+                    False,
+                    float("nan"),
+                    False,
+                    ["discretised by mgcv, absent from Polaris"],
+                )
+            )
     return rows
 
 
