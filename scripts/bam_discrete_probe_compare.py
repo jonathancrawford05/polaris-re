@@ -21,6 +21,11 @@ def _peak_rss_mb(time_file: Path) -> float:
 
 
 def main(cell_dir: Path) -> None:
+    for name in ("probe_gam.json", "probe_bam.json"):
+        if not (cell_dir / name).is_file():
+            raise SystemExit(
+                f"missing {cell_dir / name}: run scripts/bam_discrete_probe_run.sh first"
+            )
     gam = json.loads((cell_dir / "probe_gam.json").read_text())
     bam = json.loads((cell_dir / "probe_bam.json").read_text())
     assert len(gam["eta"]) == len(bam["eta"]), "row counts differ: not the same cell"
