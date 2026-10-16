@@ -25203,7 +25203,7 @@ Nothing about real ILEC data. The 1.5 wall-time trigger, the 10-minute ceiling a
 
 ## ADR-260: GAM real-data readiness Slice R3 — `bam(method="fREML", discrete=TRUE, select=TRUE)` is the parity reference; the R2 gates are unchanged; `gam` at mid measures the approximation cost and is not a gate
 
-**Date:** 2026-10-15. **Status:** PROPOSED, awaiting maintainer acceptance. No `src/` code is written under this ADR. PR class: **`measurement + decision`**, not yet `feature`.
+**Date:** 2026-10-15. **Status:** ACCEPTED 2026-10-16 (flipped in the first commit of the R3 build session, as `CONTINUATION_gam_real_data_readiness.md` "R3 pick-up" directs; the maintainer's 2026-10-15 scope confirmation is recorded there). Two questions below stay open and are re-put to the maintainer in amendment 1. PR class: **`measurement + decision`** until Stage B lands.
 
 ### Context (measured, not assumed)
 R2 is DONE (maintainer run, 2026-10-15; `docs/measurements/gam_real_data_trial_2026-10-15.json`). The 10-minute ceiling was exceeded on six cells, so R3 is needed. The `mgcv` oracle failed at `full` granularity (out of memory at 15.66 GB), so `full` has no `gam` reference.
