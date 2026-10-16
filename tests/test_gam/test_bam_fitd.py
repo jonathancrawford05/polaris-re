@@ -24,6 +24,7 @@ from polaris_re.analytics.gam_initial_sp import (
 from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.verification import ComparisonProvenance, require_parity_evidence
 from polaris_re.gam import gam
+from polaris_re.gam.api import _tero
 from polaris_re.gam.bam_fitd import (
     _fit_chol,
     bam_fitd,
@@ -32,9 +33,12 @@ from polaris_re.gam.bam_fitd import (
 from polaris_re.gam.bam_fitd_conformance import (
     END_TO_END_CLAIM,
     ISOLATION_CLAIM,
+    SEED_CLAIM,
     compare_design_conditioned,
     compare_end_to_end,
+    compare_seed_sensitivity,
 )
+from polaris_re.gam.formula import TensorCall
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -261,6 +265,37 @@ class TestGamEntryPoint:
             gam('y ~ s(age, bs="cr", k=8)', df, "gaussian", method="fREML", discrete=True)
 
 
+class TestTero:
+    """``mgcv:::tero``: the margin with the largest bs.dim goes last (the last one on ties)."""
+
+    @pytest.mark.parametrize(
+        ("variables", "k", "expected_vars", "expected_k"),
+        [
+            (("age", "dur"), (13, 6), ("dur", "age"), (6, 13)),
+            (("age", "dur"), (6, 13), ("age", "dur"), (6, 13)),
+            (("age", "dur"), (8, 8), ("age", "dur"), (8, 8)),
+        ],
+    )
+    def test_swap_iff_first_margin_is_strictly_larger(
+        self,
+        variables: tuple[str, ...],
+        k: tuple[int, ...],
+        expected_vars: tuple[str, ...],
+        expected_k: tuple[int, ...],
+    ) -> None:
+        out = _tero(TensorCall(variables=variables, k=k))
+        assert (out.variables, out.k) == (expected_vars, expected_k)
+        assert out.text == f"ti({','.join(expected_vars)})"
+
+    def test_gam_discrete_labels_the_ti_term_as_bam_does_and_reml_does_not(self) -> None:
+        df = _frame()
+        f = 'y ~ s(age, bs="cr", k=6) + ti(age, dur, bs="cr", k=c(7,4)) + offset(logexpo)'
+        assert (
+            gam(f, df, "poisson", method="fREML", discrete=True).smooth_labels[-1] == "ti(dur,age)"
+        )
+        assert gam(f, df, "poisson").smooth_labels[-1] == "ti(age,dur)"
+
+
 class TestProvenanceDeclarations:
     def test_end_to_end_parity_columns_are_independent_and_gate(self) -> None:
         parity = END_TO_END_CLAIM.parity_quantities
@@ -268,6 +303,13 @@ class TestProvenanceDeclarations:
         require_parity_evidence(parity, claim="bam_fitd end to end")
         baseline = [q for q in END_TO_END_CLAIM.quantities if "baseline" in q.quantity]
         assert baseline[0].provenance is ComparisonProvenance.REFERENCE_INTERNAL
+
+    def test_seed_spread_is_reference_internal_and_polaris_column_independent(self) -> None:
+        by = {q.quantity: q.provenance for q in SEED_CLAIM.quantities}
+        assert ComparisonProvenance.REFERENCE_INTERNAL in by.values()
+        assert len(SEED_CLAIM.parity_quantities) == 1
+        with pytest.raises(PolarisValidationError):
+            require_parity_evidence(SEED_CLAIM.quantities, claim="seed spread as parity")
 
     def test_design_conditioned_table_cannot_be_cited_as_parity(self) -> None:
         """Polaris is handed mgcv's X and S: the ADR-193 mechanical test fails, so no column
@@ -299,4 +341,9 @@ def test_probe_one_cell_agrees_end_to_end_and_given_bams_own_design(tmp_path: Pa
     assert max(iso.eta_diff_by_iteration) < 1e-6
     # the first iterations are round-off close
     assert max(iso.log_sp_diff_by_iteration[:5]) < 1e-8
+    seeds = compare_seed_sensitivity(cell)
+    assert seeds is not None and seeds.n_seeds == 7
+    # bam's own noise floor on this cell is tiny; Polaris sits inside its cloud
+    assert seeds.spread < 1e-4
+    assert seeds.polaris_vs_seed_max <= max(seeds.spread, 1e-5) + 1e-5
     sys.stdout.flush()

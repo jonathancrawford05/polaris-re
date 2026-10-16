@@ -555,7 +555,8 @@ class PolarisGAMFit:
     the ``gam`` package's ``fit_polaris_bam`` (``bam(method="fREML", discrete=TRUE)``'s
     performance iteration, which does NOT minimise the exact REML — the smoothing parameters
     are the iteration's end state). A fit with the second value refuses the quantities that
-    are defined by the exact REML (``vcov(unconditional=True)``)."""
+    are defined by the exact REML (``vcov(unconditional=True)``), and its ``reml_score`` is
+    NaN (not ported): check this field before reading ``reml_score``."""
 
     def vcov(self, unconditional: bool = False) -> np.ndarray:
         """The coefficient covariance (``mgcv``'s ``vcov(m)``), ``(p, p)``.

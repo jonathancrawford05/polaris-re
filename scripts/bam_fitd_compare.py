@@ -19,10 +19,12 @@ from polaris_re.core.verification import evidence_markdown, require_parity_evide
 from polaris_re.gam.bam_fitd_conformance import (
     END_TO_END_CLAIM,
     ISOLATION_CLAIM,
+    SEED_CLAIM,
     DesignConditionedComparison,
     EndToEndComparison,
     compare_design_conditioned,
     compare_end_to_end,
+    compare_seed_sensitivity,
 )
 from polaris_re.gam.real_data_trial import (
     ETA_GATE,
@@ -54,7 +56,7 @@ def build_report(probe: Path) -> tuple[str, list[EndToEndComparison]]:
         "discriminates only if it is well above Polaris's own eta diff.",
         "",
         "| cell | rows | iterations Polaris / mgcv | max abs eta | max eta/se | abs edf_total | "
-        "max rel se | log(sp) (sorted, not gated) | gam vs bam (eta) | gates |",
+        "max rel se | log(sp) (not gated) | gam vs bam (eta) | gates |",
         "|---|---:|---|---:|---:|---:|---:|---:|---:|---|",
     ]
     for r in e2e:
@@ -83,6 +85,29 @@ def build_report(probe: Path) -> tuple[str, list[EndToEndComparison]]:
             f"| {d.name} | {d.iter_polaris} / {d.iter_mgcv} | {d.eta_max_abs:.2e} | "
             f"{d.edf_total_abs:.2e} | {' '.join(f'{v:.0e}' for v in d.log_sp_diff_by_iteration)} | "
             f"{' '.join(f'{v:.0e}' for v in d.eta_diff_by_iteration)} |"
+        )
+    seeds = [r for c in cells if (r := compare_seed_sensitivity(c)) is not None]
+    lines += [
+        "",
+        "### R3 Stage B: `bam`'s own seed noise floor (`discrete.mf` seed patched)",
+        "",
+        evidence_markdown(SEED_CLAIM),
+        "",
+        "Seeds: mgcv's own 8547 and six others. `spread` is the max over rows of (max - min) of "
+        "`bam`'s eta across the seven fits; the Polaris columns are distances from Polaris's "
+        "single deterministic fit to `bam` at the default seed and to the minimum / maximum over "
+        "the six patched seeds.",
+        "",
+        "| cell | seeds | bam eta spread | max dev from default seed | edf_total spread | "
+        "Polaris vs seed 8547 | Polaris vs other seeds (min .. max) | iterations by seed |",
+        "|---|---:|---:|---:|---:|---:|---|---|",
+    ]
+    for q in seeds:
+        lines.append(
+            f"| {q.name} | {q.n_seeds} | {q.spread:.2e} | {q.max_dev_from_default_seed:.2e} | "
+            f"{q.edf_total_spread:.2e} | {q.polaris_vs_default_seed:.2e} | "
+            f"{q.polaris_vs_seed_min:.2e} .. {q.polaris_vs_seed_max:.2e} | "
+            f"{' '.join(str(i) for i in q.iter_by_seed)} |"
         )
     return "\n".join(lines) + "\n", e2e
 

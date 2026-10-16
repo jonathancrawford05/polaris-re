@@ -49,10 +49,13 @@ from polaris_re.gam.real_data_trial import (
 __all__ = [
     "END_TO_END_CLAIM",
     "ISOLATION_CLAIM",
+    "SEED_CLAIM",
     "DesignConditionedComparison",
     "EndToEndComparison",
+    "SeedSensitivity",
     "compare_design_conditioned",
     "compare_end_to_end",
+    "compare_seed_sensitivity",
     "polaris_formula",
 ]
 
@@ -215,9 +218,8 @@ def compare_end_to_end(cell: Mapping[str, object]) -> EndToEndComparison:
     gam_eta = np.asarray(cell["gam"]["eta"], dtype=np.float64)  # type: ignore[index]
     lsp_p = fit.log_lambda * np.log(10.0)
     lsp_m = np.asarray(final["log_sp"], dtype=np.float64)
-    # bam orders a ti term's two margins by its own rule; compare the sorted vectors so a
-    # permutation of which margin is "first" is not read as a disagreement (reported only).
-    lsp_diff = float(np.max(np.abs(np.sort(lsp_p) - np.sort(lsp_m))))
+    # gam(discrete=True) applies mgcv:::tero (margin reorder), so the sp vectors are aligned.
+    lsp_diff = float(np.max(np.abs(lsp_p - lsp_m)))
     scaled = float(np.max(d / se_m))
     se_rel = float(np.max(np.abs(se_p - se_m) / se_m))
     edf_abs = abs(float(fit.edf_total) - float(final["edf_total"]))  # type: ignore[arg-type]
@@ -272,4 +274,77 @@ def compare_design_conditioned(cell: Mapping[str, object]) -> DesignConditionedC
         edf_total_abs=abs(float(np.sum(res.edf)) - float(final["edf_total"])),  # type: ignore[arg-type]
         log_sp_diff_by_iteration=tuple(lsp_d),
         eta_diff_by_iteration=tuple(eta_d),
+    )
+
+
+SEED_CLAIM = VerificationClaim(
+    claim=(
+        "mgcv bam(method='fREML', discrete=TRUE) is re-run with discrete.mf's hard-coded seed "
+        "(8547, the seed of the sample() that pads each variable's unique values) patched to "
+        "six other values, all else identical; the spread of eta across seeds is the reference's "
+        "own noise floor. Polaris (deterministic, no RNG) is compared with bam at every seed."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="eta spread across discrete.mf seeds (max over rows of max - min)",
+            left_producer="mgcv::bam(discrete=TRUE), discrete.mf seed = s1",
+            right_producer="mgcv::bam(discrete=TRUE), discrete.mf seed = s2",
+            provenance=ComparisonProvenance.REFERENCE_INTERNAL,
+        ),
+        ComparedQuantity(
+            quantity="Polaris vs bam at each seed (max abs eta)",
+            left_producer=_POLARIS_PRODUCER,
+            right_producer=_MGCV_PRODUCER + ", seed patched",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+    ),
+)
+
+
+@dataclass(frozen=True)
+class SeedSensitivity:
+    """Scalars only: the reference's seed noise floor and where Polaris sits in it."""
+
+    name: str
+    n_seeds: int
+    spread: float
+    """max over rows of (max - min) of bam's eta across seeds (REFERENCE_INTERNAL)."""
+    max_dev_from_default_seed: float
+    polaris_vs_default_seed: float
+    polaris_vs_seed_min: float
+    polaris_vs_seed_max: float
+    edf_total_spread: float
+    iter_by_seed: tuple[int, ...]
+
+
+def compare_seed_sensitivity(cell: Mapping[str, object]) -> SeedSensitivity | None:
+    """Seed noise floor of ``bam`` on one cell, and Polaris's distance to each seed's fit."""
+    seeds: Sequence[Mapping[str, object]] | None = cell.get("seeds")  # type: ignore[assignment]
+    if not seeds:
+        return None
+    df = _frame(cell)
+    fit = gam(
+        polaris_formula(str(cell["formula"])),
+        df,
+        "poisson",
+        select=bool(cell["select"]),
+        method="fREML",
+        discrete=True,
+    )
+    etas = np.vstack([np.asarray(s["eta"], dtype=np.float64) for s in seeds])
+    default = etas[0]  # SEEDS[0] is mgcv's own 8547
+    spread = float(np.max(etas.max(axis=0) - etas.min(axis=0)))
+    dev = float(np.max(np.abs(etas[1:] - default)))
+    p_vs = np.max(np.abs(etas - fit.eta[None, :]), axis=1)
+    edfs = np.asarray([float(s["edf_total"]) for s in seeds])  # type: ignore[arg-type]
+    return SeedSensitivity(
+        name=str(cell["name"]),
+        n_seeds=len(seeds),
+        spread=spread,
+        max_dev_from_default_seed=dev,
+        polaris_vs_default_seed=float(p_vs[0]),
+        polaris_vs_seed_min=float(p_vs[1:].min()),
+        polaris_vs_seed_max=float(p_vs[1:].max()),
+        edf_total_spread=float(edfs.max() - edfs.min()),
+        iter_by_seed=tuple(int(s["iter"]) for s in seeds),  # type: ignore[call-overload]
     )

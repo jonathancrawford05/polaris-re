@@ -68,6 +68,38 @@ cells <- list(
     TRUE),
   make_ilec_shaped())
 
+# ---- seed sensitivity (REFERENCE_INTERNAL: mgcv against mgcv) --------------------------------
+# discrete.mf pads each variable's unique values with a seeded sample() (seed 8547, hard-coded).
+# Patch that constant in the namespace copy and re-run bam: the spread of eta across seeds is the
+# reference's OWN noise floor, the yardstick for any residual attributed to the padded frame.
+SEEDS <- c(8547, 1, 2, 3, 4, 5, 6)
+orig_discrete_mf <- get("discrete.mf", asNamespace("mgcv"))
+replace_const <- function(e, from, to) {
+  if (is.numeric(e) && length(e) == 1 && e == from) return(to)
+  if (is.call(e)) {
+    for (i in seq_along(e)) if (!is.null(e[[i]])) e[[i]] <- replace_const(e[[i]], from, to)
+    return(e)
+  }
+  e
+}
+set_discrete_seed <- function(seed) {
+  f <- orig_discrete_mf
+  body(f) <- replace_const(body(orig_discrete_mf), 8547, seed)
+  assignInNamespace("discrete.mf", f, ns = "mgcv")
+}
+seed_sensitivity <- function(form, g, select) {
+  on.exit(assignInNamespace("discrete.mf", orig_discrete_mf, ns = "mgcv"))
+  out <- list()
+  for (sd in SEEDS) {
+    set_discrete_seed(sd)
+    b <- suppressWarnings(bam(form, data = g, family = poisson(), method = "fREML", discrete = TRUE,
+      select = select))
+    out[[length(out) + 1]] <- list(seed = sd, eta = as.numeric(b$linear.predictors),
+      edf_total = sum(b$edf), iter = b$iter, log_sp = log(as.numeric(b$sp)))
+  }
+  out
+}
+
 design_of <- function(G) {
   npar <- length(G$term.names)
   X <- vapply(seq_len(npar), function(j) {
@@ -122,6 +154,7 @@ run_cell <- function(cell) {
     final = list(log_sp = log(as.numeric(final$sp)), eta = as.numeric(final$linear.predictors),
       edf = as.numeric(final$edf), edf_total = sum(final$edf), se = se, iter = final$iter,
       converged = isTRUE(final$mgcv.conv)),
+    seeds = seed_sensitivity(form, g, cell$select),
     gam = list(eta = as.numeric(m$linear.predictors), edf_total = sum(m$edf),
       log_sp = log(as.numeric(m$sp))))
 }

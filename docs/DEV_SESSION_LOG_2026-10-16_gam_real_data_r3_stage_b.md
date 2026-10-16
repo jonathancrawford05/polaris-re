@@ -1,4 +1,4 @@
-# Session log — 2026-10-17 — real-data readiness Slice R3, Stage B (`bgam.fitd` port) — WIP
+# Session log — 2026-10-16 — real-data readiness Slice R3, Stage B (`bgam.fitd` port) — WIP
 
 **Branch:** `claude/dreamy-galileo-l09zt5` (the environment-designated branch). **PR class:** `feat(mgcv-parity)` (lands an INDEPENDENT comparison) but **R3 is NOT done**: draft/WIP.
 **Box vs repo:** consistent (pointer: PLAN real-data readiness, R3, Stage B as one scope).

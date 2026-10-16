@@ -356,6 +356,27 @@ def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
             )
 
 
+def _tero(call: TensorCall) -> TensorCall:
+    """``mgcv:::tero`` (applied by ``bam(discrete=TRUE)``): swap the margin with the largest
+    ``bs.dim`` (the last one on ties) into the last position. For two margins that is a swap
+    exactly when ``k[0] > k[1]``. Deterministic, no RNG; it changes the coefficient order, the
+    penalty order and the label (``ti(age,dur)`` with ``k=c(13,6)`` becomes ``ti(dur,age)``), and
+    through the path-dependent iteration, the answer."""
+    ks = call.k
+    maxi, maxd = 0, -1
+    for i, kk in enumerate(ks):
+        if kk >= maxd:
+            maxi, maxd = i, kk
+    last = len(ks) - 1
+    if maxi >= last:
+        return call
+    order = list(range(len(ks)))
+    order[maxi], order[last] = order[last], order[maxi]
+    return TensorCall(
+        variables=tuple(call.variables[i] for i in order), k=tuple(ks[i] for i in order)
+    )
+
+
 def _build_model(
     parsed: ParsedFormula,
     df: pl.DataFrame,
@@ -365,6 +386,7 @@ def _build_model(
     offset: str | None,
     select: bool,
     allow_unverified_select: bool = False,
+    tero: bool = False,
 ) -> tuple[ModelSpec, dict[str, np.ndarray], dict[str, _FactorCoding], list[tuple[str, int]]]:
     data: dict[str, np.ndarray] = {}
     codings: dict[str, _FactorCoding] = {}
@@ -420,6 +442,7 @@ def _build_model(
         if isinstance(call, TensorCall):
             for v in call.variables:
                 need_numeric(v, call.text)
+            call = _tero(call) if tero else call
             smooth.append(TermSpec(label=call.text, variables=call.variables, basis="ti", k=call.k))
             smooth_meta.append((call.text, int(np.prod(call.k))))
         elif call.basis == "re":
@@ -558,6 +581,7 @@ def gam(
         offset or parsed.offset,
         select,
         allow_unverified_select,
+        tero=discrete,
     )
     y = _numeric(data, parsed.response)
     if discrete:
