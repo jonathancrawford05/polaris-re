@@ -513,6 +513,19 @@ def by_factor_mask_design(design: np.ndarray, group: np.ndarray, level: int) -> 
     return np.asarray(design * mask[:, np.newaxis], dtype=np.float64)
 
 
+def _distinct_rows(design: np.ndarray) -> np.ndarray:
+    """One row per distinct row of ``design``. ``np.unique(axis=0)`` sorts structured rows and
+    takes seconds at 4e5 rows, so the rows are first keyed by a fixed 1-D projection; the result is
+    VERIFIED exact (every row must equal its representative) and falls back to the full row
+    ``unique`` if two distinct rows ever shared a key."""
+    key = design @ np.linspace(1.0, 2.0, design.shape[1])
+    _, first, inverse = np.unique(key, return_index=True, return_inverse=True)
+    reps = design[first]
+    if np.array_equal(reps[inverse.reshape(-1)], design):
+        return reps
+    return np.unique(design, axis=0)
+
+
 _UNIQUE_ROW_CONSTRAINT: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "polaris_unique_row_constraint", default=False
 )
@@ -552,7 +565,7 @@ def sum_to_zero_null_space(design: np.ndarray) -> np.ndarray:
         ``(k, k-1)`` — every column of ``Q`` after the first, from the full QR of
         ``colMeans(X)ᵀ`` (module docstring §4).
     """
-    rows = np.unique(design, axis=0) if _UNIQUE_ROW_CONSTRAINT.get() else design
+    rows = _distinct_rows(design) if _UNIQUE_ROW_CONSTRAINT.get() else design
     constraint = rows.mean(axis=0).reshape(-1, 1)
     if np.allclose(constraint, 0.0):
         raise PolarisComputationError(
