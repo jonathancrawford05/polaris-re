@@ -14,7 +14,9 @@
 | **R4** | `tp` (L7); bare `s(x)` accepted | NOT STARTED (after R3, per the 2026-10-15 order change; maintainer to confirm) |
 | **R3** | scale: exact speedups or `bam`/`discrete=TRUE`, decided by R2's profile and the 10-minute ceiling | **IN PROGRESS: Stage A (binning) DONE 2026-10-16; Stage B (`bgam.fitd` port) NEXT.** Earlier: **NEXT. Maintainer selected R3-bam on 2026-10-15** (`bam` with `select=TRUE`; ADR-260 PROPOSED, awaiting acceptance; parity reference is `bam`, gates unchanged). The release condition is met (ceiling exceeded). **ADR before any code**: the claim sentence, gates and agreement criterion are derived first (PLAN §4, R3-bam) |
 
-## R3 Stage B, READ FIRST (2026-10-18, ADR-260 amendments 6-15)
+## R3 Stage B, READ FIRST (2026-10-18, ADR-260 amendments 6-16)
+**Amendment 16: S1 (binomial, trials floored at deaths) read at coarse and mid: (A) met, single-seed se gate missed (0.024/0.025), and (B) missed on S1_mid by the letter (excess 1.6e-4 vs the absolute 1e-4; 0.6% of the seed spread). MAINTAINER QUESTION: restate (B) relative to the spread (recommended, disclosed as restated after this reading) or record S1_mid as NOT MET on (B). Everything else in amendment 15 stands.**
+
 **Amendment 15: the accepted cloud acceptance (A/B/C) is MET on all eight real cells (T1_mid/full, T2_mid/full, T3c_mid/full, T3a_mid, S2_mid); single-seed gates met outright on T2_mid, T2_full, S2_mid; full cells fit in 11-17 s at 3.0M cells (ceiling 600 s), 8.0-8.3 GB. Only the real-data binomial cell (S1) is unread: `write-cell --floor-trials-at-deaths` added (labelled modelling choice). R3 DONE is the maintainer's to record; R4 (`tp`) is next once they do.**
 
 **Amendment 12: the maintainer ACCEPTED the cloud-statistic acceptance (A/B/C in the ADR). T1_mid, T2_mid, T3c_mid meet it. Rank-deficient designs (T3a/S2/S3) are now fitted by pivoting (tier 1: 6.6e-7); binomial cloglog supported (tier 1: 2.5e-10); checkpoint (i) closed as an ECHO diagnostic (1e-16). Remaining for R3: the `full` cells (memory/time; maintainer, runbook §10), re-score T1_full, S2_mid/T3a_mid on real data, tier-3 reading of the new probe cells.**
