@@ -116,3 +116,14 @@ Paste each `=== derived scalars` block (or just the `agreement_vs_default_seed`,
 cloud on `T3c_mid` (`polaris_vs_other_seeds_max` below `bam_eta_spread`, and `eta_max_abs` of the same order)?
 Optional, only if `T3c_mid` is still far: `uv run python scripts/bam_local_design_compare.py "$WORK/T3c_mid"`
 (needs `design_probe/` from §7; rerun §7 if you removed it) pastes per-penalty design-difference scalars.
+
+## 9. Re-score existing scratch files with the cloud statistics (about a minute per cell)
+`bam_local_seeds.json` from an earlier run is reused (no R), Polaris is refitted, and the output gains
+`seed_noise_floor.envelope_excess_max`, `n_rows_outside_envelope`, `eta_max_abs_vs_seed_median` and
+`bam_seed_eta_max_abs_vs_seed_median`:
+```bash
+for C in T3c_mid T1_mid T2_mid; do
+  uv run python scripts/bam_local_run.py --cell "$WORK/$C" --repeats 1 --chip "$CHIP" --reuse-seeds 2>&1 | tee "$WORK/stageb3_$C.txt"
+done
+```
+

@@ -58,7 +58,8 @@ OUTPUT_KEYS: Final = frozenset(
         "eta_max_abs", "eta_rms", "eta_scaled_max", "edf_total_abs", "se_rel_max",
         "eta_gate_met", "edf_gate_met", "se_gate_met", "scaled_gate_met", "scaled_flag",
         "all_gates_met", "polaris_vs_other_seeds_min", "polaris_vs_other_seeds_max",
-        "bam_eta_spread", "bam_max_dev_from_default", "bam_edf_total_spread",
+        "bam_eta_spread", "bam_max_dev_from_default", "envelope_excess_max",
+        "n_rows_outside_envelope", "eta_max_abs_vs_seed_median", "bam_seed_eta_max_abs_vs_seed_median", "bam_edf_total_spread",
         "spread_at_least_residual", "eta_max_abs_gam_vs_bam", "edf_total_gam", "chip",
         "python", "os", "status", "refusal", "ratio_polaris_over_bam_default",
         "bam_default_seconds", "claim", "localisation", "reml_triangle", "eta_max_abs_polaris_reml_vs_polaris_bam", "eta_max_abs_polaris_reml_vs_bam", "polaris_reml_seconds", "polaris_reml_edf_total", "abs_eta_diff_quantiles", "q50", "q90", "q99", "q999",
@@ -108,6 +109,12 @@ def main(argv: list[str]) -> int:
         action="store_true",
         dest="reml_baseline",
         help="also fit Polaris EXACT REML (slow at mid: minutes) and report its eta distance to\n                    Polaris-bam and to bam; the triangle that says who moved off the optimum",
+    )
+    ap.add_argument(
+        "--reuse-seeds",
+        action="store_true",
+        dest="reuse_seeds",
+        help="do not rerun R: read the existing <cell>/bam_local_seeds.json (fast re-score)",
     )
     ap.add_argument("--skip-r", action="store_true", help="Polaris half only (timing/memory)")
     ap.add_argument("--out", default=None, help="default: <cell>/bam_local.json")
@@ -173,12 +180,19 @@ def main(argv: list[str]) -> int:
         *shlex.split(a.r_command), str(REPO / "scripts" / "bam_local_seed_probe.R"),
         str(cell / "cells.csv"), str(cell / "spec.json"), str(scratch), *a.seeds.split(","),
     ]  # fmt: skip
-    t0 = time.perf_counter()
-    proc = subprocess.run(cmd, text=True)
-    if proc.returncode != 0:
-        print("STOP AND REPORT: the R seed probe failed (see its output above).", file=sys.stderr)
-        return 1
-    print(f"(R wall {time.perf_counter() - t0:.0f} s, includes startup and CSV read)")
+    if a.reuse_seeds:
+        if not scratch.is_file():
+            print(f"STOP AND REPORT: --reuse-seeds but {scratch} does not exist.", file=sys.stderr)
+            return 1
+    else:
+        t0 = time.perf_counter()
+        proc = subprocess.run(cmd, text=True)
+        if proc.returncode != 0:
+            print(
+                "STOP AND REPORT: the R seed probe failed (see its output above).", file=sys.stderr
+            )
+            return 1
+        print(f"(R wall {time.perf_counter() - t0:.0f} s, includes startup and CSV read)")
     m = json.loads(scratch.read_text())
     fits = m["fits"]
     etas = np.vstack([np.atleast_1d(f["eta"]) for f in fits]).astype(np.float64)
@@ -212,6 +226,15 @@ def main(argv: list[str]) -> int:
             "polaris_vs_other_seeds_min": float(p_vs[1:].min()),
             "polaris_vs_other_seeds_max": float(p_vs[1:].max()),
             "spread_at_least_residual": bool(spread >= float(d0.max())),
+            # Cloud-membership statistics (ADR-260 amendment 10): where Polaris sits relative to the
+            # POINTWISE [min, max] envelope and median of bam over the seeds. Counts and magnitudes.
+            "envelope_excess_max": float(np.max(np.maximum(
+                np.maximum(eta_p - etas.max(axis=0), etas.min(axis=0) - eta_p), 0.0))),
+            "n_rows_outside_envelope": int(np.sum((eta_p > etas.max(axis=0))
+                                                  | (eta_p < etas.min(axis=0)))),
+            "eta_max_abs_vs_seed_median": float(np.max(np.abs(eta_p - np.median(etas, axis=0)))),
+            "bam_seed_eta_max_abs_vs_seed_median": float(np.max(np.abs(
+                etas - np.median(etas, axis=0)[None, :]))),
         },
         ratio_polaris_over_bam_default=best / float(fits[0]["elapsed_s"]),
         bam_default_seconds=float(fits[0]["elapsed_s"]),
