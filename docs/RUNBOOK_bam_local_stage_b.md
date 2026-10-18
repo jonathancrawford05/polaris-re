@@ -175,3 +175,13 @@ done
 `write-cell` prints how many cells were floored; the output carries `trials_floor` and `n_cells_floored`. Both engines
 fit the same floored table, so this tests the engine, not the modelling choice.
 
+## 12. Re-score S1 after the Vp fix (ADR-260 amendment 17; no R rerun)
+```bash
+cd ~/polaris-re && git pull
+for G in coarse mid; do
+  uv run python scripts/bam_local_run.py --cell "$WORK/S1_$G" --repeats 1 --chip "$CHIP" --reuse-seeds 2>&1 | tee "$WORK/stageb4_S1_$G.txt"
+done
+```
+Needs `S1_coarse/bam_local_seeds.json` and `S1_mid/bam_local_seeds.json` (do not delete them before this). Look at
+`agreement_vs_default_seed.se_rel_max`: it should fall from 0.024 / 0.025. `eta_max_abs` and the (B) statistic will not move.
+

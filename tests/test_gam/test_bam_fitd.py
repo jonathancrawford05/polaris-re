@@ -298,6 +298,37 @@ class TestUniqueRowConstraint:
         np.testing.assert_allclose(pred, fit.eta, atol=1e-10)
 
 
+class TestBamVpUsesFisherWeights:
+    """``bgam.fitd``'s ``Vp = PP * scale`` uses the expected (Fisher) working weights. For a
+    non-canonical link (cloglog) these differ from the observed-information weights the exact-REML
+    path rebuilds, so the bam path must serve ITS OWN ``Vp``."""
+
+    def _binomial_frame(self) -> pl.DataFrame:
+        rng = np.random.default_rng(11)
+        age = np.repeat(np.arange(40, 80), 6).astype(float)
+        n = rng.integers(20, 200, age.size).astype(float)
+        p = 1.0 - np.exp(-np.exp(-2.5 + 0.04 * (age - 40)))
+        y = rng.binomial(n.astype(int), p) / n
+        return pl.DataFrame({"age": age, "n": n, "y": y})
+
+    def test_the_served_vp_is_the_iterations_own_pp(self) -> None:
+        df = self._binomial_frame()
+        fit = gam(
+            'y ~ s(age, bs="cr", k=8)', df, 'binomial(link="cloglog")', weights="n",
+            method="fREML", discrete=True,
+        )  # fmt: skip
+        assert fit.vp_override is not None
+        np.testing.assert_allclose(fit.vcov(), fit.vp_override)
+        # and it differs from the observed-information rebuild the REML path would give
+        reml = gam('y ~ s(age, bs="cr", k=8)', df, 'binomial(link="cloglog")', weights="n")
+        assert reml.vp_override is None
+
+    def test_a_canonical_link_fit_still_serves_its_own_vp(self) -> None:
+        fit = gam(FORMULA, _frame(), "poisson", method="fREML", discrete=True)
+        _, se = fit.predict(_frame(), se_fit=True)
+        assert np.all(np.isfinite(se)) and np.all(se > 0)
+
+
 class TestTero:
     """``mgcv:::tero``: the margin with the largest bs.dim goes last (the last one on ties)."""
 

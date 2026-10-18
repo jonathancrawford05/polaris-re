@@ -550,6 +550,11 @@ class PolarisGAMFit:
     gradient_tolerance: float | None = None
     """The score-scaled tolerance ``max |g^P|`` was tested against:
     ``epsilon_rel * (1 + |score|)`` (Newton only)."""
+    vp_override: np.ndarray | None = None
+    """A coefficient covariance ``Vp`` supplied by the fitter, in the fit's (pivoted) column layout.
+    Set only by the ``bam`` path: ``bgam.fitd``'s ``Vp = PP * scale`` uses the EXPECTED (Fisher)
+    working weights, which differ from the observed-information weights :meth:`vcov` otherwise
+    rebuilds for a non-canonical link (cloglog). ``None`` everywhere else."""
     fit_method: str = "REML"
     """``"REML"`` for :func:`fit_polaris_gam`'s Laplace-REML search; ``"fREML-discrete"`` for
     the ``gam`` package's ``fit_polaris_bam`` (``bam(method="fREML", discrete=TRUE)``'s
@@ -609,6 +614,10 @@ class PolarisGAMFit:
                 "Hessian; a performance-iteration fit is not at one, and bam's own Vc comes "
                 "from the iteration's last working-model Hessian (not ported). Use "
                 "unconditional=False (Vp)."
+            )
+        if self.vp_override is not None:
+            return CoefficientCovariance(
+                vp=self.vp_override, first_order=None, second_order=None, scale=1.0
             )
         if self.y is None:
             raise PolarisValidationError(

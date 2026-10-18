@@ -114,5 +114,6 @@ def fit_polaris_bam(
         prior_weights=weights,
         offset=offset,
         n_iterations=res.n_iter,
+        vp_override=res.vp,
         fit_method="fREML-discrete",
     )
