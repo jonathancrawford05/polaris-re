@@ -4,6 +4,7 @@ R-free: the Polaris half on a synthetic cell directory, the output whitelist, an
 recorded as a result (a rank-deficient design is refused by name, not worked around)."""
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -46,13 +47,20 @@ def _cell(tmp_path: Path, formula: str) -> Path:
     return tmp_path
 
 
-def _run(cell: Path) -> dict[str, object]:
+def _run(cell: Path, env: dict[str, str] | None = None) -> dict[str, object]:
     out = cell / "out.json"
-    subprocess.run(
+    proc = subprocess.run(
         [sys.executable, str(SCRIPT), "--cell", str(cell), "--repeats", "1", "--skip-r",
          "--out", str(out)],
-        check=True, capture_output=True, cwd=REPO_ROOT,
+        check=False, capture_output=True, text=True, cwd=REPO_ROOT, env=env,
     )  # fmt: skip
+    # `check=True` raised CalledProcessError carrying stdout/stderr that pytest never prints, so a
+    # Docker-only failure read as a bare "exit status 1" with no cause (PR #273). Spell it out.
+    if proc.returncode != 0:
+        raise AssertionError(
+            f"{SCRIPT.name} exited {proc.returncode}\n"
+            f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
+        )
     return json.loads(out.read_text())
 
 
@@ -91,6 +99,18 @@ def test_an_unsupported_family_is_recorded_as_a_refusal(tmp_path: Path) -> None:
     res = _run(cell)
     assert res["status"] == "refused"
     assert "gaussian" in str(res["refusal"]) or "not supported" in str(res["refusal"])
+
+
+def test_the_runner_runs_where_git_is_absent(tmp_path: Path) -> None:
+    """The runtime image is ``python:3.12-slim`` — no ``git``. ``subprocess(check=False)`` covers
+    a non-zero exit, not a missing binary, so the commit lookup raised ``FileNotFoundError`` and
+    every Docker run of this script exited 1 (PR #273). The sha degrades; the run does not."""
+    cell = _cell(tmp_path, 'deaths ~ smoker + s(attained_age, bs="cr", k=8) + offset(log_exposure)')
+    empty_bin = tmp_path / "bin"  # PATH with no git on it; python is invoked by absolute path
+    empty_bin.mkdir()
+    res = _run(cell, env={**os.environ, "PATH": str(empty_bin)})
+    assert res["polaris_commit"] == "unknown"
+    assert res["polaris"]["converged"] is True  # type: ignore[index]
 
 
 def test_the_whitelist_refuses_an_unknown_key() -> None:

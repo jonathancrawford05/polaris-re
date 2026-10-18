@@ -89,9 +89,16 @@ def _frame(cell: Path) -> tuple[pl.DataFrame, dict[str, object]]:
 
 
 def _git_commit() -> str:
-    out = subprocess.run(
-        ["git", "-C", str(REPO), "rev-parse", "HEAD"], capture_output=True, text=True, check=False
-    )
+    """HEAD sha, or ``"unknown"``. ``check=False`` covers a non-zero exit (not a checkout) but
+    NOT a missing binary: the runtime image is ``python:3.12-slim``, which ships no ``git``, and
+    the ``FileNotFoundError`` took down every Docker run of this script (PR #273)."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(REPO), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=False,
+        )  # fmt: skip
+    except OSError:
+        return "unknown"
     return out.stdout.strip() or "unknown"
 
 
