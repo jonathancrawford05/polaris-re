@@ -25463,3 +25463,16 @@ Only the last cell discriminates (exact-REML `gam` is 1.25e-2 from `bam`, the or
 | T3c_full | 3,015,224 | 74 / 8 | 14 | **11.5 s** | 8.4 GB (8.8 GB) | yes |
 
 **What this settles.** (1) The R3 purpose, a Polaris fit of the `full` trial cells inside the 10-minute ceiling, is met by a factor of 37 to 52 (R2's exact-REML fits of the same cells took 643 s to 2117 s, or ran out of memory at `full`). (2) `edf_total` is 95.083 (`T2`, equal to `T2_mid`'s 95.083 to 4 digits) and 70.964 (`T3c`, equal to `T3c_mid`'s 70.964). (3) Memory is a finding, not a blocker: 7.2 to 8.4 GB for 3.0M cells against `bam`'s 2.7 GB at `S2_full` (2.76M cells); the machine has 24 GB, so the dense `n x p` design plus assembly temporaries fit. A lower-memory path (block-built design) would be an optimisation, not a correctness item. **Not yet read:** the `bam` comparison at `full` (cloud statistics (A)-(C) of amendment 12), because only the Polaris half was run.
+
+### ADR-260 amendment 14 (2026-10-18): tier-3 readings for amendments 9 and 12 (pinned image)
+
+**Tier 3** (CI run `39153199164`, head `4d6b876`, digest `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, mgcv 1.9.4 / R 4.6.1). The tier-1 figures in amendments 9 and 12 are confirmed to the printed digits except where noted. All seven probe cells ALL MET; derived headlines are those of `evidence_markdown(END_TO_END_CLAIM)` (parity columns INDEPENDENT, `gam` vs `bam` REFERENCE_INTERNAL), `ISOLATION_CLAIM` and `ACCUMULATION_CLAIM` (both ECHO, "harness check, NOT parity") and `SEED_CLAIM`.
+
+| cell | rows | iterations Polaris / `bam` | max abs eta | max rel se | `bam` seed spread | Polaris vs other seeds |
+|---|---:|---|---:|---:|---:|---|
+| **unbalanced_factor_by_select** (distinct-value constraint, amend. 9) | 21,828 | 18 / 17 | **4.42e-4** | 1.9e-4 | 7.82e-4 | 1.28e-4 .. 6.48e-4 (inside the cloud) |
+| **rank_deficient_bare_plus_factor_by** (pivot, amend. 12) | 13,290 | 13 / 13 | **6.59e-7** | 2.1e-6 | 5.45e-8 | 6.5e-7 .. 6.9e-7 |
+| **binomial_cloglog_weights** (amend. 12) | 1,845 | 12 / 12 | **2.35e-10** | 3.7e-4 | 4.31e-9 | 1.2e-10 .. 2.3e-9 |
+| ti_plain / ti_select / factor_by_select / ilec_shaped_replicated | | 14/14, 16/16, 14/14, 11/11 | 5.5e-4 / 8.5e-8 / 5.3e-8 / 3.17e-3 | | | unchanged from amendment 4-5 |
+
+**Design-conditioned (ECHO) on `bam`'s own `X`/`S`:** iteration counts equal on all seven; final eta <= 7.4e-9 (small cells), 1.75e-11 (ilec-shaped), 8.0e-14 (unbalanced), 5.1e-11 (binomial). **Checkpoint (i), `X'WX` and `X'Wz` vs `XWXd` / `XWyd` (ECHO):** relative max abs difference 1.3e-16 .. 3.2e-16 (`X'WX`) and 2.0e-15 .. 4.5e-15 (`X'Wz`) on all six cells that export a design. **What this closes:** the distinct-value constraint, rank-deficient pivoting and binomial support have tier-3 evidence on synthetic cells; the real-data readings remain tier L (maintainer-run). The unchanged gates are met on every synthetic cell; the cloud acceptance of amendment 12 is read on real cells only.
