@@ -10,6 +10,7 @@ Subcommands
 check-window  Print exposure by calendar year to the terminal ONLY (the 2018-2019 composition
               check); writes nothing.
 prepare       Load the ILEC file, assert the data rules, write the loader cells to --work.
+write-cell    Write one cell's cells.csv + spec.json only (no fit); for bam_local_run.py.
 run-cell      One (formula, granularity): Polaris fit + mgcv fit + comparison -> one result file.
 all           prepare (if needed) + every run-cell (restartable: finished cells are skipped) +
               collect.
@@ -213,6 +214,42 @@ def cmd_run_cell(args: argparse.Namespace) -> int:
         return _write(out_dir, name, result)
 
 
+def cmd_write_cell(args: argparse.Namespace) -> int:
+    """Write ``<work>/<cell>/cells.csv`` and ``spec.json`` and NOTHING else: no fit, no mgcv, no
+    result file. For the Stage-B local runs (``bam_local_run.py``), which need the cell but not the
+    R2 REML fits (those exhaust memory at ``full``)."""
+    work = Path(args.work)
+    spec = next(f for f in trial.FORMULAS if f.name == args.formula)
+    name = _cell_name(spec.name, args.granularity)
+    loader = pl.read_parquet(work / LOADER_CELLS)
+    data = trial.aggregate_cells(loader, spec, args.granularity)
+    del loader
+    factors = [c for c in ("face_band", "smoker") if c in data.columns]
+    data = trial.to_factor_frame(data, factors)
+    levels = {c: list(data[c].cat.get_categories()) for c in factors}
+    if spec.name == "S1" and float(data["death_rate"].max()) > 1.0:
+        print("S1 not written: a cell has deaths above exposure.", file=sys.stderr)
+        return 1
+    cdir = work / name
+    cdir.mkdir(parents=True, exist_ok=True)
+    data.write_csv(cdir / "cells.csv")
+    (cdir / "spec.json").write_text(
+        json.dumps(
+            {
+                "formula": spec.formula,
+                "family": spec.family,
+                "weights": spec.weights,
+                "select": spec.select,
+                "factors": levels,
+                "repeats": 1,
+                "budget_s": 300.0,
+            }
+        )
+    )
+    print(f"{name}: wrote cells.csv and spec.json ({data.height} cells)")
+    return 0
+
+
 def _write(out_dir: Path, name: str, result: dict[str, object]) -> int:
     (out_dir / f"{name}.json").write_text(trial.dumps(result))
     print(f"{name}: {result['status']}")
@@ -300,6 +337,11 @@ def _parser() -> argparse.ArgumentParser:
     sp.add_argument("--formula", required=True, choices=[f.name for f in trial.FORMULAS])
     sp.add_argument("--granularity", required=True, choices=list(trial.GRANULARITIES))
     sp.set_defaults(fn=cmd_run_cell)
+    sp = sub.add_parser("write-cell")
+    common(sp)
+    sp.add_argument("--formula", required=True, choices=[f.name for f in trial.FORMULAS])
+    sp.add_argument("--granularity", required=True, choices=list(trial.GRANULARITIES))
+    sp.set_defaults(fn=cmd_write_cell)
     sp = sub.add_parser("collect")
     common(sp)
     collect_opts(sp)
