@@ -164,3 +164,14 @@ done
 Re-score `T1_full` with the cloud statistics (no R):
 `uv run python scripts/bam_local_run.py --cell "$WORK/T1_full" --repeats 1 --chip "$CHIP" --reuse-seeds`.
 
+## 11. S1 (binomial) with trials floored at deaths (ADR-260 amendment 15)
+```bash
+cd ~/polaris-re && git pull
+for G in coarse mid; do
+  uv run python scripts/gam_real_data_trial.py write-cell --work "$WORK" --formula S1 --granularity $G --floor-trials-at-deaths \
+    && uv run python scripts/bam_local_run.py --cell "$WORK/S1_$G" --repeats 1 --chip "$CHIP" 2>&1 | tee "$WORK/stageb_S1_$G.txt"
+done
+```
+`write-cell` prints how many cells were floored; the output carries `trials_floor` and `n_cells_floored`. Both engines
+fit the same floored table, so this tests the engine, not the modelling choice.
+

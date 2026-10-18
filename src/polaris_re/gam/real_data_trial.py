@@ -83,6 +83,7 @@ __all__ = [
     "compare",
     "dumps",
     "fit_polaris",
+    "floor_trials_at_deaths",
     "machine_description",
     "required_columns",
     "sanitise_refusal",
@@ -337,6 +338,23 @@ def trial_frame(cells: pl.DataFrame) -> pl.DataFrame:
             (pl.col("calendar_year") - pl.col("duration") + 1.0).alias("issue_year")
         )
     return out
+
+
+def floor_trials_at_deaths(cells: pl.DataFrame) -> tuple[pl.DataFrame, int]:
+    """Binomial trials floored at deaths: ``exposure := max(exposure, deaths)``, then ``death_rate``
+    is recomputed (so it is at most one). Returns the frame and the NUMBER of cells changed.
+
+    A MODELLING CHOICE the maintainer asked for (2026-10-18), for the ``S1`` sensitivity only and
+    never the default: ``Policies_Exposed`` is fractional policy-years, so ``deaths > exposure`` can
+    occur in sparse cells, which a binomial proportion cannot represent. Flooring treats such a cell
+    as ``deaths`` trials all of which died: it BIASES those cells' rate upward relative to the
+    Poisson model, so every result carries the flag and the changed-cell count.
+    """
+    changed = int(cells.filter(pl.col("deaths") > pl.col("exposure")).height)
+    out = cells.with_columns(
+        pl.max_horizontal("exposure", "deaths").alias("exposure")
+    ).with_columns((pl.col("deaths") / pl.col("exposure")).alias("death_rate"))
+    return out, changed
 
 
 def to_factor_frame(frame: pl.DataFrame, factors: Iterable[str]) -> pl.DataFrame:

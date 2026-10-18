@@ -227,9 +227,18 @@ def cmd_write_cell(args: argparse.Namespace) -> int:
     factors = [c for c in ("face_band", "smoker") if c in data.columns]
     data = trial.to_factor_frame(data, factors)
     levels = {c: list(data[c].cat.get_categories()) for c in factors}
+    n_floored = 0
     if spec.name == "S1" and float(data["death_rate"].max()) > 1.0:
-        print("S1 not written: a cell has deaths above exposure.", file=sys.stderr)
-        return 1
+        if not args.floor_trials_at_deaths:
+            print(
+                "S1 not written: a cell has deaths above exposure. Re-run with "
+                "--floor-trials-at-deaths to set trials = max(exposure, deaths) (a labelled "
+                "modelling choice, ADR-260 amendment 15).",
+                file=sys.stderr,
+            )
+            return 1
+        data, n_floored = trial.floor_trials_at_deaths(data)
+        print(f"{name}: trials floored at deaths in {n_floored} of {data.height} cells")
     cdir = work / name
     cdir.mkdir(parents=True, exist_ok=True)
     data.write_csv(cdir / "cells.csv")
@@ -243,6 +252,8 @@ def cmd_write_cell(args: argparse.Namespace) -> int:
                 "factors": levels,
                 "repeats": 1,
                 "budget_s": 300.0,
+                "trials_floor": bool(n_floored),
+                "n_cells_floored": n_floored,
             }
         )
     )
@@ -341,6 +352,12 @@ def _parser() -> argparse.ArgumentParser:
     common(sp)
     sp.add_argument("--formula", required=True, choices=[f.name for f in trial.FORMULAS])
     sp.add_argument("--granularity", required=True, choices=list(trial.GRANULARITIES))
+    sp.add_argument(
+        "--floor-trials-at-deaths",
+        action="store_true",
+        help="S1 only: where deaths exceed exposure set trials = max(exposure, deaths) "
+        "(a labelled modelling choice; the count of changed cells is recorded)",
+    )
     sp.set_defaults(fn=cmd_write_cell)
     sp = sub.add_parser("collect")
     common(sp)

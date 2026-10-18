@@ -61,7 +61,7 @@ OUTPUT_KEYS: Final = frozenset(
         "bam_eta_spread", "bam_max_dev_from_default", "envelope_excess_max",
         "n_rows_outside_envelope", "eta_max_abs_vs_seed_median", "bam_seed_eta_max_abs_vs_seed_median", "bam_edf_total_spread",
         "spread_at_least_residual", "eta_max_abs_gam_vs_bam", "edf_total_gam", "chip",
-        "python", "os", "status", "refusal", "ratio_polaris_over_bam_default",
+        "python", "os", "status", "refusal", "trials_floor", "n_cells_floored", "ratio_polaris_over_bam_default",
         "bam_default_seconds", "claim", "localisation", "reml_triangle", "eta_max_abs_polaris_reml_vs_polaris_bam", "eta_max_abs_polaris_reml_vs_bam", "polaris_reml_seconds", "polaris_reml_edf_total", "abs_eta_diff_quantiles", "q50", "q90", "q99", "q999",
         "n_rows_over_0p01", "n_rows_over_0p1", "n_rows_over_0p5", "polaris_log10_sp", "bam_log10_sp",
         "polaris_smooth_edf", "bam_smooth_edf", "polaris_smooth_kinds", "bam_default_smooth_kinds",
@@ -160,6 +160,8 @@ def main(argv: list[str]) -> int:
         "openblas_num_threads": __import__("os").environ.get("OPENBLAS_NUM_THREADS", "unset"),
         "machine": {"chip": a.chip, "python": platform.python_version(), "os": platform.platform()},
         "n_rows": df.height,
+        **({"trials_floor": True, "n_cells_floored": int(spec["n_cells_floored"])}
+           if spec.get("trials_floor") else {}),
         "n_coef": int(fit.coef.shape[0]),
         "n_penalties": len(fit.log_lambda),
         "claim": "Polaris gam(fREML, discrete=True) vs bam(fREML, discrete=TRUE); INDEPENDENT; "
