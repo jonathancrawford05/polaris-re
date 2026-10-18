@@ -70,15 +70,27 @@ def test_polaris_half_writes_whitelisted_scalars_only(tmp_path: Path) -> None:
     assert "NS" not in json.dumps({k: v for k, v in res.items() if k != "machine"})
 
 
-def test_a_rank_deficient_design_is_recorded_as_a_refusal(tmp_path: Path) -> None:
+def test_a_bare_smooth_beside_a_factor_by_smooth_is_pivoted_and_fitted(tmp_path: Path) -> None:
+    """ADR-256: the redundant direction is pivoted out (as bgam.fitd's Cholesky does) and the fit
+    runs; it used to be refused."""
     cell = _cell(
         tmp_path,
         'deaths ~ smoker + s(attained_age, bs="cr", k=8) + s(attained_age, by=smoker, bs="cr",'
         " k=6) + offset(log_exposure)",
     )
     res = _run(cell)
+    assert "status" not in res
+    assert res["polaris"]["converged"] is True  # type: ignore[index]
+
+
+def test_an_unsupported_family_is_recorded_as_a_refusal(tmp_path: Path) -> None:
+    cell = _cell(tmp_path, 'deaths ~ smoker + s(attained_age, bs="cr", k=8) + offset(log_exposure)')
+    spec = json.loads((cell / "spec.json").read_text())
+    spec["family"] = "gaussian"
+    (cell / "spec.json").write_text(json.dumps(spec))
+    res = _run(cell)
     assert res["status"] == "refused"
-    assert "rank-deficient" in str(res["refusal"])
+    assert "gaussian" in str(res["refusal"]) or "not supported" in str(res["refusal"])
 
 
 def test_the_whitelist_refuses_an_unknown_key() -> None:

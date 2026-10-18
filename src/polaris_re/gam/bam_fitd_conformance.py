@@ -30,6 +30,7 @@ from dataclasses import dataclass
 import numpy as np
 import polars as pl
 
+from polaris_re.analytics.gam_family import Family
 from polaris_re.analytics.gam_model import resolve_family
 from polaris_re.core.verification import (
     ComparedQuantity,
@@ -37,7 +38,7 @@ from polaris_re.core.verification import (
     VerificationClaim,
 )
 from polaris_re.gam.api import gam
-from polaris_re.gam.bam_fitd import bam_fitd
+from polaris_re.gam.bam_fitd import _weighted_cross_products, bam_fitd
 from polaris_re.gam.real_data_trial import (
     EDF_GATE,
     ETA_GATE,
@@ -47,12 +48,15 @@ from polaris_re.gam.real_data_trial import (
 )
 
 __all__ = [
+    "ACCUMULATION_CLAIM",
     "END_TO_END_CLAIM",
     "ISOLATION_CLAIM",
     "SEED_CLAIM",
+    "AccumulationComparison",
     "DesignConditionedComparison",
     "EndToEndComparison",
     "SeedSensitivity",
+    "compare_accumulation",
     "compare_design_conditioned",
     "compare_end_to_end",
     "compare_seed_sensitivity",
@@ -196,16 +200,30 @@ class DesignConditionedComparison:
 def _frame(cell: Mapping[str, object]) -> pl.DataFrame:
     data: Mapping[str, Sequence[object]] = cell["data"]  # type: ignore[assignment]
     cols: dict[str, Sequence[object]] = {k: list(v) for k, v in data.items()}
-    return pl.DataFrame(cols).with_columns(logexpo=pl.col("expo").log())
+    df = pl.DataFrame(cols)
+    return df.with_columns(logexpo=pl.col("expo").log()) if "expo" in df.columns else df
+
+
+def _family_args(cell: Mapping[str, object]) -> tuple[str, str | None]:
+    """``(family string for gam(), prior-weights column or None)`` of a probe cell."""
+    return str(cell.get("family") or "poisson"), cell.get("weights")  # type: ignore[return-value]
+
+
+def _resolved_family(family: str) -> Family:
+    if family.startswith("binomial"):
+        return resolve_family("binomial", "cloglog" if "cloglog" in family else "logit")
+    return resolve_family("poisson", "log")
 
 
 def compare_end_to_end(cell: Mapping[str, object]) -> EndToEndComparison:
     """Fit the cell through ``gam(method="fREML", discrete=True)`` and reduce to scalars."""
     df = _frame(cell)
+    family, wcol = _family_args(cell)
     fit = gam(
         polaris_formula(str(cell["formula"])),
         df,
-        "poisson",
+        family,
+        weights=wcol,
         select=bool(cell["select"]),
         method="fREML",
         discrete=True,
@@ -257,15 +275,25 @@ def compare_design_conditioned(cell: Mapping[str, object]) -> DesignConditionedC
         blocks.append(full)
     data: Mapping[str, Sequence[float]] = cell["data"]  # type: ignore[assignment]
     y = np.asarray(data["y"], dtype=np.float64)
-    offset = np.log(np.asarray(data["expo"], dtype=np.float64))
-    res = bam_fitd(x, tuple(blocks), y, resolve_family("poisson", "log"), offset=offset)
+    offset = np.log(np.asarray(data["expo"], dtype=np.float64)) if "expo" in data else None
+    family, wcol = _family_args(cell)
+    wts = np.asarray(data[wcol], dtype=np.float64) if wcol else None
+    res = bam_fitd(x, tuple(blocks), y, _resolved_family(family), offset=offset, prior_weights=wts)
     trace: Sequence[Mapping[str, object]] = cell["trace"]  # type: ignore[assignment]
     final: Mapping[str, object] = cell["final"]  # type: ignore[assignment]
     lsp_d: list[float] = []
     eta_d: list[float] = []
     for it, ref in zip(res.trace, trace, strict=False):
         lsp_d.append(float(np.max(np.abs(it.log_sp - np.asarray(ref["log_sp"])))))  # type: ignore[arg-type]
-        eta_d.append(float(np.max(np.abs(x @ it.coef + offset - np.asarray(ref["eta"])))))  # type: ignore[arg-type]
+        eta_d.append(
+            float(
+                np.max(
+                    np.abs(
+                        x @ it.coef + (0.0 if offset is None else offset) - np.asarray(ref["eta"])
+                    )
+                )
+            )
+        )  # type: ignore[arg-type]
     return DesignConditionedComparison(
         name=str(cell["name"]),
         iter_polaris=res.n_iter,
@@ -323,10 +351,12 @@ def compare_seed_sensitivity(cell: Mapping[str, object]) -> SeedSensitivity | No
     if not seeds:
         return None
     df = _frame(cell)
+    family, wcol = _family_args(cell)
     fit = gam(
         polaris_formula(str(cell["formula"])),
         df,
-        "poisson",
+        family,
+        weights=wcol,
         select=bool(cell["select"]),
         method="fREML",
         discrete=True,
@@ -347,4 +377,58 @@ def compare_seed_sensitivity(cell: Mapping[str, object]) -> SeedSensitivity | No
         polaris_vs_seed_max=float(p_vs[1:].max()),
         edf_total_spread=float(edfs.max() - edfs.min()),
         iter_by_seed=tuple(int(s["iter"]) for s in seeds),  # type: ignore[call-overload]
+    )
+
+
+ACCUMULATION_CLAIM = VerificationClaim(
+    claim=(
+        "Polaris (bam_fitd's blocked X'WX and X'Wz accumulation over the n rows of mgcv's own X) "
+        "and mgcv (mgcv:::XWXd / XWyd, the discretised accumulation over the unique-cell table) "
+        "compute X'WX and X'W z at the same fixed weights w and working response z; compared "
+        "elementwise. Polaris is handed mgcv's X, so this is a design-conditioned diagnostic "
+        "(ADR-260 amendment 2, checkpoint (i)), not parity."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="X'WX at fixed w (max abs, relative to max abs)",
+            left_producer="polaris_re.gam.bam_fitd._weighted_cross_products on MGCV'S OWN X",
+            right_producer="mgcv:::XWXd (via scripts/bam_fitd_probe.R)",
+            provenance=ComparisonProvenance.ECHO,
+        ),
+        ComparedQuantity(
+            quantity="X'Wz at fixed w, z (max abs, relative to max abs)",
+            left_producer="polaris_re.gam.bam_fitd._weighted_cross_products on MGCV'S OWN X",
+            right_producer="mgcv:::XWyd (via scripts/bam_fitd_probe.R)",
+            provenance=ComparisonProvenance.ECHO,
+        ),
+    ),
+)
+
+
+@dataclass(frozen=True)
+class AccumulationComparison:
+    name: str
+    p: int
+    xwx_rel_max: float
+    xwy_rel_max: float
+
+
+def compare_accumulation(cell: Mapping[str, object]) -> AccumulationComparison | None:
+    """Checkpoint (i): Polaris's blocked accumulation vs ``XWXd`` / ``XWyd`` on ``bam``'s X."""
+    acc = cell.get("accumulation")
+    if not acc or not cell.get("X_unique"):
+        return None
+    x = np.asarray(cell["X_unique"], dtype=np.float64)[
+        np.asarray(cell["X_index"], dtype=np.intp) - 1
+    ]
+    w = np.asarray(acc["w"], dtype=np.float64)  # type: ignore[index]
+    z = np.asarray(acc["z"], dtype=np.float64)  # type: ignore[index]
+    xx, xy = _weighted_cross_products(x, w, w * z)
+    ref_xx = np.asarray(acc["xwx"], dtype=np.float64)  # type: ignore[index]
+    ref_xy = np.asarray(acc["xwy"], dtype=np.float64).reshape(-1)  # type: ignore[index]
+    return AccumulationComparison(
+        name=str(cell["name"]),
+        p=x.shape[1],
+        xwx_rel_max=float(np.max(np.abs(xx - ref_xx)) / np.max(np.abs(ref_xx))),
+        xwy_rel_max=float(np.max(np.abs(xy - ref_xy)) / np.max(np.abs(ref_xy))),
     )

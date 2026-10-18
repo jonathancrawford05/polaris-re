@@ -17,12 +17,14 @@ from pathlib import Path
 
 from polaris_re.core.verification import evidence_markdown, require_parity_evidence
 from polaris_re.gam.bam_fitd_conformance import (
+    ACCUMULATION_CLAIM,
     END_TO_END_CLAIM,
     ISOLATION_CLAIM,
     SEED_CLAIM,
     DesignConditionedComparison,
     EndToEndComparison,
     compare_design_conditioned,
+    compare_accumulation,
     compare_end_to_end,
     compare_seed_sensitivity,
 )
@@ -86,6 +88,18 @@ def build_report(probe: Path) -> tuple[str, list[EndToEndComparison]]:
             f"{d.edf_total_abs:.2e} | {' '.join(f'{v:.0e}' for v in d.log_sp_diff_by_iteration)} | "
             f"{' '.join(f'{v:.0e}' for v in d.eta_diff_by_iteration)} |"
         )
+    accs = [r for c in cells if (r := compare_accumulation(c)) is not None]
+    lines += [
+        "",
+        "### R3 Stage B checkpoint (i): X'WX and X'Wz accumulation vs `XWXd` / `XWyd` (diagnostic)",
+        "",
+        evidence_markdown(ACCUMULATION_CLAIM),
+        "",
+        "| cell | p | X'WX max abs diff / max abs | X'Wz max abs diff / max abs |",
+        "|---|---:|---:|---:|",
+    ]
+    for a in accs:
+        lines.append(f"| {a.name} | {a.p} | {a.xwx_rel_max:.2e} | {a.xwy_rel_max:.2e} |")
     seeds = [r for c in cells if (r := compare_seed_sensitivity(c)) is not None]
     lines += [
         "",

@@ -8,8 +8,7 @@ selection differs: :func:`~polaris_re.gam.bam_fitd.bam_fitd` replaces the Laplac
 search. The smoothing parameters are therefore the *iteration's end state*, which is what
 ``bam`` reports and why exact-REML ``gam`` sits ~1e-2 from it on weak-signal cells.
 
-**Not ported (refused by name).** Free-scale and quasi families, ``gamma != 1``, a
-structurally rank-deficient design (``bgam.fitd`` pivots its Cholesky; this does not),
+**Not ported (refused by name).** Free-scale and quasi families, ``gamma != 1``,
 ``sz`` terms (their one-sp-per-level block shape has never been exercised), and anything
 needing the exact-REML Hessian (``vcov(unconditional=True)``, ``summary()``).
 """
@@ -23,6 +22,7 @@ from polaris_re.analytics.gam_model import (
     PolarisGAMFit,
     _dispersion_or_nan,
     _per_term_edf,
+    _warn_if_rank_deficient,
     assemble_model_design,
     pivot_design,
     resolve_family,
@@ -65,12 +65,11 @@ def fit_polaris_bam(
     with unique_row_constraint():
         full_design = assemble_model_design(model, data)
     design = pivot_design(full_design)
-    if "kept_columns" in design:
-        raise PolarisValidationError(
-            "gam(method='fREML', discrete=True): the design is structurally rank-deficient "
-            "(a coefficient is unidentified). bgam.fitd pivots its Cholesky; the port does not "
-            "(ADR-260 amendment 2). Remove the redundant term, or use method='REML'."
-        )
+    # A structurally redundant coefficient (a bare s(x) beside s(x, by=f), ADR-256) is pivoted
+    # out exactly as the REML path does, with the same warning: eta, edf_total and the Vp se are
+    # pivot-invariant. bgam.fitd pivots its own Cholesky for the same direction, so the fitted
+    # model is the same one; which coefficient is eliminated (per-term edf) is not identified.
+    _warn_if_rank_deficient(full_design, design, stacklevel=3)
     weights = (
         None
         if model.weights_column is None

@@ -76,6 +76,38 @@ make_unbalanced <- function() {
        select = TRUE, data = g, export_design = TRUE)
 }
 
+# RANK-DEFICIENT cell (ADR-256): a bare s(age) beside s(age, by=smoker) over ALL smoker levels shares
+# the penalty null space, so one direction is unidentified. bam pivots its Cholesky; Polaris pivots the
+# design (as its REML path does). Design is not exported (bam's has the redundant column).
+make_rank_deficient <- function() {
+  set.seed(20261019)
+  g <- expand.grid(age = 30:85, dur = 1:15, smoker = factor(c("NS", "S", "U")))
+  reps <- pmax(1L, as.integer(round(14 * exp(-0.03 * (g$age - 30)) * ifelse(g$smoker == "U", 0.3, 1))))
+  g <- g[rep(seq_len(nrow(g)), times = reps), ]
+  g$expo <- rlnorm(nrow(g), log(25), 0.8)
+  lin <- -7 + 0.06 * (g$age - 40) - 0.04 * g$dur + c(NS = 0, S = 0.35, U = 0.1)[as.character(g$smoker)] *
+    (1 + 0.5 * sin(g$age / 10))
+  g$y <- rpois(nrow(g), g$expo * exp(lin))
+  list(name = "rank_deficient_bare_plus_factor_by",
+       formula = 'y ~ smoker + s(age, bs="cr", k=10) + s(age, bs="cr", k=8, by=smoker) + s(dur, bs="cr", k=5) + offset(log(expo))',
+       select = FALSE, data = g, export_design = FALSE)
+}
+
+# BINOMIAL(cloglog) cell with prior weights (the S1 shape: a proportion response, weights = trials).
+make_binomial <- function() {
+  set.seed(20261019)
+  g <- expand.grid(age = 40:80, dur = 1:15)
+  g <- g[rep(seq_len(nrow(g)), each = 3), ]
+  g$smoker <- factor(sample(c("NS", "S"), nrow(g), TRUE, prob = c(0.7, 0.3)))
+  g$n <- sample(40:400, nrow(g), TRUE)
+  lin <- -4.2 + 0.05 * (g$age - 40) - 0.05 * g$dur + 0.4 * (g$smoker == "S") + 0.3 * sin(g$age / 9)
+  g$y <- rbinom(nrow(g), g$n, 1 - exp(-exp(lin))) / g$n
+  list(name = "binomial_cloglog_weights",
+       formula = 'y ~ smoker + s(age, bs="cr", k=10) + s(dur, bs="cr", k=5)',
+       family = 'binomial(link="cloglog")', weights = "n",
+       select = FALSE, data = g, export_design = TRUE)
+}
+
 cells <- list(
   make_cell("ti_plain",
     'y ~ s(age, bs="cr", k=10) + s(dur, bs="cr", k=5) + ti(age, dur, bs="cr", k=c(8,4)) + offset(log(expo))',
@@ -87,7 +119,9 @@ cells <- list(
     'y ~ smoker + s(dur, bs="cr", k=5) + s(age, bs="cr", k=8, by=smoker) + offset(log(expo))',
     TRUE),
   make_ilec_shaped(),
-  make_unbalanced())
+  make_unbalanced(),
+  make_rank_deficient(),
+  make_binomial())
 
 # ---- seed sensitivity (REFERENCE_INTERNAL: mgcv against mgcv) --------------------------------
 # discrete.mf pads each variable's unique values with a seeded sample() (seed 8547, hard-coded).
@@ -108,12 +142,12 @@ set_discrete_seed <- function(seed) {
   body(f) <- replace_const(body(orig_discrete_mf), 8547, seed)
   assignInNamespace("discrete.mf", f, ns = "mgcv")
 }
-seed_sensitivity <- function(form, g, select) {
+seed_sensitivity <- function(form, g, select, fam, wts) {
   on.exit(assignInNamespace("discrete.mf", orig_discrete_mf, ns = "mgcv"))
   out <- list()
   for (sd in SEEDS) {
     set_discrete_seed(sd)
-    b <- suppressWarnings(bam(form, data = g, family = poisson(), method = "fREML", discrete = TRUE,
+    b <- suppressWarnings(bam(form, data = g, family = fam, weights = wts, method = "fREML", discrete = TRUE,
       select = select))
     out[[length(out) + 1]] <- list(seed = sd, eta = as.numeric(b$linear.predictors),
       edf_total = sum(b$edf), iter = b$iter, log_sp = log(as.numeric(b$sp)))
@@ -132,7 +166,10 @@ design_of <- function(G) {
 
 run_cell <- function(cell) {
   g <- cell$data; form <- as.formula(cell$formula)
-  fit <- function(maxit) suppressWarnings(bam(form, data = g, family = poisson(), method = "fREML",
+  fam_txt <- if (is.null(cell$family)) "poisson()" else cell$family
+  fam <- eval(parse(text = fam_txt))
+  wts <- if (is.null(cell$weights)) NULL else g[[cell$weights]]
+  fit <- function(maxit) suppressWarnings(bam(form, data = g, family = fam, weights = wts, method = "fREML",
     discrete = TRUE, select = cell$select, control = gam.control(maxit = maxit)))
   trace <- list()
   for (k in seq_len(MAXK)) {
@@ -147,7 +184,7 @@ run_cell <- function(cell) {
   # rows through the index matrix G$kd, so X is n x p; S/off are bam's penalties.
   X <- NULL; pen <- NULL
   if (isTRUE(cell$export_design)) {
-    G <- suppressWarnings(bam(form, data = g, family = poisson(), method = "fREML", discrete = TRUE,
+    G <- suppressWarnings(bam(form, data = g, family = fam, weights = wts, method = "fREML", discrete = TRUE,
       select = cell$select, fit = FALSE))
     npar <- length(G$term.names)
     X <- vapply(seq_len(npar), function(j) {
@@ -165,17 +202,28 @@ run_cell <- function(cell) {
     X_unique <- X[first, , drop = FALSE]
     X_index <- match(key, key[first])
   }
+  # Checkpoint (i) (ADR-260 amendment 2 rule 4): mgcv's own discretised accumulation at FIXED
+  # deterministic weights/working response, X'WX via XWXd and X'Wz via XWyd.
+  acc <- NULL
+  if (isTRUE(cell$export_design)) {
+    wfix <- 0.5 + (seq_len(nrow(g)) %% 7) / 4; zfix <- sin(seq_len(nrow(g)) / 37)
+    acc <- list(w = wfix, z = zfix,
+      xwx = XWXd(G$Xd, wfix, G$kd, G$ks, G$ts, G$dt, G$v, G$qc, 1, G$drop, -1, -1, -1),
+      xwy = as.numeric(XWyd(G$Xd, wfix, zfix, G$kd, G$ks, G$ts, G$dt, G$v, G$qc, G$drop, -1, -1, -1)))
+  }
   se <- as.numeric(predict(final, se.fit = TRUE, type = "link")$se.fit)
-  m <- suppressWarnings(gam(form, data = g, family = poisson(), method = "REML", select = cell$select))
+  m <- suppressWarnings(gam(form, data = g, family = fam, weights = wts, method = "REML", select = cell$select))
   list(name = cell$name, formula = cell$formula, select = cell$select, n = nrow(g),
     p = length(coef(final)),
     unique_age_dur = nrow(unique(g[c("age", "dur")])),
-    data = list(age = g$age, dur = g$dur, smoker = as.character(g$smoker), expo = g$expo, y = g$y),
-    X_unique = X_unique, X_index = X_index, pen = pen, trace = trace,
+    data = c(list(age = g$age, dur = g$dur, smoker = as.character(g$smoker), y = g$y),
+      if (!is.null(g$expo)) list(expo = g$expo), if (!is.null(wts)) list(n = as.numeric(wts))),
+    family = fam_txt, weights = cell$weights,
+    X_unique = X_unique, X_index = X_index, pen = pen, trace = trace, accumulation = acc,
     final = list(log_sp = log(as.numeric(final$sp)), eta = as.numeric(final$linear.predictors),
       edf = as.numeric(final$edf), edf_total = sum(final$edf), se = se, iter = final$iter,
       converged = isTRUE(final$mgcv.conv)),
-    seeds = seed_sensitivity(form, g, cell$select),
+    seeds = seed_sensitivity(form, g, cell$select, fam, wts),
     gam = list(eta = as.numeric(m$linear.predictors), edf_total = sum(m$edf),
       log_sp = log(as.numeric(m$sp))))
 }

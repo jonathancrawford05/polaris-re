@@ -127,3 +127,40 @@ for C in T3c_mid T1_mid T2_mid; do
 done
 ```
 
+## 10. Full-granularity runs, rank-deficient cells and a binomial cell (after ADR-260 amendment 12)
+Memory is the risk: at `mid` Polaris peaks at 3-4.6 GB for 0.9M cells, so ~3.0M cells (`T2_full`, `T3c_full`)
+may need 12-16 GB of a 24 GB machine. Run the Polaris half ALONE first (`--skip-r`), one cell at a time, and
+nothing else open. A failure here is a result (paste the last 20 lines and the RSS), not something to retry.
+```bash
+cd ~/polaris-re && git pull
+export OPENBLAS_NUM_THREADS=1
+export WORK="$HOME/polaris_trial_scratch"
+export CHIP="Apple M4, 4P+6E cores, 24 GB, macOS 27.0.1, AC power"
+for F in T2 T3c; do
+  uv run python scripts/gam_real_data_trial.py write-cell --work "$WORK" --formula $F --granularity full
+  /usr/bin/time -l uv run python scripts/bam_local_run.py --cell "$WORK/${F}_full" --repeats 1 --skip-r --chip "$CHIP" 2>&1 | tee "$WORK/stageb_${F}_full_polaris.txt"
+done
+```
+Paste the derived-scalars block and the `maximum resident set size` line of each. Only if a cell fitted and
+memory stayed below ~14 GB, run its full comparison (R fits `bam` seven times; `bam` used 2.7 GB at `S2_full`):
+```bash
+uv run python scripts/bam_local_run.py --cell "$WORK/T2_full" --repeats 1 --chip "$CHIP" 2>&1 | tee "$WORK/stageb_T2_full.txt"
+```
+Rank-deficient cells (now fitted by pivoting; per-term edf is not identified, eta/edf_total/se are):
+```bash
+for F in T3a S2; do
+  uv run python scripts/gam_real_data_trial.py write-cell --work "$WORK" --formula $F --granularity mid
+  uv run python scripts/bam_local_run.py --cell "$WORK/${F}_mid" --repeats 1 --chip "$CHIP" 2>&1 | tee "$WORK/stageb_${F}_mid.txt"
+done
+```
+Binomial (the trial's `S1`; `write-cell` refuses a granularity where deaths exceed exposure, which is itself a
+result; try coarse, then mid):
+```bash
+for G in coarse mid; do
+  uv run python scripts/gam_real_data_trial.py write-cell --work "$WORK" --formula S1 --granularity $G \
+    && uv run python scripts/bam_local_run.py --cell "$WORK/S1_$G" --repeats 1 --chip "$CHIP" 2>&1 | tee "$WORK/stageb_S1_$G.txt"
+done
+```
+Re-score `T1_full` with the cloud statistics (no R):
+`uv run python scripts/bam_local_run.py --cell "$WORK/T1_full" --repeats 1 --chip "$CHIP" --reuse-seeds`.
+
