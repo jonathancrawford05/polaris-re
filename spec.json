@@ -1,0 +1,1 @@
+{"formula": "deaths ~ s(duration, bs=\"cr\", k=6) + face_band + smoker + face_band:smoker + s(attained_age, bs=\"cr\", k=13, by=smoker) + offset(log_exposure)", "family": "poisson", "weights": null, "select": true, "factors": {"face_band": ["B00", "B01", "B02", "B03", "B04", "B05"], "smoker": ["NS", "S", "U"]}}

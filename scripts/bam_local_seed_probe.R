@@ -47,6 +47,8 @@ main <- function(argv) {
     pr <- predict(m, se.fit = TRUE, type = "link")
     fits[[length(fits) + 1]] <- list(seed = sd, elapsed_s = el, iter = m$iter,
       converged = isTRUE(m$mgcv.conv), edf_total = sum(m$edf), n_coef = length(coef(m)),
+      log10_sp = log10(as.numeric(m$sp)),
+      smooth_edf = vapply(m$smooth, function(s) sum(m$edf[s$first.para:s$last.para]), numeric(1)),
       eta = as.numeric(m$linear.predictors), se_fit = as.numeric(pr$se.fit))
     cat(sprintf("seed %g: %.1f s, %d iterations, edf_total %.3f\n", sd, el, m$iter, sum(m$edf)))
   }

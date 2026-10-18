@@ -61,7 +61,9 @@ OUTPUT_KEYS: Final = frozenset(
         "bam_eta_spread", "bam_max_dev_from_default", "bam_edf_total_spread",
         "spread_at_least_residual", "eta_max_abs_gam_vs_bam", "edf_total_gam", "chip",
         "python", "os", "status", "refusal", "ratio_polaris_over_bam_default",
-        "bam_default_seconds", "claim",
+        "bam_default_seconds", "claim", "localisation", "reml_triangle", "eta_max_abs_polaris_reml_vs_polaris_bam", "eta_max_abs_polaris_reml_vs_bam", "polaris_reml_seconds", "polaris_reml_edf_total", "abs_eta_diff_quantiles", "q50", "q90", "q99", "q999",
+        "n_rows_over_0p01", "n_rows_over_0p1", "n_rows_over_0p5", "polaris_log10_sp", "bam_log10_sp",
+        "polaris_smooth_edf", "bam_smooth_edf", "polaris_smooth_kinds", "bam_default_smooth_kinds",
     }
 )  # fmt: skip
 
@@ -101,6 +103,12 @@ def main(argv: list[str]) -> int:
         "--r-command", default="Rscript", help="e.g. 'docker run --rm -v ... IMG Rscript'"
     )
     ap.add_argument("--seeds", default="1,2,3,4,5,6")
+    ap.add_argument(
+        "--reml-baseline",
+        action="store_true",
+        dest="reml_baseline",
+        help="also fit Polaris EXACT REML (slow at mid: minutes) and report its eta distance to\n                    Polaris-bam and to bam; the triangle that says who moved off the optimum",
+    )
     ap.add_argument("--skip-r", action="store_true", help="Polaris half only (timing/memory)")
     ap.add_argument("--out", default=None, help="default: <cell>/bam_local.json")
     ap.add_argument("--chip", default="unrecorded")
@@ -208,6 +216,37 @@ def main(argv: list[str]) -> int:
         ratio_polaris_over_bam_default=best / float(fits[0]["elapsed_s"]),
         bam_default_seconds=float(fits[0]["elapsed_s"]),
     )  # fmt: skip
+    # Localisation scalars (counts and magnitudes only: no row, level, age or curve). Needed because
+    # a disagreement larger than bam's own seed cloud (T3c_mid, 2026-10-18) cannot be read from the
+    # max alone. Per-smooth edf and log10(sp) are model scalars the PLAN §3 contract allows.
+    q = np.quantile(d0, [0.5, 0.9, 0.99, 0.999])
+    result["localisation"] = {
+        "abs_eta_diff_quantiles": {"q50": float(q[0]), "q90": float(q[1]),
+                                   "q99": float(q[2]), "q999": float(q[3])},
+        "n_rows_over_0p01": int(np.sum(d0 > 0.01)),
+        "n_rows_over_0p1": int(np.sum(d0 > 0.1)),
+        "n_rows_over_0p5": int(np.sum(d0 > 0.5)),
+        "polaris_log10_sp": [float(v) for v in np.asarray(fit.log_lambda)],
+        "bam_log10_sp": [float(v) for v in np.atleast_1d(fits[0]["log10_sp"])],
+        "polaris_smooth_edf": [
+            float(fit.edf_per_term[tb["label"]])
+            for tb in fit.design["term_blocks"]
+            if tb["n_penalties"] > 0
+        ],
+        "bam_smooth_edf": [float(v) for v in np.atleast_1d(fits[0]["smooth_edf"])],
+    }  # fmt: skip
+    if a.reml_baseline:
+        t_r = time.perf_counter()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            reml = gam(spec["formula"], df, spec["family"], weights=spec.get("weights"),
+                       select=bool(spec["select"]))  # fmt: skip
+        result["reml_triangle"] = {
+            "eta_max_abs_polaris_reml_vs_polaris_bam": float(np.max(np.abs(reml.eta - eta_p))),
+            "eta_max_abs_polaris_reml_vs_bam": float(np.max(np.abs(reml.eta - etas[0]))),
+            "polaris_reml_seconds": time.perf_counter() - t_r,
+            "polaris_reml_edf_total": float(reml.edf_total),
+        }
     g = cell / "probe_gam.json"
     if g.is_file():
         gm = json.loads(g.read_text())

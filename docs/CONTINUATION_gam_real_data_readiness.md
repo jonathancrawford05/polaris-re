@@ -14,7 +14,10 @@
 | **R4** | `tp` (L7); bare `s(x)` accepted | NOT STARTED (after R3, per the 2026-10-15 order change; maintainer to confirm) |
 | **R3** | scale: exact speedups or `bam`/`discrete=TRUE`, decided by R2's profile and the 10-minute ceiling | **IN PROGRESS: Stage A (binning) DONE 2026-10-16; Stage B (`bgam.fitd` port) NEXT.** Earlier: **NEXT. Maintainer selected R3-bam on 2026-10-15** (`bam` with `select=TRUE`; ADR-260 PROPOSED, awaiting acceptance; parity reference is `bam`, gates unchanged). The release condition is met (ceiling exceeded). **ADR before any code**: the claim sentence, gates and agreement criterion are derived first (PLAN §4, R3-bam) |
 
-## R3 Stage B REAL-CELL READING (2026-10-18, ADR-260 amendment 6) — read first
+## R3 Stage B, READ FIRST (2026-10-18, ADR-260 amendments 6-7)
+**T3c_mid (`select=TRUE` + factor-`by`) disagrees with `bam` by 1.19 (eta/se 21.8), OUTSIDE `bam`'s seed cloud (Polaris 1.15..1.53 from every seed; `bam` seeds within 0.37; edf agrees to 3e-3). Mechanism unassigned; next measurement = `bam_local_run.py --reml-baseline` on T3c_mid (REML triangle) plus the localisation scalars. T1_mid/T2_mid/T1_full miss the gates by 1%..2.3x but sit inside `bam`'s cloud. Polaris peak RSS 4.4 GB (T2_mid) vs bam 2.7 GB: full T2/T3c will not fit in 24 GB; the performance checkpoint (block/compress the design) is the next build item.**
+
+## R3 Stage B REAL-CELL READING (2026-10-18, ADR-260 amendment 6)
 `T1_mid` (tier L): unchanged gates **missed by <1%** on eta (2.015e-2) and se (2.010e-2) and by 3x on eta/se (0.277); but `bam`'s own eta moves **0.14** across `discrete.mf` seeds (iterations 11..18) and Polaris sits inside that cloud (0.018..0.134). Gates not moved. **Maintainer question (recommended: yes):** restate R3 acceptance against the seed cloud (pre-registered, an acceptance-definition change, not a tolerance change). R3 real-data acceptance is NOT MET until answered. Next: add the pointwise-envelope statistic to `bam_local_run.py`; `T2_mid`, `T3c_mid`, then `full` (memory/time) are unread.
 
 ## R3 Stage B status (2026-10-16, ADR-260 amendment 4) — WIP PR
