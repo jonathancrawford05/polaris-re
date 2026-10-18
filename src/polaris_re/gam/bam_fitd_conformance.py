@@ -51,6 +51,7 @@ __all__ = [
     "ACCUMULATION_CLAIM",
     "END_TO_END_CLAIM",
     "ISOLATION_CLAIM",
+    "REAL_DATA_CLAIM",
     "SEED_CLAIM",
     "AccumulationComparison",
     "DesignConditionedComparison",
@@ -324,6 +325,38 @@ SEED_CLAIM = VerificationClaim(
             left_producer=_POLARIS_PRODUCER,
             right_producer=_MGCV_PRODUCER + ", seed patched",
             provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+    ),
+)
+
+
+REAL_DATA_CLAIM = VerificationClaim(
+    claim=(
+        "Maintainer-run, tier L (real ILEC cells; native R, not the pinned digest). Polaris "
+        "(gam(method='fREML', discrete=True), from the formula string and the cell frame only) "
+        "is compared with mgcv bam(method='fREML', discrete=TRUE) refitted at seven "
+        "discrete.mf seeds: distance to the seed-median fit, pointwise excess outside the "
+        "seed envelope, and the unchanged R2 gates. The seed spread and bam's own "
+        "leave-one-out excess are the reference against itself."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="Polaris vs seed-median bam (max abs eta); gates (C)",
+            left_producer=_POLARIS_PRODUCER,
+            right_producer=_MGCV_PRODUCER + ", 7 discrete.mf seeds",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="Polaris pointwise excess outside the bam seed envelope (B)",
+            left_producer=_POLARIS_PRODUCER,
+            right_producer=_MGCV_PRODUCER + ", 7 discrete.mf seeds",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="bam eta spread and leave-one-out excess (B statistic for bam's own seeds)",
+            left_producer="mgcv::bam(discrete=TRUE), discrete.mf seed = s_i",
+            right_producer="mgcv::bam(discrete=TRUE), the other six seeds",
+            provenance=ComparisonProvenance.REFERENCE_INTERNAL,
         ),
     ),
 )

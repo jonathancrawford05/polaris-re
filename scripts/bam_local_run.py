@@ -34,7 +34,9 @@ import numpy as np
 import polars as pl
 
 from polaris_re.core.exceptions import PolarisValidationError
+from polaris_re.core.verification import evidence_markdown
 from polaris_re.gam import GamFit, gam
+from polaris_re.gam.bam_fitd_conformance import REAL_DATA_CLAIM
 from polaris_re.gam.real_data_trial import (
     EDF_GATE,
     ETA_GATE,
@@ -293,6 +295,7 @@ def _finish(result: dict[str, object], cell: Path, out: str | None) -> int:
     _check_whitelist(result)
     path = Path(out) if out else cell / "bam_local.json"
     path.write_text(json.dumps(result, indent=2))
+    print(evidence_markdown(REAL_DATA_CLAIM))
     print("\n=== derived scalars (this is what to paste back) ===")
     print(json.dumps(result, indent=2))
     print(f"\nwrote {path}")

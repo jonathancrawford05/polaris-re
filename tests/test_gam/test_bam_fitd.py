@@ -6,6 +6,7 @@ the supported subset and its refusals, the provenance declarations (ADR-193).
 R-gated: the probe is run on one small cell and read (tier 1 here, a regression check; the
 committed numbers are the tier-3 CI reading)."""
 
+import dataclasses
 import json
 import subprocess
 import sys
@@ -307,7 +308,7 @@ class TestBamVpUsesFisherWeights:
         rng = np.random.default_rng(11)
         age = np.repeat(np.arange(40, 80), 6).astype(float)
         n = rng.integers(20, 200, age.size).astype(float)
-        p = 1.0 - np.exp(-np.exp(-2.5 + 0.04 * (age - 40)))
+        p = 1.0 - np.exp(-np.exp(-1.0 + 0.04 * (age - 40)))
         y = rng.binomial(n.astype(int), p) / n
         return pl.DataFrame({"age": age, "n": n, "y": y})
 
@@ -319,7 +320,12 @@ class TestBamVpUsesFisherWeights:
         )  # fmt: skip
         assert fit.vp_override is not None
         np.testing.assert_allclose(fit.vcov(), fit.vp_override)
-        # and it differs from the observed-information rebuild the REML path would give
+        # and it differs from the observed-information rebuild at the same coefficients (the
+        # defect amendment 17 fixed): same fit, vp_override dropped
+        rebuilt = dataclasses.replace(fit, vp_override=None).vcov()
+        se_bam = np.sqrt(np.diag(fit.vcov()))
+        se_obs = np.sqrt(np.diag(rebuilt))
+        assert np.max(np.abs(se_bam / se_obs - 1.0)) > 1e-4
         reml = gam('y ~ s(age, bs="cr", k=8)', df, 'binomial(link="cloglog")', weights="n")
         assert reml.vp_override is None
 

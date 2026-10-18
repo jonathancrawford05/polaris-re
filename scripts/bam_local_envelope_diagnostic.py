@@ -11,9 +11,12 @@ reads for ``bam``'s OWN seeds. This script reports, as scalars only:
 2. each ``bam`` seed vs the envelope of the OTHER six (leave-one-out): the reference distribution
    of the statistic for a legitimate member of the cloud (6-draw envelopes are narrower than the
    7-draw one, so this is the harder test for the seeds);
-3. the same ratios to the seed spread;
-4. where Polaris's outside rows sit: counts only, by the cell's exposure quartile and whether the
-   cell was floored (``deaths == exposure`` after flooring; S1 only).
+3. Polaris against each of those SAME seven leave-one-out six-seed envelopes: the like-for-like
+   comparison with (2) (same statistic, same envelope size);
+4. the same ratios to the seed spread;
+5. where Polaris's outside rows sit: counts only, by the cell's exposure quartile and whether the
+   cell was floored (``deaths >= exposure`` after flooring, which also catches a cell where the two
+   tie naturally; S1 only, so ``n_floored_cells`` can exceed the spec's ``n_cells_floored``).
 
 Nothing here is a row, a level, an age or a curve. It does not change criterion (B).
 """
@@ -26,7 +29,9 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from polaris_re.core.verification import evidence_markdown
 from polaris_re.gam import gam
+from polaris_re.gam.bam_fitd_conformance import REAL_DATA_CLAIM
 
 ALLOWED = frozenset(
     {"cell", "n_rows", "n_seeds", "bam_eta_spread", "polaris", "excess_max", "n_rows_outside",
@@ -35,7 +40,7 @@ ALLOWED = frozenset(
      "frac_rows_outside_max", "excess_over_spread_median", "polaris_outside_rows",
      "n_outside_in_floored_cells", "n_floored_cells", "share_outside_in_floored_cells",
      "share_rows_in_floored_cells", "n_outside_by_exposure_quartile", "q1", "q2", "q3", "q4",
-     "claim"}
+     "claim", "polaris_vs_loo_envelopes", "n_cells_floored_spec"}
 )  # fmt: skip
 
 
@@ -66,6 +71,9 @@ def main(cell: Path) -> int:
     loo = [_excess(etas[i], np.delete(etas, i, axis=0)) for i in range(etas.shape[0])]
     loo_ex = np.array([a for a, _ in loo])
     loo_frac = np.array([b / n_rows for _, b in loo])
+    p_loo = [_excess(eta_p, np.delete(etas, i, axis=0)) for i in range(etas.shape[0])]
+    p_loo_ex = np.array([a for a, _ in p_loo])
+    p_loo_frac = np.array([b / n_rows for _, b in p_loo])
     # where Polaris's outside rows sit (counts only)
     hi, lo = etas.max(axis=0), etas.min(axis=0)
     outside = (eta_p > hi) | (eta_p < lo)
@@ -84,14 +92,24 @@ def main(cell: Path) -> int:
             "frac_rows_outside_max": float(loo_frac.max()),
             "excess_over_spread_median": float(np.median(loo_ex) / spread),
         },
+        "polaris_vs_loo_envelopes": {
+            "excess_max_min": float(p_loo_ex.min()),
+            "excess_max_median": float(np.median(p_loo_ex)),
+            "excess_max_max": float(p_loo_ex.max()),
+            "frac_rows_outside_min": float(p_loo_frac.min()),
+            "frac_rows_outside_median": float(np.median(p_loo_frac)),
+            "frac_rows_outside_max": float(p_loo_frac.max()),
+            "excess_over_spread_median": float(np.median(p_loo_ex) / spread),
+        },
     }  # fmt: skip
     if w and w in df.columns and "deaths" in df.columns:
         expo = df[w].to_numpy().astype(np.float64)
-        floored = (df["deaths"].to_numpy().astype(np.float64) == expo) & bool(
+        floored = (df["deaths"].to_numpy().astype(np.float64) >= expo) & bool(
             spec.get("trials_floor")
         )
         q = np.quantile(expo, [0.25, 0.5, 0.75])
         bins = np.digitize(expo, q)
+        result["n_cells_floored_spec"] = int(spec.get("n_cells_floored", 0))
         result["polaris_outside_rows"] = {
             "n_floored_cells": int(floored.sum()),
             "n_outside_in_floored_cells": int((outside & floored).sum()),
@@ -107,6 +125,7 @@ def main(cell: Path) -> int:
     if bad:
         raise SystemExit(f"refusing to write non-whitelisted keys {sorted(bad)}")
     (cell / "bam_envelope_diagnostic.json").write_text(json.dumps(result, indent=2))
+    print(evidence_markdown(REAL_DATA_CLAIM))
     print("\n=== derived scalars (this is what to paste back) ===")
     print(json.dumps(result, indent=2))
     return 0

@@ -616,6 +616,8 @@ class PolarisGAMFit:
                 "unconditional=False (Vp)."
             )
         if self.vp_override is not None:
+            # scale=1.0 is right only because the bam path is restricted to fixed-scale
+            # families (poisson, binomial); a free-scale port must carry its own scale here.
             return CoefficientCovariance(
                 vp=self.vp_override, first_order=None, second_order=None, scale=1.0
             )

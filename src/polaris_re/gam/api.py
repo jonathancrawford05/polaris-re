@@ -517,7 +517,7 @@ def gam(
     method: str = "REML",
     discrete: bool = False,
 ) -> GamFit:
-    """Fit an ``mgcv`` GAM formula from the verified subset by REML.
+    """Fit an ``mgcv`` GAM formula from the verified subset by REML (or fREML, ``discrete=True``).
 
     Args:
         formula: e.g. ``'y ~ g + s(x, bs="cr", k=8) + ti(x, z, bs="cr", k=c(6, 5))'``.

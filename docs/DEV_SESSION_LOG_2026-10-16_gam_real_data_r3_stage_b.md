@@ -44,3 +44,12 @@ No `perf/history.jsonl` row appended: ADR-177 amendment 2 covers only `*_conform
 
 ## PR #273 review round (same day)
 Review: APPROVE with P1-1 (perf row), P1-2 (derived headlines), P2-1 (dates), P2-2 (reml_score note); all addressed. Maintainer comment replaced the "no" recommendation with a measure-first rule; executed: seed spread (REFERENCE_INTERNAL) 6.51e-3 >= residual 3.17e-3 on the discriminating cell, tier 3 run 38938280500, so R's RNG is not ported (ADR-260 amendment 5); `tero` ported, effect on the residual nil. Provenance of the new table: spread REFERENCE_INTERNAL; Polaris vs bam-at-each-seed INDEPENDENT (`SEED_CLAIM`). Re-scope question: not needed, the maintainer kept the single WIP scope.
+
+## Update 2026-10-18 (amendments 6-21), refreshed baseline
+The sections above describe the first session (through amendment 5); this PR now does more.
+- **Real-data gap (was "unmeasured"):** tier L, ten ILEC cells. (A) met 10/10, (B) met 9/10 (`S1_mid` 1.6e-4 vs 1e-4, gate NOT restated, recorded NOT MET), single-seed gates met outright on 5 of 10. Fit times 0.28-16.6 s; ceiling met 36-54x on the three `full` Poisson cells.
+- **What changed:** amendment 6-7 (real readings, localisation); 8-9 (design is the gap: `bam`'s constraint comes from `discrete.mf`'s compressed frame; `select=TRUE` null-space penalty is coordinate-dependent); `unique_row_constraint` (T3c_mid 1.19 -> 0.056); 12 (revised cloud acceptance A/B/C, disclosed post-hoc); rank-deficient cells pivoted (ADR-256); binomial/cloglog supported with the labelled `--floor-trials-at-deaths` option; 17-18 `Vp` from expected (Fisher) weights via `vp_override` (real S1 se 0.0239 -> 0.0019 / 0.0251 -> 0.0039); 19-20 `S1_mid` (B) diagnosis (bam's leave-one-out excess 5.8e-4 / 1.19e-3 / 8.7e-3 vs Polaris 1.6e-4; not like-for-like, see amendment 21); 21 review round.
+- **Baseline:** `tests/test_gam` + `test_gam_model.py` 230 passed; reviewer's full suite on bcda2ad 641 passed in the gam/utils/qa subset; CI green apart from what the review round fixed (Docker: no `git` binary).
+- **Provenance:** Polaris vs `bam` (end to end, real cells, seeds): INDEPENDENT; `bam` seed spread and leave-one-out: REFERENCE_INTERNAL; iteration trace / accumulation on `bam`'s own design: ECHO (diagnostic).
+- **Definition of done:** real-data agreement NOT MET on `S1_mid` (B); R3 DONE not recorded (maintainer); `S1_full`, `S2_full`, `S3` not run.
+
