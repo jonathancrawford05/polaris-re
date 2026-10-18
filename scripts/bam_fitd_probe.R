@@ -56,6 +56,26 @@ make_ilec_shaped <- function() {
        select = FALSE, data = g, export_design = TRUE)
 }
 
+# UNBALANCED factor-by + select=TRUE cell (ADR-260 amendment 9/10): rows per age fall off steeply
+# with age and the third smoker level is rare, so colMeans over the DATA rows and colMeans over the
+# distinct covariate values (what discrete.mf's compressed frame gives bam) differ. The select=TRUE
+# null-space penalty is coordinate-dependent, so this is where the two constraints give different models.
+make_unbalanced <- function() {
+  set.seed(20261018)
+  g <- expand.grid(age = 20:99, dur = 1:12, smoker = factor(c("NS", "S", "U")))
+  keep <- (g$smoker == "NS") | (g$smoker == "S" & g$age < 90) | (g$smoker == "U" & g$age >= 35 & g$age < 80)
+  g <- g[keep, ]
+  reps <- pmax(1L, as.integer(round(40 * exp(-0.045 * (g$age - 20)) * ifelse(g$smoker == "U", 0.15, 1))))
+  g <- g[rep(seq_len(nrow(g)), times = reps), ]
+  g$expo <- rlnorm(nrow(g), log(30), 1.0)
+  lin <- -7 + 0.055 * (g$age - 40) + 0.0004 * (g$age - 60)^2 - 0.04 * g$dur +
+    c(NS = 0, S = 0.4, U = 0.1)[as.character(g$smoker)] * (1 + sin(g$age / 12))
+  g$y <- rpois(nrow(g), g$expo * exp(lin))
+  list(name = "unbalanced_factor_by_select",
+       formula = 'y ~ smoker + s(dur, bs="cr", k=5) + s(age, bs="cr", k=10, by=smoker) + offset(log(expo))',
+       select = TRUE, data = g, export_design = TRUE)
+}
+
 cells <- list(
   make_cell("ti_plain",
     'y ~ s(age, bs="cr", k=10) + s(dur, bs="cr", k=5) + ti(age, dur, bs="cr", k=c(8,4)) + offset(log(expo))',
@@ -66,7 +86,8 @@ cells <- list(
   make_cell("factor_by_select",
     'y ~ smoker + s(dur, bs="cr", k=5) + s(age, bs="cr", k=8, by=smoker) + offset(log(expo))',
     TRUE),
-  make_ilec_shaped())
+  make_ilec_shaped(),
+  make_unbalanced())
 
 # ---- seed sensitivity (REFERENCE_INTERNAL: mgcv against mgcv) --------------------------------
 # discrete.mf pads each variable's unique values with a seeded sample() (seed 8547, hard-coded).
