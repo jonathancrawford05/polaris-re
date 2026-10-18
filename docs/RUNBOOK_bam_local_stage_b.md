@@ -85,3 +85,18 @@ finding), then the full run without `--skip-r` if memory allows. Report a memory
 (per-row output). Keep `bam_local.json` only if you decide to commit it (`docs/measurements/`, DATA_LICENSING §5);
 otherwise the pasted text is what gets recorded, labelled **tier L, real data, maintainer-run**, with the
 R/mgcv versions and chip it prints.
+
+## 7. T3c_mid design-conditioned diagnostic (ADR-260 amendment 8) — the next run
+Why: Polaris-`bam` sits on the exact-REML optimum (7.3e-4) while `bam` is 1.19 away on every seed. This run
+hands Polaris `bam`'s OWN design and compares the iteration trace, to say whether the difference is the
+design (what `discrete=TRUE` builds) or the algorithm port. Scratch files (X is ~0.5 GB, never committed)
+go to `$WORK/T3c_mid/design_probe/`; the printed output is scalars only.
+```bash
+cd ~/polaris-re && git pull
+export OPENBLAS_NUM_THREADS=1
+export WORK="$HOME/polaris_trial_scratch"
+uv run python scripts/bam_local_design_run.py --cell "$WORK/T3c_mid" 2>&1 | tee "$WORK/design_T3c_mid.txt"
+```
+Takes a few minutes (it refits `bam` once per iteration, ~15 times, and rebuilds X column by column).
+Paste the whole `=== derived scalars` block. Afterwards `rm -rf "$WORK/T3c_mid/design_probe"` (0.5 GB+).
+Stop and report if R errors or memory runs out (say which half).
