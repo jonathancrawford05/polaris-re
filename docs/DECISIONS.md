@@ -25338,3 +25338,27 @@ Only the last cell discriminates (exact-REML `gam` is 1.25e-2 from `bam`, the or
 **Step 3: `tero` ported.** `mgcv:::tero` (applied by `bam(discrete=TRUE)`) moves the margin with the largest `bs.dim` (the last on ties) to the last position; for two margins that is a swap iff `k[0] > k[1]`. `gam(method="fREML", discrete=True)` now applies it (`ti(age,dur,k=c(13,6))` becomes `ti(dur,age)`, as `bam` labels it). **Effect on the residual: none to the printed digits** (3.17e-3 before and after; the margins are a relabelling of one tensor space), so the deterministic contribution is about zero and the random-sample contribution is the whole of what is left. Side effect: the `ti` smoothing parameters are now in `bam`'s order, so `log(sp)` is compared unsorted.
 
 **Consequences.** The padded-frame port is closed by the maintainer's rule unless the real-data `mid` run says otherwise. Stage B stays WIP: checkpoint (i), the performance measurement and the real-data runs are unchanged from amendment 4.
+
+### ADR-260 amendment 6 (2026-10-18): first real-cell reading (`T1_mid`, tier L) — the unchanged gates are missed by a hair, against a reference whose own seed noise is 7x larger
+
+**Tier L, real data, maintainer-run** (scalars pasted from `scripts/bam_local_run.py`, Polaris commit `f4a025a`; native R 4.6.1 / mgcv 1.9.4, Apple arm64, `OPENBLAS_NUM_THREADS=1`; the `--chip` field was left as the placeholder; not the pinned digest). Cell `T1_mid`, 109,158 rows, 78 coefficients, 4 penalties. Provenance: Polaris vs `bam` columns INDEPENDENT; seed spread REFERENCE_INTERNAL; times MEASUREMENTs.
+
+| quantity | value | gate |
+|---|---:|---|
+| max abs eta, Polaris vs `bam` (seed 8547) | **2.015e-2** | < 2e-2 — **missed by 0.7%** |
+| max relative `Vp` se | **2.010e-2** | < 2e-2 — **missed by 0.5%** |
+| max eta/se | **0.277** | <= 0.1 — **missed** (flag 0.01) |
+| abs edf_total | 0.177 | < 1 — met |
+| exact-REML `gam` vs `bam` (REFERENCE_INTERNAL) | 2.048e-2 | (baseline) |
+| **`bam` eta spread across 7 `discrete.mf` seeds** | **0.140** | — |
+| `bam` edf_total spread | 0.397 | — |
+| Polaris vs `bam` at the other six seeds | 0.0184 .. 0.134 | — |
+| iterations: Polaris / `bam` by seed | 11 / 15, 11, 12, 12, 12, 18, 12 | — |
+| Polaris fit | 0.24 s (best of 3), 521 MB peak, converged | ceiling 600 s |
+| `bam` at seed 8547 | 0.53 s | ratio 0.45 |
+
+**Reading, without moving any gate.** (1) On this cell Polaris is **no closer to `bam` at its default seed than exact-REML `gam` is** (2.015e-2 vs 2.048e-2), so the performance-iteration port does not buy gate agreement here, unlike the synthetic discriminating cell (3.2e-3 vs 1.25e-2). (2) The reason the synthetic result does not transfer is the reference's own noise: `bam`'s eta moves by up to **0.14** when only the arbitrary padding seed changes, and its iteration count by seed ranges 11..18. The 2e-2 gates sit ~7x below that. Polaris (11 iterations, 0.018..0.134 from `bam` at the other seeds) lies **inside** the cloud; seed 8547 is simply one draw from it. (3) By the maintainer's decision rule (PR #273: spread >= residual -> do not port R's RNG) the padded frame stays unported. (4) The three gates therefore fail on a quantity (agreement with one arbitrary draw of the reference) that the reference itself does not reproduce to 2e-2. **That is a finding about the gates' definition for `bam`, not evidence of a Polaris defect, and it is NOT a licence to widen them** (nevers): the gates stay as written and `T1_mid` is recorded as NOT MET.
+
+**Question for the maintainer (recommended answer below).** Should the R3 acceptance for `bam` be restated against the reference's seed cloud, e.g. "Polaris's eta lies within the pointwise [min, max] envelope of `bam` over >= 7 seeds, widened by nothing, AND the unchanged gates against the cloud's median fit"? *Recommended: yes, decided before the next real-data number is read, on `T1_mid` first as a pre-registered rule, and recorded as a change of the acceptance definition (not a tolerance change) with this reading as its motivation.* Until the maintainer answers, R3 acceptance on real cells is NOT MET. The pointwise-envelope statistic is not yet computed by `bam_local_run.py` (it reports max-abs distances); adding it is a small change the next session can make from the same scratch files.
+
+**Not read:** `T2_mid`, `T3c_mid`, any `full` cell, memory at scale. `n_unique` per covariate was not re-checked in this run.
