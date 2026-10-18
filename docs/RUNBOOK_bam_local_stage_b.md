@@ -100,3 +100,19 @@ uv run python scripts/bam_local_design_run.py --cell "$WORK/T3c_mid" 2>&1 | tee 
 Takes a few minutes (it refits `bam` once per iteration, ~15 times, and rebuilds X column by column).
 Paste the whole `=== derived scalars` block. Afterwards `rm -rf "$WORK/T3c_mid/design_probe"` (0.5 GB+).
 Stop and report if R errors or memory runs out (say which half).
+
+## 8. Re-run after ADR-260 amendment 9 (constraint from distinct covariate values)
+```bash
+cd ~/polaris-re && git pull
+export OPENBLAS_NUM_THREADS=1
+export WORK="$HOME/polaris_trial_scratch"
+export CHIP="Apple M4, 4P+6E cores, 24 GB, macOS 27.0.1, AC power"
+for C in T3c_mid T1_mid T2_mid T1_full; do
+  uv run python scripts/bam_local_run.py --cell "$WORK/$C" --repeats 1 --chip "$CHIP" 2>&1 | tee "$WORK/stageb2_$C.txt"
+done
+```
+Paste each `=== derived scalars` block (or just the `agreement_vs_default_seed`, `seed_noise_floor`,
+`localisation` and `polaris` sections). What decides the next step: does Polaris now lie INSIDE `bam`'s seed
+cloud on `T3c_mid` (`polaris_vs_other_seeds_max` below `bam_eta_spread`, and `eta_max_abs` of the same order)?
+Optional, only if `T3c_mid` is still far: `uv run python scripts/bam_local_design_compare.py "$WORK/T3c_mid"`
+(needs `design_probe/` from §7; rerun §7 if you removed it) pastes per-penalty design-difference scalars.

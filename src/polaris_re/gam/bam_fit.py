@@ -18,6 +18,7 @@ from collections.abc import Mapping
 
 import numpy as np
 
+from polaris_re.analytics.gam_basis_cr import unique_row_constraint
 from polaris_re.analytics.gam_model import (
     PolarisGAMFit,
     _dispersion_or_nan,
@@ -61,7 +62,8 @@ def fit_polaris_bam(
         raise PolarisValidationError(
             "gam(method='fREML', discrete=True): sz terms are not supported (ADR-260 amendment 2)."
         )
-    full_design = assemble_model_design(model, data)
+    with unique_row_constraint():
+        full_design = assemble_model_design(model, data)
     design = pivot_design(full_design)
     if "kept_columns" in design:
         raise PolarisValidationError(
@@ -90,6 +92,8 @@ def fit_polaris_bam(
     for lj, block in zip(lam, design["penalty_blocks"], strict=True):
         penalty = penalty + lj * block
     edf_total = float(np.sum(res.edf))
+    with unique_row_constraint():
+        term_states = tuple(fit_term_state(term, data) for term in model.terms)
     return PolarisGAMFit(
         model=model,
         design=design,
@@ -106,7 +110,7 @@ def fit_polaris_bam(
         at_bound=False,
         at_bound_blocks=(),
         dispersion=_dispersion_or_nan(y, mu, family, edf_total, weights),
-        term_states=tuple(fit_term_state(term, data) for term in model.terms),
+        term_states=term_states,
         y=y,
         prior_weights=weights,
         offset=offset,
