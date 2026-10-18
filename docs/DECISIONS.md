@@ -25452,3 +25452,14 @@ Only the last cell discriminates (exact-REML `gam` is 1.25e-2 from `bam`, the or
 **3. Binomial (cloglog, prior weights, no offset) is supported and now has a probe cell** (`binomial_cloglog_weights`, 1,845 rows, the S1 shape: proportion response, weights = trials). Tier 1: Polaris vs `bam` eta **2.5e-10**, 12 / 12 iterations, seed spread 4e-9; on `bam`'s own design 3.4e-11. For REAL binomial data the only requirement is a cell whose proportion is <= 1 (the trial's `S1` is refused where deaths exceed exposure, R2).
 
 **4. Checkpoint (i) closed as an ECHO diagnostic.** Polaris's blocked `X'WX` and `X'Wz` on `bam`'s own `X` at fixed deterministic weights vs `mgcv:::XWXd` / `XWyd`: relative max abs difference **1.4e-16 .. 1.8e-15** on all six probe cells that export a design (tier 1). By the mechanical test it is ECHO (Polaris is handed `bam`'s `X`). What it adds to the iteration trace is isolation: the accumulation alone is exact, so any later difference is not in `X'WX`.
+
+### ADR-260 amendment 13 (2026-10-18): the `full` cells fit — 16 s and 12 s against the 600 s ceiling, 7-9 GB
+
+**Tier L, real data, maintainer-run** (`bam_local_run.py --skip-r`, Polaris commit `4d6b876`; M4 4P+6E, 24 GB, macOS 27.0.1, AC power, 1 thread; Polaris half only, so MEASUREMENTs of Polaris against itself, no comparison).
+
+| cell | cells (rows) | coefficients / penalties | iterations | Polaris fit | peak RSS | converged |
+|---|---:|---|---:|---:|---:|---|
+| T2_full | 3,015,224 | 110 / 4 | 13 | **16.3 s** | 7.2 GB (7.6 GB by `/usr/bin/time`) | yes |
+| T3c_full | 3,015,224 | 74 / 8 | 14 | **11.5 s** | 8.4 GB (8.8 GB) | yes |
+
+**What this settles.** (1) The R3 purpose, a Polaris fit of the `full` trial cells inside the 10-minute ceiling, is met by a factor of 37 to 52 (R2's exact-REML fits of the same cells took 643 s to 2117 s, or ran out of memory at `full`). (2) `edf_total` is 95.083 (`T2`, equal to `T2_mid`'s 95.083 to 4 digits) and 70.964 (`T3c`, equal to `T3c_mid`'s 70.964). (3) Memory is a finding, not a blocker: 7.2 to 8.4 GB for 3.0M cells against `bam`'s 2.7 GB at `S2_full` (2.76M cells); the machine has 24 GB, so the dense `n x p` design plus assembly temporaries fit. A lower-memory path (block-built design) would be an optimisation, not a correctness item. **Not yet read:** the `bam` comparison at `full` (cloud statistics (A)-(C) of amendment 12), because only the Polaris half was run.
