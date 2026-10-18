@@ -185,3 +185,17 @@ done
 Needs `S1_coarse/bam_local_seeds.json` and `S1_mid/bam_local_seeds.json` (do not delete them before this). Look at
 `agreement_vs_default_seed.se_rel_max`: it should fall from 0.024 / 0.025. `eta_max_abs` and the (B) statistic will not move.
 
+
+## 13. S1_mid (B) diagnostic: what does (B) read for bam's own seeds? (ADR-260 amendment 19)
+Needs `S1_mid/bam_local_seeds.json` (kept from the amendment-18 run; if it is gone, re-run the S1_mid comparison in §12
+without `--reuse-seeds`). Scalars only; it does not change criterion (B).
+```bash
+cd ~/polaris-re && git pull
+export OPENBLAS_NUM_THREADS=1
+export WORK="$HOME/polaris_trial_scratch"
+for C in S1_mid S1_coarse; do
+  uv run python scripts/bam_local_envelope_diagnostic.py "$WORK/$C" 2>&1 | tee "$WORK/envdiag_$C.txt"
+done
+```
+Paste both blocks. What decides it: `bam_seeds_leave_one_out.excess_max_median` (what (B) reads for a legitimate `bam` seed against the
+other six) versus `polaris.excess_max` (1.6e-4 on `S1_mid`), and `polaris_outside_rows` (are the outside rows concentrated in floored cells?).
