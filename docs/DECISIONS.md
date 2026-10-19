@@ -25559,3 +25559,19 @@ What this does NOT do: it does not restate the gate (maintainer, amendment 17), 
 - **`REAL_DATA_CLAIM`** (`gam/bam_fitd_conformance.py`) declares the tier-L comparison (Polaris vs `bam` at 7 seeds INDEPENDENT; `bam` against itself REFERENCE_INTERNAL). `bam_local_run.py` and `bam_local_envelope_diagnostic.py` now print `evidence_markdown(REAL_DATA_CLAIM)` above their scalars, so future real-data tables take their headline from the claim. The headlines of the amendment 7/10/11/15/16/18/20 tables were written by hand and are left as recorded; that is a presentation gap, not a change of classification.
 - Like-for-like diagnostic (see the caveat on amendment 20); floored-cell flag uses `deaths >= exposure` (no float `==`) and also reports the spec's `n_cells_floored` because natural ties are counted too.
 - `TestBamVpUsesFisherWeights` now pins the difference (bam `Vp` se vs the observed-information rebuild at the same coefficients differs by > 1e-4 on a cloglog cell); `gam()` docstring and `vcov` `scale=1.0` comment updated.
+
+### ADR-260 amendment 22 (2026-10-19): like-for-like reading of the `S1_mid` / `S1_coarse` (B) diagnostic — the direction holds; gate not restated; `S1_mid` stays NOT MET on (B)
+
+Tier L (maintainer-run, runbook §13, `bam_local_envelope_diagnostic.py`; native R 4.6.1 / mgcv 1.9.4; REFERENCE_INTERNAL for the `bam` columns, not parity). Same statistic, same six-seed envelope size: each of the seven `bam` seeds against the other six, and Polaris against each of the same seven leave-one-out envelopes.
+
+| cell | statistic | `bam` seeds (min / median / max) | Polaris (min / median / max) |
+|---|---|---|---|
+| S1_mid | excess max | 5.8e-4 / 1.19e-3 / 8.7e-3 | 1.60e-4 / 1.60e-4 / 2.34e-4 |
+| S1_mid | rows outside | 13.1% / 27.7% / 38.6% | 1.6% / 3.3% / 5.0% |
+| S1_coarse | excess max | 2.6e-4 / 7.3e-4 / 1.05e-2 | 4.8e-5 / 5.6e-5 / 3.0e-4 |
+| S1_coarse | rows outside | 10.7% / 26.3% / 42.8% | 1.6% / 2.4% / 7.6% |
+
+Reading. (1) On rows outside, the two groups are separated on both cells: the least-outlying `bam` seed (13.1% / 10.7%) is above the most-outlying Polaris envelope (5.0% / 7.6%). (2) On excess, `S1_mid` is also separated (smallest `bam` 5.8e-4 against largest Polaris 2.3e-4; medians differ 7.4x). On `S1_coarse` the extremes overlap (largest Polaris 3.0e-4 against smallest `bam` 2.6e-4) while the medians differ 13x. (3) Polaris is NOT inside the six-seed envelopes: against every one of them its excess on `S1_mid` is >= 1.6e-4, i.e. above the 1e-4 limit, so (B) as written is missed on every leave-one-out envelope as well as the seven-seed one. What the reading establishes is that Polaris is a milder tail member than any `bam` seed on this statistic, not that it lies inside the cloud. The earlier "3.6x / 7.4x" ratio of amendment 20 is superseded by the like-for-like medians above (7.4x on `S1_mid`: coincidentally the same figure).
+
+Not changed: the gate; the recorded `S1_mid` result (NOT MET on (B) as written); R3 DONE (the maintainer's). Whether to reformulate (B) is the maintainer's decision. Side finding: the floored-cell flag (`deaths >= exposure`) counts 3,071 / 1,685 cells against the spec's 1,863 / 990 floored, so ~1,200 / ~700 cells tie naturally; the share of Polaris's outside rows in either set is 0.03-0.06%, so the conclusion on flooring is unaffected.
+
