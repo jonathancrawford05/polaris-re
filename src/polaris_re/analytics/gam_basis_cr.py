@@ -254,6 +254,10 @@ knots that do not span the data range (e.g. the target formula's own hand-chosen
 on it — CLAUDE.md: mark the uncertainty rather than guess the derivation.
 """
 
+import contextlib
+import contextvars
+from collections.abc import Iterator
+
 import numpy as np
 
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
@@ -267,6 +271,7 @@ __all__ = [
     "sum_to_zero_null_space",
     "sz_basis",
     "ti_basis",
+    "unique_row_constraint",
 ]
 
 _MIN_K = 3
@@ -508,6 +513,41 @@ def by_factor_mask_design(design: np.ndarray, group: np.ndarray, level: int) -> 
     return np.asarray(design * mask[:, np.newaxis], dtype=np.float64)
 
 
+def _distinct_rows(design: np.ndarray) -> np.ndarray:
+    """One row per distinct row of ``design``. ``np.unique(axis=0)`` sorts structured rows and
+    takes seconds at 4e5 rows, so the rows are first keyed by a fixed 1-D projection; the result is
+    VERIFIED exact (every row must equal its representative) and falls back to the full row
+    ``unique`` if two distinct rows ever shared a key."""
+    key = design @ np.linspace(1.0, 2.0, design.shape[1])
+    _, first, inverse = np.unique(key, return_index=True, return_inverse=True)
+    reps = design[first]
+    if np.array_equal(reps[inverse.reshape(-1)], design):
+        return reps
+    return np.unique(design, axis=0)
+
+
+_UNIQUE_ROW_CONSTRAINT: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "polaris_unique_row_constraint", default=False
+)
+
+
+@contextlib.contextmanager
+def unique_row_constraint() -> Iterator[None]:
+    """Compute every sum-to-zero constraint from ONE row per distinct covariate value.
+
+    ``bam(discrete=TRUE)`` builds its smooths on ``discrete.mf``'s compressed frame (each
+    variable's unique values, padded to equal length), so ``C = colMeans(X)`` there weights each
+    distinct value about equally, not by how many data rows carry it. The default (data rows)
+    is what ``gam()`` does and is unchanged. The padding's random multiplicities (a seeded
+    ``sample()``) are NOT reproduced; this is the deterministic part only. ADR-260 amendment 9.
+    """
+    token = _UNIQUE_ROW_CONSTRAINT.set(True)
+    try:
+        yield
+    finally:
+        _UNIQUE_ROW_CONSTRAINT.reset(token)
+
+
 def sum_to_zero_null_space(design: np.ndarray) -> np.ndarray:
     """``mgcv``'s constraint null-space basis ``Z`` for ``colMeans(X) · β = 0``.
 
@@ -525,7 +565,8 @@ def sum_to_zero_null_space(design: np.ndarray) -> np.ndarray:
         ``(k, k-1)`` — every column of ``Q`` after the first, from the full QR of
         ``colMeans(X)ᵀ`` (module docstring §4).
     """
-    constraint = design.mean(axis=0).reshape(-1, 1)
+    rows = _distinct_rows(design) if _UNIQUE_ROW_CONSTRAINT.get() else design
+    constraint = rows.mean(axis=0).reshape(-1, 1)
     if np.allclose(constraint, 0.0):
         raise PolarisComputationError(
             "sum_to_zero_null_space: colMeans(X) is (numerically) zero — the "

@@ -550,6 +550,18 @@ class PolarisGAMFit:
     gradient_tolerance: float | None = None
     """The score-scaled tolerance ``max |g^P|`` was tested against:
     ``epsilon_rel * (1 + |score|)`` (Newton only)."""
+    vp_override: np.ndarray | None = None
+    """A coefficient covariance ``Vp`` supplied by the fitter, in the fit's (pivoted) column layout.
+    Set only by the ``bam`` path: ``bgam.fitd``'s ``Vp = PP * scale`` uses the EXPECTED (Fisher)
+    working weights, which differ from the observed-information weights :meth:`vcov` otherwise
+    rebuilds for a non-canonical link (cloglog). ``None`` everywhere else."""
+    fit_method: str = "REML"
+    """``"REML"`` for :func:`fit_polaris_gam`'s Laplace-REML search; ``"fREML-discrete"`` for
+    the ``gam`` package's ``fit_polaris_bam`` (``bam(method="fREML", discrete=TRUE)``'s
+    performance iteration, which does NOT minimise the exact REML — the smoothing parameters
+    are the iteration's end state). A fit with the second value refuses the quantities that
+    are defined by the exact REML (``vcov(unconditional=True)``), and its ``reml_score`` is
+    NaN (not ported): check this field before reading ``reml_score``."""
 
     def vcov(self, unconditional: bool = False) -> np.ndarray:
         """The coefficient covariance (``mgcv``'s ``vcov(m)``), ``(p, p)``.
@@ -595,6 +607,20 @@ class PolarisGAMFit:
         return tuple(sorted(set(range(self.design["full_width"])) - set(kept)))
 
     def _covariance(self, unconditional: bool) -> CoefficientCovariance:
+        if unconditional and self.fit_method != "REML":
+            raise PolarisValidationError(
+                "PolarisGAMFit.vcov: unconditional=True is refused for a "
+                f"{self.fit_method!r} fit. Vc is defined at a REML optimum by the exact REML "
+                "Hessian; a performance-iteration fit is not at one, and bam's own Vc comes "
+                "from the iteration's last working-model Hessian (not ported). Use "
+                "unconditional=False (Vp)."
+            )
+        if self.vp_override is not None:
+            # scale=1.0 is right only because the bam path is restricted to fixed-scale
+            # families (poisson, binomial); a free-scale port must carry its own scale here.
+            return CoefficientCovariance(
+                vp=self.vp_override, first_order=None, second_order=None, scale=1.0
+            )
         if self.y is None:
             raise PolarisValidationError(
                 "PolarisGAMFit.vcov: this fit carries no training response "

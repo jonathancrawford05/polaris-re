@@ -95,3 +95,7 @@ data/experience_cache/
 # committed (it is this engine's own output, the golden the suite compares
 # against) — only the R side is ignored here.
 data/mgcv_exchange/**/mgcv_reference.json
+
+# scratch cell dumps (per-cell deaths/exposure are never committed; PLAN §3)
+/cells.csv
+/spec.json

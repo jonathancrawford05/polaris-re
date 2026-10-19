@@ -475,13 +475,20 @@ def strip_stamp(text: str) -> str:
 
 
 def git_head(repo_root: Path) -> str:
-    """Short HEAD sha, or ``"unknown"`` outside a git checkout."""
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    """Short HEAD sha, or ``"unknown"`` outside a git checkout — including where ``git`` is not
+    installed at all, as in the ``python:3.12-slim`` runtime image. ``check=False`` suppresses a
+    non-zero exit but not the ``FileNotFoundError`` of a missing binary, so that needs catching
+    for the docstring above to hold.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return "unknown"
     return result.stdout.strip() or "unknown"
 
 

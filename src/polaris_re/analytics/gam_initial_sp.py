@@ -22,7 +22,7 @@ import numpy as np
 from polaris_re.analytics.gam_family import Family
 from polaris_re.core.exceptions import PolarisValidationError
 
-__all__ = ["initial_log10_lambda"]
+__all__ = ["initial_log10_lambda", "initial_log10_lambda_from_xx_diag"]
 
 _BALANCE_TARGET = 0.4
 """``mgcv``'s own ``initial.sp`` data/penalty balance target."""
@@ -68,6 +68,16 @@ def initial_log10_lambda(
     eta = _linkfun(family, mu)
     w = np.sqrt(w_prior * family.link.mu_eta(eta) ** 2 / family.variance(mu))
     ldxx = np.sum((w[:, None] * x) ** 2, axis=0)
+    return initial_log10_lambda_from_xx_diag(ldxx, penalty_blocks)
+
+
+def initial_log10_lambda_from_xx_diag(
+    ldxx: np.ndarray, penalty_blocks: tuple[np.ndarray, ...]
+) -> np.ndarray:
+    """``initial.sp`` given ``diag(X'WX)`` (``XX = TRUE`` in ``mgcv``): the same recipe as
+    :func:`initial_log10_lambda`, which reduces to this once the weights are applied.
+    ``bgam.fitd`` calls it with the cross-product it has already accumulated."""
+    ldxx = np.asarray(ldxx, dtype=np.float64)
     eps = np.finfo(np.float64).eps
     ldss = np.zeros_like(ldxx)
     pen = np.zeros(ldxx.shape, dtype=bool)

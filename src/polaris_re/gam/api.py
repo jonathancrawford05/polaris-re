@@ -46,6 +46,7 @@ from polaris_re.analytics.gam_model import PolarisGAMFit, fit_polaris_gam
 from polaris_re.analytics.gam_rank_pivot import unidentified_directions
 from polaris_re.analytics.gam_term_spec import ModelSpec, TermSpec, factor_by_terms
 from polaris_re.core.exceptions import PolarisValidationError
+from polaris_re.gam.bam_fit import fit_polaris_bam
 from polaris_re.gam.formula import (
     ParametricCall,
     ParsedFormula,
@@ -153,6 +154,13 @@ class GamFit(PolarisGAMFit):
         """The fit report (``summary.gam``'s counterpart, no p-values): per-smooth edf and
         ``log10(sp)``, scale, REML score, deviance explained, ``n`` and the Newton
         search's convergence report. ``print(fit.summary())`` renders it."""
+        if self.fit_method != "REML":
+            raise PolarisValidationError(
+                f"GamFit.summary(): not implemented for a {self.fit_method!r} fit "
+                "(it reports the exact-REML score and the Newton search's convergence). "
+                "Read edf_total, edf_per_term, log_lambda, n_iterations and "
+                "predict(se_fit=True) directly."
+            )
         return build_summary(self, self.formula, self.smooth_labels, self.n_parametric)
 
     def encode(self, newdata: pl.DataFrame) -> dict[str, np.ndarray]:
@@ -348,6 +356,27 @@ def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
             )
 
 
+def _tero(call: TensorCall) -> TensorCall:
+    """``mgcv:::tero`` (applied by ``bam(discrete=TRUE)``): swap the margin with the largest
+    ``bs.dim`` (the last one on ties) into the last position. For two margins that is a swap
+    exactly when ``k[0] > k[1]``. Deterministic, no RNG; it changes the coefficient order, the
+    penalty order and the label (``ti(age,dur)`` with ``k=c(13,6)`` becomes ``ti(dur,age)``), and
+    through the path-dependent iteration, the answer."""
+    ks = call.k
+    maxi, maxd = 0, -1
+    for i, kk in enumerate(ks):
+        if kk >= maxd:
+            maxi, maxd = i, kk
+    last = len(ks) - 1
+    if maxi >= last:
+        return call
+    order = list(range(len(ks)))
+    order[maxi], order[last] = order[last], order[maxi]
+    return TensorCall(
+        variables=tuple(call.variables[i] for i in order), k=tuple(ks[i] for i in order)
+    )
+
+
 def _build_model(
     parsed: ParsedFormula,
     df: pl.DataFrame,
@@ -357,6 +386,7 @@ def _build_model(
     offset: str | None,
     select: bool,
     allow_unverified_select: bool = False,
+    tero: bool = False,
 ) -> tuple[ModelSpec, dict[str, np.ndarray], dict[str, _FactorCoding], list[tuple[str, int]]]:
     data: dict[str, np.ndarray] = {}
     codings: dict[str, _FactorCoding] = {}
@@ -412,6 +442,7 @@ def _build_model(
         if isinstance(call, TensorCall):
             for v in call.variables:
                 need_numeric(v, call.text)
+            call = _tero(call) if tero else call
             smooth.append(TermSpec(label=call.text, variables=call.variables, basis="ti", k=call.k))
             smooth_meta.append((call.text, int(np.prod(call.k))))
         elif call.basis == "re":
@@ -483,8 +514,10 @@ def gam(
     select: bool = False,
     scale: float | None = None,
     allow_unverified_select: bool = False,
+    method: str = "REML",
+    discrete: bool = False,
 ) -> GamFit:
-    """Fit an ``mgcv`` GAM formula from the verified subset by REML.
+    """Fit an ``mgcv`` GAM formula from the verified subset by REML (or fREML, ``discrete=True``).
 
     Args:
         formula: e.g. ``'y ~ g + s(x, bs="cr", k=8) + ti(x, z, bs="cr", k=c(6, 5))'``.
@@ -507,6 +540,12 @@ def gam(
             that limitation; never for results anyone relies on.
         scale: a fixed dispersion. **Refused:** it is verified only inside the
             conformance module (ADR-236/237), not through the production fitter.
+        method, discrete: ``method="REML"`` (the default) is the exact Laplace REML search.
+            ``method="fREML", discrete=True`` is ``bam(method="fREML", discrete=TRUE)``'s
+            performance iteration (``polaris_re.gam.bam_fitd``, ADR-260 amendments 2-4),
+            for poisson and binomial only; the smoothing parameters are the iteration's end
+            state, so they differ from ``method="REML"``'s by design. The pair is accepted
+            only together; every other combination is refused by name.
 
     Returns:
         a :class:`GamFit` (a :class:`~polaris_re.analytics.gam_model.PolarisGAMFit`
@@ -518,6 +557,12 @@ def gam(
             "gam(): scale= (a fixed dispersion) is not supported — it is verified only in "
             f"the conformance module, not through fit_polaris_gam ({_COVERAGE} §2.3, "
             "ADR-236/237; production wiring is ladder slice 7c)."
+        )
+    if (method, discrete) not in (("REML", False), ("fREML", True)):
+        raise PolarisValidationError(
+            f"gam(): method={method!r}, discrete={discrete!r} is not a supported pair. "
+            "Supported: method='REML' with discrete=False (exact Laplace REML), or "
+            "method='fREML' with discrete=True (bam's performance iteration, ADR-260)."
         )
     if not isinstance(data, pl.DataFrame):
         raise PolarisValidationError("gam(): data must be a polars DataFrame.")
@@ -536,12 +581,18 @@ def gam(
         offset or parsed.offset,
         select,
         allow_unverified_select,
+        tero=discrete,
     )
     y = _numeric(data, parsed.response)
-    fit = fit_polaris_gam(model, arrays, y, warn_stacklevel=3)
+    if discrete:
+        fit = fit_polaris_bam(model, arrays, y)
+    else:
+        fit = fit_polaris_gam(model, arrays, y, warn_stacklevel=3)
     if not fit.converged:
         warnings.warn(
-            "gam(): the REML search did not meet its convergence criterion; treat the fit "
+            "gam(): the "
+            + ("performance iteration" if discrete else "REML search")
+            + " did not meet its convergence criterion; treat the fit "
             "with caution (fit.converged is False).",
             stacklevel=2,
         )

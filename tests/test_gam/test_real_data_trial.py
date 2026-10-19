@@ -287,3 +287,18 @@ def test_end_to_end_run_cell_writes_only_whitelisted_scalars(
     out = json.loads((tmp_path / "out.json").read_text())
     t.assert_derived_scalars_only(out)
     assert len(out["results"]) == 2
+
+
+def test_floor_trials_at_deaths_counts_and_caps_the_proportion() -> None:
+    import polars as pl
+
+    from polaris_re.gam.real_data_trial import floor_trials_at_deaths
+
+    cells = pl.DataFrame({"exposure": [10.0, 0.4, 2.0], "deaths": [1.0, 1.0, 2.0]}).with_columns(
+        (pl.col("deaths") / pl.col("exposure")).alias("death_rate")
+    )
+    out, changed = floor_trials_at_deaths(cells)
+    assert changed == 1  # only the 0.4-exposure cell had deaths > exposure
+    assert out["exposure"].to_list() == [10.0, 1.0, 2.0]
+    assert out["death_rate"].to_list() == [0.1, 1.0, 1.0]
+    assert float(out["death_rate"].max()) <= 1.0
