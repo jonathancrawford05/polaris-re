@@ -25575,3 +25575,15 @@ Reading. (1) On rows outside, the two groups are separated on both cells: the le
 
 Not changed: the gate; the recorded `S1_mid` result (NOT MET on (B) as written); R3 DONE (the maintainer's). Whether to reformulate (B) is the maintainer's decision. Side finding: the floored-cell flag (`deaths >= exposure`) counts 3,071 / 1,685 cells against the spec's 1,863 / 990 floored, so ~1,200 / ~700 cells tie naturally; the share of Polaris's outside rows in either set is 0.03-0.06%, so the conclusion on flooring is unaffected.
 
+
+### ADR-260 amendment 23 (2026-10-20): R3 recorded DONE by the maintainer; the `S1_mid` (B) miss stays on the record as a known limitation
+
+**Decision (maintainer, 2026-10-20, in the routine session after PR #273 merged):** *"I confirm R3 can be considered done, as long as we have the miss documented for later."* Slice R3 (R3-bam) is **DONE**.
+
+**What DONE rests on (unchanged readings, no new number):** tier 3, run `39153199164`, digest `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`: seven synthetic cells meet the unchanged R2 gates against `bam(method="fREML", discrete=TRUE)` (INDEPENDENT). Tier L, real data, maintainer-run (amendments 13-22): the accepted cloud acceptance of amendment 12 is met on 9 of 10 real ILEC cells; `full` cells fit in 1.1-16.6 s against the 600 s ceiling, 8.0-8.3 GB at 3.0M cells.
+
+**The miss, documented for later (not restated, not waived):** on `S1_mid` (binomial cloglog, trials floored at deaths, 886,189 cells) Polaris misses criterion **(B)**, the pointwise envelope check: its eta lies outside the [min, max] band of the seven `bam` seed fits by up to **1.6e-4**, against the limit of 1e-4. (A) and the single-seed gates are met on that cell. Amendment 22's like-for-like reading shows every `bam` seed would itself miss (B) against the other six (excess 5.8e-4 .. 8.7e-3), and Polaris is a milder tail member than any of them, but Polaris is not inside the cloud either. So the gate is not reformulated and the cell is recorded NOT MET. **Mechanism class: (iv) other, a property of the acceptance statistic on a 7-draw envelope, not an identified defect in the fit**; link guards and the trials floor were ruled out (amendment 19). Recorded in `MGCV_FEATURE_COVERAGE.md` (`bam` row) and the CONTINUATION. **Re-open condition:** a reformulation of (B) by the maintainer (e.g. a leave-one-out or quantile envelope), or a second binomial real cell that misses (B). Neither opens a solver slice (PLAN §5 rules 3-4).
+
+**Also still not read on real data:** `S1_full`, `S2_full`, `S3`; `T3b` is refused by `gam()` (ADR-258). Known gaps of the bam path: `reml_score` is NaN; `summary()` and `vcov(unconditional=True)` are refused.
+
+**Next:** Slice R4 (`tp`, ladder L7) per the 2026-10-15 order. It starts with its claim sentence and Stage A (`X`, `S` against `smoothCon(s(x, bs="tp", k=))`).
