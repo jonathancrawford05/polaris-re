@@ -113,7 +113,7 @@ with `mgcv` in the report.
 | `ti(x, z, bs="cr", k=c(.,.))` — tensor interaction | supported | report §2, §4 |
 | `s(f, bs="re")` — random-effect / level indicator | supported | report §2 |
 | factors `a`, `a:b` (with both main effects), `offset(col)` | supported | report §2 |
-| `select=TRUE` | supported with `cr`, `tp`, numeric `by`, `ti`, `re`, parametric (`tp`: 16 of 16 draws agree, ADR-261 amendment 1) | report §2, §3 |
+| `select=TRUE` | supported with `cr`, `tp`, numeric `by`, `ti`, `re`, parametric (`tp`: 16 of 16 draws agree, tier 3 run `39531912866`, ADR-261 amendment 1) | report §2, §3 |
 | `select=TRUE` with a factor-`by` smooth: `f + s(x, by=f, bs="cr")` and `s(x, by=f, bs="cr")` | supported (Slice R1, ADR-258). Each by-level smooth gets its own null-space penalty, as in `mgcv`. The fit is **not** pivoted (no redundancy warning) and both `unconditional=False` and `unconditional=True` standard errors are available | ADR-258, report §1-§3, §6 |
 | 15-penalty quasi-Poisson `select=TRUE` fit, 5,000 rows | one cell, one draw | report §3 (target-size row) |
 | families gaussian / poisson / quasipoisson / binomial | supported | report §2 |

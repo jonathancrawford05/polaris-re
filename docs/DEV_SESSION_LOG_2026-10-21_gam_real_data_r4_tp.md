@@ -35,3 +35,6 @@ Tier 3 results: Stage A 17/17 (space dist 2.9e-15..2.9e-8, rank diff 0); Stage B
 - Existing assertions changed on purpose (lifted refusal, ADR-261 decision 6): `test_formula.py` bare-smooth test and `bs="tp"` list entry; `test_guide.py` refusal table; `test_formula_conformance.py` stand-in refusal now `bs="ps"`.
 - Maintainer questions: Q-R4a, Q-R4b in the CONTINUATION.
 - Follow-ups harvested: tp with `by=`/`select=TRUE` and tp as a `ti` margin are 2nd-order (NICE-TO-HAVE, no real-data formula needs them: the trial formulas are `cr`); kept as Q-R4a. `select=TRUE` with tp is being measured next (maintainer request).
+
+## Follow-up: select=TRUE with tp (maintainer request)
+Prediction (one-dimensional null space, so gauge-invariant up to a scalar) CONFIRMED: tier 3 run 39531912866, 16/16 draws agree, max eta 2.9e-4, INDEPENDENT. Refusal lifted (ADR-261 amendment 1). The 'refused because of the gauge' argument was an untested inference and was wrong.
