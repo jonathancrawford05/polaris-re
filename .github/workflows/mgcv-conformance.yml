@@ -72,6 +72,9 @@ on:
       - "scripts/gam_select_bare_by_draws_probe.R"
       - "scripts/gam_select_bare_by_draws_compare.py"
       - "scripts/gam_select_stop_diagnostic.py"
+      # Slice R4 (ADR-261): the thin-plate basis vs smoothCon(bs="tp").
+      - "scripts/gam_tp_probe.R"
+      - "scripts/gam_tp_compare.py"
       # Slice R3 Stage A (ADR-260 amendment 1): bam(discrete=TRUE) discretisation vs mgcv.
       - "scripts/bam_binning_probe.R"
       - "scripts/bam_binning_compare.py"
@@ -985,6 +988,15 @@ jobs:
             Rscript scripts/gam_select_bare_by_draws_probe.R \
               gam_select_bare_by_draws_probe.json
 
+      # Slice R4 Stage A (ADR-261): smoothCon(s(x, bs="tp", k), absorb.cons=TRUE) on 17 cases
+      # plus mgcv's own distance to an exact eigendecomposition (the derived tolerance's input).
+      - name: Thin-plate basis under mgcv (slice R4 stage A)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_tp_probe.R gam_tp_probe.json
+
       # Slice R3 Stage A (ADR-260 amendment 1): mgcv:::discrete.mf on 7 formula cells and 5
       # compress.df cells, plus the gam/bam algorithm measurement (REFERENCE_INTERNAL).
       - name: bam discretisation under mgcv (slice R3 stage A)
@@ -1068,6 +1080,7 @@ jobs:
             gam_predict_probe.json
             gam_formula_probe.json
             gam_select_bare_by_draws_probe.json
+            gam_tp_probe.json
             bam_binning_probe.json
             bam_fitd_probe.json
             gam_real_data_trial_rehearsal_probe.json
@@ -4198,6 +4211,19 @@ jobs:
             cat gam_formula_report.md >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No gam_formula_probe.json — the R probe above did not produce one."
+          fi
+
+      # Slice R4 Stage A (ADR-261) — thin-plate basis, Polaris vs smoothCon (INDEPENDENT), with a
+      # wrong-recipe negative control that must disagree.
+      - name: Thin-plate basis vs mgcv (slice R4 stage A)
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f gam_tp_probe.json ]; then
+            uv run python scripts/gam_tp_compare.py gam_tp_probe.json gam_tp_report.md || true
+            cat gam_tp_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_tp_probe.json — the R probe above did not produce one."
           fi
 
       # Slice R3 Stage A (ADR-260 amendment 1) — bam discretisation, Polaris vs mgcv (INDEPENDENT)

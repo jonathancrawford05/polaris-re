@@ -9,15 +9,16 @@ later by :mod:`polaris_re.gam.api`, which holds the DataFrame.
 **The grammar is the verified subset, nothing wider** (``MGCV_FEATURE_COVERAGE.md``)::
 
     response ~ term (+ term)*
-    term     := s(x, bs="cr", k=K [, by=z])  |  s(f, bs="re")
+    term     := s(x [, bs="tp"] [, k=K])  |  s(x, bs="cr", k=K [, by=z])  |  s(f, bs="re")
               | ti(x, z, bs="cr" [, k=K | c(K1, K2)])
               | offset(column) | factor | factor:factor
 
 Anything else raises :class:`~polaris_re.core.exceptions.PolarisValidationError` whose
 message names the construct and the coverage row that explains the refusal.
-**A bare ``s(x)`` is refused, never mapped to ``cr``** (maintainer decision,
-2026-10-06): ``mgcv``'s own default is ``tp`` (rung L7), and the oracle defines the
-default, so until ``tp`` is verified the caller must write the basis.
+**A bare ``s(x)`` is ``tp``, as in ``mgcv``** (Slice R4, ADR-261; before it, the parser
+refused a bare ``s(x)`` rather than map it to ``cr``, maintainer decision 2026-10-06, because
+the oracle defines the default and ``tp`` was unverified). ``tp`` is accepted for a single
+covariate, ``k`` optional (default 10), with no ``by=``; ``ti()`` still needs ``bs="cr"``.
 """
 
 import re
@@ -39,14 +40,16 @@ _STRING = re.compile(r"""^(["'])(.*)\1$""")
 
 _CR_DEFAULT_K = 10
 """``mgcv``'s default ``k`` for a ``cr`` smooth (``k = 10``)."""
+_TP_DEFAULT_K = 10
+"""``mgcv``'s default ``k`` for a one-covariate ``tp`` smooth: ``M + 8`` with the null-space
+dimension ``M = 2`` (``smooth.construct.tp.smooth.spec``'s ``def.k``)."""
 _TI_DEFAULT_K = 5
 """``mgcv``'s default ``k`` per margin of a ``ti`` smooth (``k = 5``)."""
 
 _COVERAGE = "docs/MGCV_FEATURE_COVERAGE.md"
 
 _REFUSED_BASES: dict[str, str] = {
-    "tp": f"{_COVERAGE} §2.1 / ladder rung L7 (thin-plate; not yet verified)",
-    "ts": f"{_COVERAGE} §2.1 / ladder rung L7 (thin-plate family)",
+    "ts": f"{_COVERAGE} §2.1 / ladder rung L7 (shrinkage thin-plate; only plain tp is verified)",
     "cs": f"{_COVERAGE} §2.1 (shrinkage cr; not in the target form)",
     "cc": f"{_COVERAGE} §2.1 (cyclic cubic; not in the target form)",
     "cp": f"{_COVERAGE} §2.1 (cyclic P-spline; not in the target form)",
@@ -244,20 +247,22 @@ def _parse_smooth(text: str, positional: list[str], keyword: dict[str, str]) -> 
             f'use ti(x, z, bs="cr") for an interaction ({_COVERAGE} §2.1, rungs L7/L8)',
         )
     variable = _identifier(positional[0], "variable", text)
-    if "bs" not in keyword:
-        raise _refuse(
-            f"{text} without bs=",
-            "a bare s(x) is mgcv's thin-plate default (bs='tp'), which is not verified yet "
-            f'({_COVERAGE} §2.1, ladder rung L7); write bs="cr" (or bs="re" for a factor)',
-        )
-    basis = _string(keyword["bs"], "bs", text)
+    basis = _string(keyword["bs"], "bs", text) if "bs" in keyword else "tp"
     if basis in _REFUSED_BASES:
         raise _refuse(f"bs={basis!r} in {text}", _REFUSED_BASES[basis])
-    if basis not in ("cr", "re"):
+    if basis not in ("cr", "re", "tp"):
         raise _refuse(f"bs={basis!r} in {text}", f"unknown or unverified basis ({_COVERAGE} §2.1)")
     by = None
     if "by" in keyword:
         by = _identifier(keyword["by"], "by", text)
+    if basis == "tp":
+        if by is not None:
+            raise _refuse(
+                f"by= on a thin-plate smooth {text}",
+                f'not verified ({_COVERAGE} §2.1 tp row); write bs="cr" for a by-smooth',
+            )
+        k_tp = _int_k(keyword["k"], text) if "k" in keyword else _TP_DEFAULT_K
+        return SmoothCall(variable=variable, basis="tp", k=k_tp)
     if basis == "re":
         if "k" in keyword:
             raise PolarisValidationError(

@@ -109,6 +109,7 @@ with `mgcv` in the report.
 | `s(x, by=z, bs="cr")` — numeric `by` (varying coefficient) | supported | report §2, §1 |
 | `s(x, by=f, bs="cr")` — factor `by`, written `f + s(x, by=f, ...)` | supported | report §2 (`gaussian_factor_by`) |
 | `s(x) + s(x, by=f)` (with or without `f`) — a smooth beside a factor-`by` smooth of the same covariate | supported **with a pivot** (Slice 9, ADR-255): the one coefficient the data cannot identify is eliminated, as `mgcv` does. `eta`, `edf_total` and the standard errors (`unconditional=False`) are compared with `mgcv`; **`unconditional=True` is refused** for such a fit (§7); per-term `edf` depends on which coefficient is eliminated, and `mgcv` itself does not reproduce it between runs (ADR-256), so it is reported but not gated. Such a model emits a `PolarisRankDeficiencyWarning` when fitted | ADR-255, report §1-§3 |
+| `s(x)`, `s(x, k=)`, `s(x, bs="tp", k=)` — thin-plate regression spline of one covariate, `mgcv`'s default | supported (Slice R4, ADR-261): the basis (column space and penalty) is compared with `smoothCon` in 17 cases (Stage A), and 24 formula cells and 2 predict cells (Stage B) | ADR-261, `gam_tp_probe.R`, report §2 |
 | `ti(x, z, bs="cr", k=c(.,.))` — tensor interaction | supported | report §2, §4 |
 | `s(f, bs="re")` — random-effect / level indicator | supported | report §2 |
 | factors `a`, `a:b` (with both main effects), `offset(col)` | supported | report §2 |
@@ -117,9 +118,13 @@ with `mgcv` in the report.
 | 15-penalty quasi-Poisson `select=TRUE` fit, 5,000 rows | one cell, one draw | report §3 (target-size row) |
 | families gaussian / poisson / quasipoisson / binomial | supported | report §2 |
 
-A bare `s(x)` is **not** in the table: `mgcv`'s default basis is `tp`, which is not
-verified yet. Write `s(x, bs="cr")` — the same model with an explicit basis is accepted
-for every form above.
+A bare `s(x)` is `mgcv`'s default `tp` (Slice R4, ADR-261): `s(x)` and `s(x, k=)` mean
+`s(x, bs="tp", k=)`, default `k = 10`, exactly as in `mgcv`. Only the one-covariate form is
+built (§6 lists what is refused). A `tp` smooth has no knots; its coefficients are not
+unique (the basis is a truncated eigendecomposition and its signs, order and rotation are a
+convention), so — as everywhere — compare `eta`, `edf` and `se.fit`, never coefficients.
+Beyond the data range a `tp` smooth is not linearised (unlike `cr`): it keeps its cubic
+growth, as `mgcv`'s does.
 
 ## 6. Refused by name
 
@@ -128,8 +133,11 @@ Each of these raises `PolarisValidationError` naming the construct and the
 
 | refused | why |
 |---|---|
-| a bare `s(x)` (mgcv default `tp`) | `tp` is ladder rung L7, not yet verified; write `bs="cr"` |
-| `bs="tp"`, `"ps"`, `"fs"`, `"sz"`, and any other basis | not verified (§2.1 of the coverage file) |
+| a thin-plate smooth with `by=`: `s(x, by=f)`, `s(x, by=w, bs="tp")` | only the plain one-covariate `tp` is built; write `bs="cr"` for a `by` smooth |
+| `select=TRUE` with a thin-plate smooth | `select=TRUE`'s null-space penalty depends on the coefficient coordinates, and a `tp` basis is only defined up to an invertible coordinate change, so it is not reproduced; write `bs="cr"` or fit without `select=TRUE` (ADR-261) |
+| `method="fREML", discrete=True` with a thin-plate smooth | `bam` builds `tp` on its compressed frame; not built (ADR-261) |
+| a thin-plate smooth on more than 2000 rows AND more than 2000 distinct values | `mgcv` then draws a RANDOM subsample of the distinct values; that stream is not reproduced, so the fit would be a different basis. Aggregate the covariate (an integer age, a banded value) or use `bs="cr"` |
+| `bs="ts"`, `bs="ps"`, `"fs"`, `"sz"`, and any other basis | not verified (§2.1 of the coverage file) |
 | `te()`, `t2()`, `ti()` of three variables, multi-variable `s()` | not verified |
 | `select=TRUE` with a factor-`by` smooth AND any other smooth of the same covariate: a bare `s(x) + s(x, by=f)` (with or without `f`), a second `by` smooth, or a `ti` term involving the covariate | measured against `mgcv`, the Newton search stops, converged by its own criterion, at a point `mgcv`'s REML scores lower in 17 of 120 draws with a bare smooth (up to 0.12 on `eta`) and 11 of 120 with a second `by` smooth (poisson, up to 0.28); the two accepted forms agreed in 120 of 120 (ADR-258, report §6). `ti(x,z)` beside a factor `by` agreed in 59 of 60 draws (one miss, `eta` 3.5e-02) and is refused to the same zero-miss standard; a numeric `by` beside a factor `by` agreed in 60 of 60 draws and is accepted. Use one smooth per covariate, or fit without `select=TRUE` |
 | `scale=` (a fixed dispersion) | verified only inside the conformance module, not through the production fitter |
@@ -159,7 +167,7 @@ construct named). Nothing in the preview falls back to a guess.
   parity.
 - **One draw per cell.** Every cell in the report is one synthetic sample. Agreement there
   is evidence, not a coverage guarantee.
-- **Not in the preview:** p-values / `anova.gam`, `bam`, `fREML`, `discrete=TRUE`, `tp`,
+- **Not in the preview:** p-values / `anova.gam`, `bam`, `fREML`, `discrete=TRUE`, `tp` with `by`/`select`/two covariates,
   `te`, `t2`, `fs`, free-`sp` `sz`, and any CLI, API, dashboard or MCP exposure.
 
 ## 8. How it is verified, and what that does and does not show

@@ -37,10 +37,12 @@ __all__ = [
     "factor_by_terms",
 ]
 
-SUPPORTED_BASES: tuple[str, ...] = ("cr", "ti", "sz", "re", "parametric", "raw")
+SUPPORTED_BASES: tuple[str, ...] = ("cr", "tp", "ti", "sz", "re", "parametric", "raw")
 """The basis kinds PLAN §3 puts in scope, plus ``"raw"``.
 
-``"cr"`` — Wood's cubic regression spline (slice 2). ``"ti"`` — tensor interaction with
+``"cr"`` — Wood's cubic regression spline (slice 2). ``"tp"`` — Wood's thin-plate
+regression spline of one covariate, ``mgcv``'s default basis (Slice R4, ADR-261; see
+:mod:`polaris_re.analytics.gam_basis_tp`). ``"ti"`` — tensor interaction with
 marginal main effects excluded (slice 5). ``"sz"`` — sum-to-zero factor-smooth
 interaction (slice 6). ``"re"`` — the random-effect / level-indicator basis
 (capability ladder rung L2, ``docs/PLAN_mgcv_capability_ladder.md`` slice 2): design is
@@ -183,6 +185,20 @@ class TermSpec:
                     f"TermSpec {self.label!r} is basis='raw' (design and penalty "
                     f"supplied directly) and must not carry knots — there is no "
                     f"recipe for mgcv to place them against."
+                )
+        elif self.basis == "tp":
+            # one covariate, one k, no knots (mgcv's tp places none), no by / factor:
+            # only the plain one-covariate thin-plate smooth is built (ADR-261).
+            if len(self.variables) != 1 or len(self.k) != 1:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} is basis='tp' with variables "
+                    f"{self.variables!r} and k={self.k!r}; only a single-covariate tp "
+                    "smooth with one k is built."
+                )
+            if self.knots is not None or self.by is not None or self.factor:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} is basis='tp' and must not carry knots, "
+                    "by or factor=True — a plain thin-plate smooth takes none of them."
                 )
         elif self.basis == "ti" and len(self.variables) < 2:
             raise PolarisValidationError(

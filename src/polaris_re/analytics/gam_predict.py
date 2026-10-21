@@ -41,6 +41,7 @@ from polaris_re.analytics.gam_basis_cr import (
 )
 from polaris_re.analytics.gam_basis_parametric import parametric_design
 from polaris_re.analytics.gam_basis_re import re_basis
+from polaris_re.analytics.gam_basis_tp import TprsState, tp_basis, tp_predict
 from polaris_re.analytics.gam_term_spec import ModelSpec, TermSpec
 from polaris_re.core.exceptions import PolarisValidationError
 
@@ -67,6 +68,9 @@ class TermState:
     term: TermSpec
     knots: tuple[np.ndarray, ...] = ()
     constraint: tuple[np.ndarray, ...] = ()
+    tp: TprsState | None = None
+    """A ``tp`` term's shift, distinct covariate values and ``UZ`` (``smooth$shift``,
+    ``$Xu``, ``$UZ``); ``None`` for every other basis."""
 
 
 def _knots_for(term: TermSpec, variable: str, k: int, x: np.ndarray) -> np.ndarray:
@@ -100,6 +104,10 @@ def fit_term_state(term: TermSpec, data: Mapping[str, np.ndarray]) -> TermState:
             return TermState(term=term, knots=(knots,))
         z = sum_to_zero_null_space(cr_basis(x, knots)[0])
         return TermState(term=term, knots=(knots,), constraint=(z,))
+    if term.basis == "tp":
+        x = np.asarray(_column(data, term.variables[0], term), dtype=np.float64)
+        design, _, tp_state = tp_basis(x, term.k[0])
+        return TermState(term=term, constraint=(sum_to_zero_null_space(design),), tp=tp_state)
     if term.basis == "ti":
         margins = []
         for variable, k in zip(term.variables, term.k, strict=True):
@@ -119,7 +127,7 @@ def fit_term_state(term: TermSpec, data: Mapping[str, np.ndarray]) -> TermState:
         return TermState(term=term)
     raise PolarisValidationError(
         f"fit_term_state: TermSpec {term.label!r} has basis={term.basis!r}, which "
-        "predict does not support — only 'cr', 'ti', 'sz', 're' and 'parametric'."
+        "predict does not support — only 'cr', 'tp', 'ti', 'sz', 're' and 'parametric'."
     )
 
 
@@ -147,6 +155,10 @@ def predict_term_design(state: TermState, data: Mapping[str, np.ndarray]) -> np.
         if term.by is not None:
             return by_scale_design(design, np.asarray(_column(data, term.by, term)))
         return np.asarray(design @ state.constraint[0], dtype=np.float64)
+    if term.basis == "tp":
+        assert state.tp is not None
+        x = np.asarray(_column(data, term.variables[0], term), dtype=np.float64)
+        return np.asarray(tp_predict(x, state.tp) @ state.constraint[0], dtype=np.float64)
     if term.basis == "ti":
         x1 = np.asarray(_column(data, term.variables[0], term), dtype=np.float64)
         x2 = np.asarray(_column(data, term.variables[1], term), dtype=np.float64)

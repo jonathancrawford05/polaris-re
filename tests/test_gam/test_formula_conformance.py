@@ -73,7 +73,7 @@ def test_an_expected_refusal_agrees_only_when_polaris_refuses(
     one since Slice 9, so the set is patched; an unsupported construct stands in."""
     name = "binomial_cr"
     monkeypatch.setattr("polaris_re.gam.formula_conformance.EXPECTED_REFUSALS", frozenset({name}))
-    refused = fit_formula_case(_recipe(name, 'y ~ s(x, bs="tp", k=5)'))
+    refused = fit_formula_case(_recipe(name, 'y ~ s(x, bs="ps", k=5)'))
     assert refused.fit is None and refused.refusal is not None
     payload = typing.cast(FormulaPayload, {"mgcv": {}})
     assert compare_formula_case(refused, payload).agrees

@@ -266,3 +266,55 @@ def test_the_rank_deficiency_warning_points_at_the_gam_caller(frame: pl.DataFram
     with pytest.warns(PolarisRankDeficiencyWarning) as rec:
         gam('y ~ s(x, bs="cr", k=6) + s(x, by=g, bs="cr", k=6)', frame, "gaussian")
     assert rec[0].filename == __file__
+
+
+# --- Slice R4 (ADR-261): a bare s(x) is thin-plate, as in mgcv ---------------------------------
+
+
+def test_a_bare_smooth_is_the_thin_plate_smooth_with_default_k(frame: pl.DataFrame) -> None:
+    bare = gam("y ~ s(x)", frame, "gaussian")
+    explicit = gam('y ~ s(x, bs="tp", k=10)', frame, "gaussian")
+    assert bare.smooth_labels == ("s(x)",)
+    assert bare.smooth_bs_dim == (10,)
+    np.testing.assert_allclose(bare.eta, explicit.eta, rtol=0, atol=1e-12)
+    assert bare.converged
+
+
+def test_the_thin_plate_fit_has_a_linear_trend_unpenalised_and_a_sensible_edf(
+    frame: pl.DataFrame,
+) -> None:
+    fit = gam("y ~ s(x, k=8) + s(z, bs='tp', k=6)", frame, "gaussian")
+    assert fit.smooth_bs_dim == (8, 6)
+    assert 2.0 < fit.edf_total < 14.0
+    assert fit.converged
+
+
+def test_a_thin_plate_smooth_is_predictable_at_new_rows(frame: pl.DataFrame) -> None:
+    fit = gam("y ~ s(x) + s(z, k=6)", frame, "gaussian")
+    at_train = fit.predict(frame.select("x", "z"), "link")
+    np.testing.assert_allclose(at_train, fit.eta, rtol=0, atol=1e-9)
+    new = pl.DataFrame({"x": [1.5, 4.0, 11.0], "z": [0.5, 2.5, 6.0]})
+    out = fit.predict(new, "link")
+    assert out.shape == (3,) and np.all(np.isfinite(out))
+
+
+def test_thin_plate_beside_cr_and_ti_and_a_factor_fits(frame: pl.DataFrame) -> None:
+    fit = gam('y ~ g + s(x) + s(z, bs="cr", k=6) + ti(x, z, bs="cr", k=c(5, 4))', frame, "gaussian")
+    assert fit.smooth_labels == ("s(x)", "s(z)", "ti(x,z)")
+    assert fit.converged
+
+
+def test_select_true_with_a_thin_plate_smooth_is_refused_by_name(frame: pl.DataFrame) -> None:
+    with pytest.raises(PolarisValidationError, match=r"select=True with the thin-plate smooth"):
+        gam("y ~ s(x)", frame, "gaussian", select=True)
+
+
+def test_the_discrete_bam_path_refuses_a_thin_plate_smooth(frame: pl.DataFrame) -> None:
+    counts = frame.with_columns((pl.col("y").abs() * 3).round().cast(pl.Int64).alias("c"))
+    with pytest.raises(PolarisValidationError, match=r"tp terms"):
+        gam("c ~ s(x)", counts, "poisson", method="fREML", discrete=True)
+
+
+def test_a_thin_plate_smooth_of_a_factor_column_is_refused(frame: pl.DataFrame) -> None:
+    with pytest.raises(PolarisValidationError, match="factor column"):
+        gam("y ~ s(g)", frame, "gaussian")

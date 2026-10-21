@@ -36,6 +36,7 @@ from typing import NotRequired, TypedDict
 
 import numpy as np
 
+from polaris_re.analytics.gam_basis_tp import subspace_distance
 from polaris_re.analytics.gam_model import PolarisGAMFit, fit_polaris_gam, resolve_family
 from polaris_re.analytics.gam_predict import TermState, fit_term_state, predict_design
 from polaris_re.analytics.gam_select_free_sp_conformance import (
@@ -76,6 +77,8 @@ PREDICT_CASE_NAMES: tuple[str, ...] = (
     "gaussian_select",
     "gaussian_select_factor_by_main",
     "poisson_select_factor_by_only",
+    "poisson_tp",
+    "poisson_tp_with_cr_ti",
 )
 
 SELECT_CASE_NAMES: frozenset[str] = frozenset(
@@ -164,6 +167,8 @@ def predict_model_spec(name: str, n_levels: dict[str, int], offset_column: str |
         "gaussian_select_factor_by_main": ("gaussian", "identity"),
         "poisson_select_factor_by_only": ("poisson", "log"),
         "gaussian_sz": ("gaussian", "identity"),
+        "poisson_tp": ("poisson", "log"),
+        "poisson_tp_with_cr_ti": ("poisson", "log"),
     }[name]
     terms: tuple[TermSpec, ...]
     if name == "gaussian_cr_by_ti":
@@ -223,6 +228,17 @@ def predict_model_spec(name: str, n_levels: dict[str, int], offset_column: str |
                 base_label="s(x):f", variable="x", k=8, by_factor="f", n_levels=n_levels["f"]
             )
         )
+    elif name == "poisson_tp":
+        terms = (
+            TermSpec(label="s(x)", variables=("x",), basis="tp", k=(10,)),
+            TermSpec(label="s(z)", variables=("z",), basis="tp", k=(7,)),
+        )
+    elif name == "poisson_tp_with_cr_ti":
+        terms = (
+            TermSpec(label="s(age)", variables=("age",), basis="tp", k=(13,)),
+            TermSpec(label="s(dur)", variables=("dur",), basis="tp", k=(6,)),
+            TermSpec(label="ti(age,dur)", variables=("age", "dur"), basis="ti", k=(7, 5)),
+        )
     elif name == "gaussian_sz":
         terms = (
             TermSpec(
@@ -276,6 +292,10 @@ class PredictedCase:
     numerically singular ``XᵀWX + S_lambda``); ``None`` when it was computed."""
     unconditional_refusal: str | None = None
     scale: float | None = None
+    lpmatrix_gauge_free: bool = False
+    """True when the model has a ``tp`` term: its design columns are only defined up to an
+    invertible coefficient transformation (``gam_basis_tp``, "The gauge"), so the lpmatrix is
+    compared as a column space and reported, not gated element-wise."""
 
 
 def fit_predict_case(recipe: PredictRecipe) -> PredictedCase:
@@ -284,6 +304,7 @@ def fit_predict_case(recipe: PredictRecipe) -> PredictedCase:
     read ``mgcv``'s ``lpmatrix`` / ``link`` / ``response`` / ``sp`` / ``edf``."""
     factors = set(recipe["n_levels"])
     model = predict_model_spec(recipe["name"], recipe["n_levels"], recipe["offset_column"])
+    gauge_free = any(t.basis == "tp" for t in model.terms)
     train = _as_data(recipe["train"], factors)
     new_in = _as_data(recipe["new_inrange"], factors)
     new_out = _as_data(recipe["new_outrange"], factors)
@@ -297,6 +318,7 @@ def fit_predict_case(recipe: PredictRecipe) -> PredictedCase:
             link_inrange=None,
             link_outrange=None,
             response_inrange=None,
+            lpmatrix_gauge_free=gauge_free,
         )
     fit = fit_polaris_gam(model, train, np.asarray(recipe["y"], dtype=np.float64), outer="newton")
     x_in = predict_design(model, fit.term_states, new_in)
@@ -332,6 +354,7 @@ def fit_predict_case(recipe: PredictRecipe) -> PredictedCase:
         vcov_refusal=refusal,
         unconditional_refusal=unc_refusal,
         scale=1.0 if family.dispersion_fixed else float(fit.dispersion.fletcher),
+        lpmatrix_gauge_free=gauge_free,
     )
 
 
@@ -473,17 +496,18 @@ def compare_predict_case(python: PredictedCase, payload: PredictPayload) -> Pred
     The beyond-range ``eta``, the response and the training-row control are
     reported, never gated."""
     mg = payload["mgcv"]
-    lp_in = _max_abs(
-        python.design_inrange,
-        np.asarray(mg["inrange"]["lpmatrix"], dtype=np.float64),
-        "lpmatrix in",
-    )
-    lp_out = _max_abs(
-        python.design_outrange,
-        np.asarray(mg["outrange"]["lpmatrix"], dtype=np.float64),
-        "lpmatrix out",
-    )
-    agrees = lp_in < _LPMATRIX_TOLERANCE and lp_out < _LPMATRIX_TOLERANCE
+    mg_in = np.asarray(mg["inrange"]["lpmatrix"], dtype=np.float64)
+    mg_out = np.asarray(mg["outrange"]["lpmatrix"], dtype=np.float64)
+    if python.lpmatrix_gauge_free:
+        # sine of the largest principal angle between the two column spaces: gauge-free, and
+        # REPORTED ONLY. The gates for these cells are eta, edf_total and se.fit below.
+        lp_in = subspace_distance(python.design_inrange, mg_in)
+        lp_out = subspace_distance(python.design_outrange, mg_out)
+        agrees = True
+    else:
+        lp_in = _max_abs(python.design_inrange, mg_in, "lpmatrix in")
+        lp_out = _max_abs(python.design_outrange, mg_out, "lpmatrix out")
+        agrees = lp_in < _LPMATRIX_TOLERANCE and lp_out < _LPMATRIX_TOLERANCE
     if python.fit is None:
         return PredictCaseComparison(
             name=python.name,
