@@ -3,7 +3,7 @@
 **Plan:** `docs/PLAN_gam_real_data_readiness.md`
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md` (plus the maintainer-run step protocol, PLAN §3)
 **Created:** 2026-10-10, plan-writing session (ADR-257).
-**Status:** **IN PROGRESS. Slice R1 DONE 2026-10-11 (ADR-258, tier 3 runs 38081942434 / 38102487555; PR #266 accepted by the maintainer for merge).** The solver findings for the refused shapes are in `docs/FINDINGS_select_factor_by_outer_search.md`. **Slice R2 DONE 2026-10-15** (routine half ADR-259, 2026-10-11; the maintainer's run is recorded in `docs/measurements/gam_real_data_trial_2026-10-15.json` and `docs/MEASUREMENT_gam_real_data_trial_ilec.md`, merged to `main` in #267). **Slice R3 DONE 2026-10-20** (maintainer, ADR-260 amendment 23; the `S1_mid` (B) miss stays on the record as a known limitation). **Slice R4 (`tp`) is NEXT.** Tier 3 rehearsal run 38153826617 (integer durations, T3 three ways): 9 of 10 synthetic cells meet all gates, one class-iii miss.
+**Status:** **IN PROGRESS. Slice R1 DONE 2026-10-11 (ADR-258, tier 3 runs 38081942434 / 38102487555; PR #266 accepted by the maintainer for merge).** The solver findings for the refused shapes are in `docs/FINDINGS_select_factor_by_outer_search.md`. **Slice R2 DONE 2026-10-15** (routine half ADR-259, 2026-10-11; the maintainer's run is recorded in `docs/measurements/gam_real_data_trial_2026-10-15.json` and `docs/MEASUREMENT_gam_real_data_trial_ilec.md`, merged to `main` in #267). **Slice R3 DONE 2026-10-20** (maintainer, ADR-260 amendment 23; the `S1_mid` (B) miss stays on the record as a known limitation). **Slice R4 (`tp`) IMPLEMENTED 2026-10-21 (ADR-261, tier 3 run 39522244188: Stage A 17/17, Stage B 24/24 + 2/2); recorded DONE is the maintainer's, with the PR merge.** Tier 3 rehearsal run 38153826617 (integer durations, T3 three ways): 9 of 10 synthetic cells meet all gates, one class-iii miss.
 
 ## Slice status
 
@@ -11,10 +11,13 @@
 |---|---|---|
 | **R1** | `select=TRUE` + factor-`by` (both forms, four families); `mgcv` stability probe first | **DONE** (ADR-258): `f + s(x,by=f)` and `s(x,by=f)` accepted, 60/60 draws agree; bare-smooth-beside-`by` forms refused by name (8/60 draws disagree, class iii) |
 | **R2** | ILEC trial + performance profile; routine builds the harness/runbook, maintainer + Cowork run it | **DONE 2026-10-15.** Maintainer run recorded: 15 fitted, 6 failed (memory-limited full cells), 3 not run. The 10-minute ceiling was exceeded on six cells, so R3 is needed. Gate misses recorded, not relaxed (see Loose ends) |
-| **R4** | `tp` (L7); bare `s(x)` accepted | **NEXT** (R3 recorded DONE 2026-10-20). Starts with its claim sentence and Stage A (`X`, `S` vs `smoothCon(s(x, bs="tp", k=))`) |
+| **R4** | `tp` (L7); bare `s(x)` accepted | **IMPLEMENTED, awaiting merge** (ADR-261). One covariate; `by=`/`select=TRUE`/`bam` refused by name. Stage A gauge-free 17/17, Stage B 24/24 formula + 2/2 predict, tier 3 run 39522244188 |
 | **R3** | scale: `bam(fREML, discrete=TRUE, select=TRUE)` port (R3-bam) | **DONE 2026-10-20** (maintainer, ADR-260 amendment 23). Tier 3: 7 synthetic cells meet the unchanged gates (run 39153199164). Tier L real data: accepted cloud acceptance met on 9 of 10 cells; **`S1_mid` misses (B) (envelope excess 1.6e-4 vs 1e-4), recorded as a known limitation, not restated**. `full` cells 1.1-16.6 s vs the 600 s ceiling |
 
-## R3 DONE (2026-10-20, ADR-260 amendment 23), READ FIRST
+## R4 (2026-10-21, ADR-261), READ FIRST
+Epic slices R1-R4 are all implemented. Open for the maintainer: (1) record R4 DONE / the epic DONE on merge; (2) **Q-R4a (recommended: leave refused):** `select=TRUE` with `tp` and `ti()` with a default (`tp`) margin are not built; they need the exact coefficient gauge of mgcv's Lanczos routine (not reproducible) or a gauge-invariant null-space penalty. (3) **Q-R4b:** the R2 trial formulas (`real_data_trial.py`) still write `bs="cr"`; a `tp` re-run on ILEC would be a new maintainer-run step (nothing needed for this slice). Nothing beyond the epic is queued; the capability ladder (6b, L6, L8-L11) resumes by the maintainer's order.
+
+## R3 DONE (2026-10-20, ADR-260 amendment 23)
 The maintainer recorded R3 DONE *"as long as we have the miss documented for later"*. **The miss:** on `S1_mid` (binomial cloglog, trials floored at deaths) Polaris's eta falls outside the pointwise [min, max] envelope of the seven `bam` seed fits by up to 1.6e-4, against criterion (B)'s 1e-4. Every `bam` seed misses (B) against the other six by more (amendment 22), so the statistic is a tail measure on 7 draws; mechanism class (iv), no defect identified. Not reformulated, not waived. **Re-open:** a maintainer reformulation of (B), or a second binomial real cell missing (B); never a solver slice. Unread on real data: `S1_full`, `S2_full`, `S3`. **Next: R4 (`tp`).**
 
 ## R3 Stage B history (2026-10-18, ADR-260 amendments 6-22)

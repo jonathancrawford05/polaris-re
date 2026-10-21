@@ -109,7 +109,7 @@ with `mgcv` in the report.
 | `s(x, by=z, bs="cr")` — numeric `by` (varying coefficient) | supported | report §2, §1 |
 | `s(x, by=f, bs="cr")` — factor `by`, written `f + s(x, by=f, ...)` | supported | report §2 (`gaussian_factor_by`) |
 | `s(x) + s(x, by=f)` (with or without `f`) — a smooth beside a factor-`by` smooth of the same covariate | supported **with a pivot** (Slice 9, ADR-255): the one coefficient the data cannot identify is eliminated, as `mgcv` does. `eta`, `edf_total` and the standard errors (`unconditional=False`) are compared with `mgcv`; **`unconditional=True` is refused** for such a fit (§7); per-term `edf` depends on which coefficient is eliminated, and `mgcv` itself does not reproduce it between runs (ADR-256), so it is reported but not gated. Such a model emits a `PolarisRankDeficiencyWarning` when fitted | ADR-255, report §1-§3 |
-| `s(x)`, `s(x, k=)`, `s(x, bs="tp", k=)` — thin-plate regression spline of one covariate, `mgcv`'s default | supported (Slice R4, ADR-261): the basis (column space and penalty) is compared with `smoothCon` in 17 cases (Stage A), and 24 formula cells and 2 predict cells (Stage B) | ADR-261, `gam_tp_probe.R`, report §2 |
+| `s(x)`, `s(x, k=)`, `s(x, bs="tp", k=)` — thin-plate regression spline of one covariate, `mgcv`'s default | supported (Slice R4, ADR-261): the basis (column space and penalty) is compared with `smoothCon` in 17 cases (Stage A), and 24 formula cells and 2 predict cells (Stage B) | ADR-261, tier 3 run `39522244188` |
 | `ti(x, z, bs="cr", k=c(.,.))` — tensor interaction | supported | report §2, §4 |
 | `s(f, bs="re")` — random-effect / level indicator | supported | report §2 |
 | factors `a`, `a:b` (with both main effects), `offset(col)` | supported | report §2 |
