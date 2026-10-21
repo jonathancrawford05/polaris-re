@@ -4151,3 +4151,11 @@ Provenance: INDEPENDENT comparison (Polaris two-start fit vs `mgcv` `quasipoisso
 - **1st-order (promoted):** reproduce `mgcv`'s choice of the unidentified coefficient (PLAN parity-engine Slice 10) so `Vc` and per-term edf of pivoted fits can be restored. *Provenance: promoted from 3rd-order by the explicit maintainer decision on PR #263 (Q10, 2026-10-10); not a routine inference.*
 - **2nd-order (NICE-TO-HAVE):** (withdrawn: the maintainer declined narrowing the per-term edf gate, Q10); a formula-probe cell for `select=TRUE` with a factor-`by` smooth (Q11) to decide whether that refusal can lift.
 - **3rd-order (parked):** none new (the pivot-rule derivation moved to 1st-order above).
+
+---
+
+## Addendum 2026-10-20 — real-data Slice R3 recorded DONE (ADR-260 amendment 23)
+
+- **1st-order (promoted):** none new. R4 (`tp`) is already the epic's next slice.
+- **2nd-order (NICE-TO-HAVE):** reformulate R3 acceptance criterion (B) so that a legitimate `bam` seed can pass it, for example as a leave-one-out or quantile envelope instead of the 7-draw [min, max] band. Then re-score `S1_mid`, which currently misses (B) at 1.6e-4 against 1e-4. Amendment 22 shows every `bam` seed misses it by more. This is a maintainer decision, not a routine one. It is filed so the miss can be found later, as the maintainer asked when recording R3 DONE. Source: ADR-260 amend. 23 (1st-order follow-up of the recorded miss; filed NICE-TO-HAVE because its trigger is the maintainer's).
+- **3rd-order (parked):** read `S1_full`, `S2_full` and `S3` on the bam path at tier L. A second binomial real cell that misses (B) is amendment 23's other re-open condition.

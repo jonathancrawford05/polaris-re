@@ -23,4 +23,9 @@ Not installed or run this session (no measurement).
 No new comparison. The figures restated come from amendment 22 (Polaris vs `bam` seed envelopes: INDEPENDENT; `bam` vs its own seeds: REFERENCE_INTERNAL) and run 39153199164 (INDEPENDENT, tier 3).
 
 ## Baseline
-Full suite not run: the change touches only `docs/`. `tests/test_docs/` run, see the PR. No `perf/history.jsonl` row (ADR-177 amendment 1: nothing under `src/polaris_re/`).
+The change touches only `docs/`, so this session did not run the full suite itself. It inherits `main` @ `32c474d` (the PR #273 merge). On this branch's head `dde4b04`, the PR review routine measured **4171 passed, 26 skipped, 145 deselected, 0 failed** (`pytest tests/ -m "not slow"`, SOA tables converted, so no environmental failures); `tests/qa/` **94 passed**, with the golden gate passing and `golden_outputs/` untouched. This session's targeted runs: `tests/test_docs/` **17 passed**; the tests that reference the edited docs (`tests/checkout_scope.py` plus seven `tests/test_analytics/test_gam_*` modules) **133 passed, 9 skipped**. No `perf/history.jsonl` row (ADR-177 amendment 1: nothing under `src/polaris_re/`).
+
+## Review round 1 (PR #274)
+- [P1] Numeric baseline added above.
+- [P2] `MGCV_FEATURE_COVERAGE.md` `fREML` row now points at the `bam` row's `S1_mid` limitation.
+- [P2] `PRODUCT_DIRECTION_2026-07-24.md` addendum 2026-10-20 files the (B) reformulation as NICE-TO-HAVE, plus the unread real cells.
