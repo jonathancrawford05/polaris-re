@@ -31,7 +31,7 @@ Before: 5 failed, 4170 passed, 22 skipped, 145 deselected. After: 5 failed, 4199
 Tier 3 results: Stage A 17/17 (space dist 2.9e-15..2.9e-8, rank diff 0); Stage B 24/24 and 2/2, max eta 6.4e-4, max |edf diff| 0.0135. Gap is closed for the one-covariate construct; not claimed for anything refused.
 
 ## Other
-- `perf/history.jsonl`: one row appended (PR touches non-conformance `src/` modules).
+- `perf/history.jsonl`: one row appended (PR touches non-conformance `src/` modules). Creep verdict: `has_structural_creep: False` (peak MiB 33 -> 33); wall-time ratio 1.26 on the `project` probe, advisory, present without this row and no projection code touched.
 - Existing assertions changed on purpose (lifted refusal, ADR-261 decision 6): `test_formula.py` bare-smooth test and `bs="tp"` list entry; `test_guide.py` refusal table; `test_formula_conformance.py` stand-in refusal now `bs="ps"`.
 - Maintainer questions: Q-R4a, Q-R4b in the CONTINUATION.
-- Follow-ups harvested: none beyond Q-R4a/b (no PRODUCT_DIRECTION edit: nothing 1st-order).
+- Follow-ups harvested: tp with `by=`/`select=TRUE` and tp as a `ti` margin are 2nd-order (NICE-TO-HAVE, no real-data formula needs them: the trial formulas are `cr`); kept as Q-R4a. `select=TRUE` with tp is being measured next (maintainer request).

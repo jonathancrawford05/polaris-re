@@ -395,7 +395,8 @@ def _build_model(
         col = _column(df, name)
         if _is_factor_dtype(col.dtype):
             raise PolarisValidationError(
-                f"gam(): {where} uses {name!r} as a number, but it is a factor column."
+                f"gam(): {where} uses {name!r} as a number, but it is a factor column "
+                '(write s(f, bs="re") for a random effect).'
             )
         data[name] = _numeric(df, name)
 

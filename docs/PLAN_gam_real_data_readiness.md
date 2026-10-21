@@ -99,7 +99,7 @@ Each at **three aggregation granularities**: **coarse** (age x calendar year), *
 
 ### Slice R4 — `tp` (ladder L7) so a bare `s(x)` is accepted
 
-Independent of R2/R3; executes **second after R2** (maintainer order: R1, R2, R4, then R3 only if needed). **Claim sentence:** *Polaris builds the thin-plate regression spline design and penalty from the covariate and `k`; `mgcv` builds `smoothCon(s(x, bs="tp", k=))`; Stage A compared on `X` and `S` (exact), Stage B on `eta`/`edf`.* Then: a bare `s(x)` is parsed as `tp` (ADR-248 decision 2), the guide §6 row becomes a supported row, and tier-3 cells are added. Known cost: the eigen-decomposition of the thin-plate penalty (ladder estimate medium-large); `mgcv`'s default `tp` truncation is the usual trap — Stage A first. **Release condition:** after R1; no real-data dependency.
+Independent of R2/R3; executes **second after R2** (maintainer order: R1, R2, R4, then R3 only if needed). **Claim sentence:** *Polaris builds the thin-plate regression spline design and penalty from the covariate and `k`; `mgcv` builds `smoothCon(s(x, bs="tp", k=))`; Stage A compared on `X` and `S` (exact — AMENDED 2026-10-21, ADR-261 decision 2: gauge-free for `tp`, because the coefficient gauge is not unique; exact stays the criterion for `cr`), Stage B on `eta`/`edf`.* Then: a bare `s(x)` is parsed as `tp` (ADR-248 decision 2), the guide §6 row becomes a supported row, and tier-3 cells are added. Known cost: the eigen-decomposition of the thin-plate penalty (ladder estimate medium-large); `mgcv`'s default `tp` truncation is the usual trap — Stage A first. **Release condition:** after R1; no real-data dependency.
 
 ## 5. Rules that keep this epic from spiralling
 

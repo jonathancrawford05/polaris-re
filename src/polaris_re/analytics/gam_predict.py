@@ -156,7 +156,10 @@ def predict_term_design(state: TermState, data: Mapping[str, np.ndarray]) -> np.
             return by_scale_design(design, np.asarray(_column(data, term.by, term)))
         return np.asarray(design @ state.constraint[0], dtype=np.float64)
     if term.basis == "tp":
-        assert state.tp is not None
+        if state.tp is None:
+            raise PolarisValidationError(
+                f"predict_term_design: tp term {term.label!r} has no stored thin-plate state."
+            )
         x = np.asarray(_column(data, term.variables[0], term), dtype=np.float64)
         return np.asarray(tp_predict(x, state.tp) @ state.constraint[0], dtype=np.float64)
     if term.basis == "ti":

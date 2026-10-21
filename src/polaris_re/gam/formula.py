@@ -293,7 +293,8 @@ def _parse_tensor(text: str, positional: list[str], keyword: dict[str, str]) -> 
     if "bs" not in keyword:
         raise _refuse(
             f"{text} without bs=",
-            "mgcv's default margin basis for ti() is 'tp' (rung L7, not verified); write bs=\"cr\"",
+            "mgcv's default margin basis for ti() is 'tp', and tp as a ti margin is not built "
+            '(ADR-261); write bs="cr"',
         )
     basis = _string(keyword["bs"], "bs", text)
     if basis != "cr":
