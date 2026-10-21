@@ -38,3 +38,6 @@ Tier 3 results: Stage A 17/17 (space dist 2.9e-15..2.9e-8, rank diff 0); Stage B
 
 ## Follow-up: select=TRUE with tp (maintainer request)
 Prediction (one-dimensional null space, so gauge-invariant up to a scalar) CONFIRMED: tier 3 run 39531912866, 16/16 draws agree, max eta 2.9e-4, INDEPENDENT. Refusal lifted (ADR-261 amendment 1). The 'refused because of the gauge' argument was an untested inference and was wrong.
+
+## Follow-up 2: select=TRUE with tp beside a factor-by smooth
+Prediction that it would agree (null-space argument) was NOT borne out here: tier 3 run 39582168412, 14/120 draws miss the eta gate (the same plateau as the cr forms). Refused; owner is the outer-solver plan (CONTINUATION pick-up note). ADR-261 amendment 2.
