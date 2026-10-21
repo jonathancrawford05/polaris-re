@@ -24,7 +24,7 @@ parent plan and anchors: `docs/PLAN_mgcv_parity_engine.md`
 
 > **ACTIVE EPIC POINTER (maintainer, 2026-10-10, ADR-257) — READ THIS FIRST.**
 > The active epic is **`docs/PLAN_gam_real_data_readiness.md`** (`docs/CONTINUATION_gam_real_data_readiness.md`;
-> **R1 DONE 2026-10-11, ADR-258, PR #266; R2's routine half DONE 2026-10-11 (ADR-259); **R2 DONE 2026-10-15** with the maintainer's run recorded. The ceiling was exceeded, so **R3 (`bam`, R3-bam) runs next and needs its ADR before any code**; R4 waits for R3 (maintainer order, 2026-10-15)**; the `select=TRUE` solver findings are in
+> **R1 DONE 2026-10-11, ADR-258, PR #266; R2's routine half DONE 2026-10-11 (ADR-259); **R2 DONE 2026-10-15** with the maintainer's run recorded. The ceiling was exceeded, so R3 (`bam`, R3-bam) ran next (ADR-260); **R3 DONE 2026-10-20** (maintainer, ADR-260 amendment 23; the `S1_mid` (B) miss is a recorded limitation), so **R4 (`tp`) is the next slice**; maintainer order 2026-10-15**; the `select=TRUE` solver findings are in
 > `docs/FINDINGS_select_factor_by_outer_search.md`). Its slices are R1 `select=TRUE` + factor-`by`, R2 the ILEC trial and profile,
 > R3 scale (gated on R2's measurement), R4 `tp`; **execution order R1, R2, R3 (revised 2026-10-15: needed, runs next), R4; originally R1, R2, R4, then R3 only if the
 > 10-minute ceiling is exceeded or the Polaris/`mgcv::gam` wall-time ratio is above 1.5** (maintainer, 2026-10-10). **Parity-engine Slice 10 is DONE as a finding

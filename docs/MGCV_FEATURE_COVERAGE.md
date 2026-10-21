@@ -157,9 +157,9 @@ column above is the authority.
 | Analytic REML gradient | ✅ | Wood (2011), ADR-220 |
 | `select = TRUE` | ✅ tier 3 | null-space double penalty (ADR-217); **objective item 3, DONE** |
 | **Scale-estimated REML** | ✅ tier 3 (2026-09-26, **L5**, ADR-231) | `gam_reml.reml_score_general`'s free-scale branch — Wood (2011) eq. (4) profiled over the unknown scale, `phi_hat = Dp/(n-Mp)`. Unblocks Gaussian and quasi-Poisson (both registered); Gamma and Tweedie are not yet registered families regardless. See §2.1/§2.2 for the fit- and score-level readings |
-| **`fREML`** | **PARTIAL (2026-10-16, ADR-260 amend. 4)** | `bgam.fitd`'s performance iteration, Poisson/binomial fixed scale, via `gam(method="fREML", discrete=True)`; INDEPENDENT tier-3 agreement on 4 synthetic cells; real data unrun |
-| **`bam`** | **PARTIAL (WIP)** | see `fREML`; design padded-frame not replicated (3e-3 residual), no real-data run, no `reml_score`/`summary()`/`Vc` |
-| **`discrete = TRUE`** | **NO** | **objective item 2**; a different algorithm (Wood/Li/Shaddick/Augustin) |
+| **`fREML`** | ✅ tier 3 + tier L (R3 DONE 2026-10-20, ADR-260 amend. 4-23) | `bgam.fitd`'s performance iteration, Poisson/binomial (logit, cloglog) fixed scale, via `gam(method="fREML", discrete=True)`; INDEPENDENT tier-3 agreement on 7 synthetic cells (run 39153199164); tier L real data is not a clean pass: see the `bam` row for the `S1_mid` (B) miss |
+| **`bam`** | ✅ (R3 DONE 2026-10-20) with a **known limitation** | port of `bam(fREML, discrete=TRUE, select=TRUE)`; real ILEC cells (tier L): accepted cloud acceptance met on 9 of 10, `full` 1.1-16.6 s. **Limitation (ADR-260 amend. 23):** `S1_mid` (binomial cloglog) misses criterion (B), eta outside the 7-seed `bam` envelope by 1.6e-4 vs 1e-4; not restated. No `reml_score`/`summary()`/`Vc` on this path |
+| **`discrete = TRUE`** | ✅ (R3, ADR-260 amend. 1-23) | binning port agrees 19/19 at tier 3 (run 38840851229); the ILEC covariates are not binned; `discrete.mf`'s seeded padding is not ported (reference noise, amend. 5) |
 | **Unpenalized parametric block** | ✅ tier 3 (2026-09-27, **L4**, ADR-233) | `gam_basis_parametric.parametric_design` — `mgcv`'s own `contr.treatment` dummy coding, zero smoothing parameters. Closes the LAST rung `PLAN_mgcv_capability_ladder.md`'s ORIGINAL five slices name; the target formula's own `FaceSize + Smoke + FaceSize:Smoke` is expressible |
 | **`cr` + `re` + `ti` fit jointly, one model** | ✅ tier 3, **fixed AND free `sp`** (2026-09-28, ADR-234, Slice 6) | Each basis was individually verified; composed, `gaussian(identity)` fixed/free `sp` and `poisson(log)` free `sp` agree with `mgcv` (`eta` ≤ 3e-5, run 36476048762). One dataset; `select=TRUE` and quasi-Poisson dispersion not exercised on it |
 | **Quasi-Poisson: externally-supplied/fixed dispersion** (`mgcv`'s `scale = <value>`) | ✅ tier 3 at phi=2 AND phi=6 (ADR-236 measured; ADR-237 closed the far phi via a two-start search, conformance module only — production `fit_polaris_gam` unchanged, slice 7c) | Distinct from "estimate the dispersion" (Slice 3b, landed — ADR-235). Measured in Slice 7 (ADR-236): `fit_polaris_gam(ModelSpec(family="poisson"), gamma=phi)` reproduces `mgcv`'s `quasipoisson(scale=phi)` at phi=2 and does NOT at phi=6 (a lower-scoring stationary point; slice 7b). `mgcv`'s `poisson(scale=)` ignores `scale`, so the `quasipoisson()` call is the only mgcv reference |
@@ -171,7 +171,7 @@ column above is the authority.
 | objective item | status |
 |---|---|
 | 1. A suite of model forms, incl. `ti`, `bs="re"` | **partial** — 5 bases of ~14; `ti` ✅, `re` ✅ (2026-09-21), **the unpenalized parametric block ✅ (2026-09-27)**, and mgcv's default `tp` ✗ |
-| 2. `fREML`, `discrete=TRUE`, `bam` | **not started** — explicitly deferred |
+| 2. `fREML`, `discrete=TRUE`, `bam` | **done** ✅ for the supported subset (R3, 2026-10-20, ADR-260 amend. 23); `S1_mid` (B) miss recorded |
 | 3. `select=TRUE` | **done** ✅ |
 
 ---
