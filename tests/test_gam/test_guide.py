@@ -102,7 +102,6 @@ def test_the_guide_says_preview_and_never_claims_general_compatibility() -> None
 # Every construct the guide's §6 lists as refused, with a call that must refuse it.
 _REFUSALS: dict[str, tuple[str, dict[str, object]]] = {
     "a thin-plate smooth with `by=`": ("deaths ~ s(age, by=sex)", {}),
-    "`select=TRUE` with a thin-plate smooth": ("deaths ~ s(age)", {"select": True}),
     '`bs="ts"`': ('deaths ~ s(age, bs="ts")', {}),
     "`te()`": ("deaths ~ te(age, duration)", {}),
     "`scale=`": ('deaths ~ s(age, bs="cr")', {"scale": 1.0}),

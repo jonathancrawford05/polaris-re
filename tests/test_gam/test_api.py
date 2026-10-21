@@ -304,9 +304,15 @@ def test_thin_plate_beside_cr_and_ti_and_a_factor_fits(frame: pl.DataFrame) -> N
     assert fit.converged
 
 
-def test_select_true_with_a_thin_plate_smooth_is_refused_by_name(frame: pl.DataFrame) -> None:
-    with pytest.raises(PolarisValidationError, match=r"select=True with the thin-plate smooth"):
-        gam("y ~ s(x)", frame, "gaussian", select=True)
+def test_select_true_with_thin_plate_smooths_fits_and_shrinks_a_noise_smooth(
+    frame: pl.DataFrame,
+) -> None:
+    """ADR-261 amendment 1: the tp null space after the constraint is one linear direction, so the
+    null-space penalty is gauge-invariant up to a scalar and select=TRUE is accepted."""
+    plain = gam("y ~ s(x) + s(z, k=6)", frame, "gaussian")
+    shrunk = gam("y ~ s(x) + s(z, k=6)", frame, "gaussian", select=True)
+    assert shrunk.converged
+    assert shrunk.edf_total <= plain.edf_total + 1e-6
 
 
 def test_the_discrete_bam_path_refuses_a_thin_plate_smooth(frame: pl.DataFrame) -> None:

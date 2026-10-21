@@ -113,7 +113,7 @@ with `mgcv` in the report.
 | `ti(x, z, bs="cr", k=c(.,.))` — tensor interaction | supported | report §2, §4 |
 | `s(f, bs="re")` — random-effect / level indicator | supported | report §2 |
 | factors `a`, `a:b` (with both main effects), `offset(col)` | supported | report §2 |
-| `select=TRUE` | supported with `cr`, numeric `by`, `ti`, `re`, parametric | report §2, §3 |
+| `select=TRUE` | supported with `cr`, `tp`, numeric `by`, `ti`, `re`, parametric (`tp`: 16 of 16 draws agree, ADR-261 amendment 1) | report §2, §3 |
 | `select=TRUE` with a factor-`by` smooth: `f + s(x, by=f, bs="cr")` and `s(x, by=f, bs="cr")` | supported (Slice R1, ADR-258). Each by-level smooth gets its own null-space penalty, as in `mgcv`. The fit is **not** pivoted (no redundancy warning) and both `unconditional=False` and `unconditional=True` standard errors are available | ADR-258, report §1-§3, §6 |
 | 15-penalty quasi-Poisson `select=TRUE` fit, 5,000 rows | one cell, one draw | report §3 (target-size row) |
 | families gaussian / poisson / quasipoisson / binomial | supported | report §2 |
@@ -134,7 +134,6 @@ Each of these raises `PolarisValidationError` naming the construct and the
 | refused | why |
 |---|---|
 | a thin-plate smooth with `by=`: `s(x, by=f)`, `s(x, by=w, bs="tp")` | only the plain one-covariate `tp` is built; write `bs="cr"` for a `by` smooth |
-| `select=TRUE` with a thin-plate smooth | `select=TRUE`'s null-space penalty depends on the coefficient coordinates, and a `tp` basis is only defined up to an invertible coordinate change, so it is not reproduced; write `bs="cr"` or fit without `select=TRUE` (ADR-261) |
 | `method="fREML", discrete=True` with a thin-plate smooth | `bam` builds `tp` on its compressed frame; not built (ADR-261) |
 | a thin-plate smooth on more than 2000 rows AND more than 2000 distinct values | `mgcv` then draws a RANDOM subsample of the distinct values; that stream is not reproduced, so the fit would be a different basis. Aggregate the covariate (an integer age, a banded value) or use `bs="cr"` |
 | `bs="ts"`, `bs="ps"`, `"fs"`, `"sz"`, and any other basis | not verified (§2.1 of the coverage file) |
@@ -167,7 +166,7 @@ construct named). Nothing in the preview falls back to a guess.
   parity.
 - **One draw per cell.** Every cell in the report is one synthetic sample. Agreement there
   is evidence, not a coverage guarantee.
-- **Not in the preview:** p-values / `anova.gam`, `bam`, `fREML`, `discrete=TRUE`, `tp` with `by`/`select`/two covariates,
+- **Not in the preview:** p-values / `anova.gam`, `bam`, `fREML`, `discrete=TRUE`, `tp` with `by`/two covariates,
   `te`, `t2`, `fs`, free-`sp` `sz`, and any CLI, API, dashboard or MCP exposure.
 
 ## 8. How it is verified, and what that does and does not show

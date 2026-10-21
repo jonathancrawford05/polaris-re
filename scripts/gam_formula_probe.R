@@ -277,6 +277,21 @@ main <- function(argv) {
       "cnt ~ s(x) + s(z, k = 6)", "poisson", d)
   }
 
+  # Slice R4 follow-up (ADR-261 amendment 1): select=TRUE with thin-plate smooths. The tp null
+  # space after the sum-to-zero constraint is ONE linear direction, so the shrinkage penalty is
+  # gauge-invariant up to a scalar that sp absorbs -- the prediction under test. Two families,
+  # a pure-noise smooth (the plateau case) and 8 draws each.
+  for (i in 1:8) {
+    set.seed(20261230 + i); n <- 400
+    d <- data.frame(x = runif(n, 0, 10), z = runif(n, 0, 5), w = runif(n, 0, 1))
+    d$y <- sin(d$x + i / 3) + 0.15 * d$z + rnorm(n, sd = 0.4)
+    d$cnt <- rpois(n, exp(0.4 + 0.5 * sin(d$x / 2 + i / 5) + 0.05 * d$z))
+    cells[[length(cells) + 1]] <- cell(sprintf("gaussian_select_tp_draw%02d", i),
+      "y ~ s(x) + s(z, k = 6) + s(w, k = 6)", "gaussian", d, select = TRUE)
+    cells[[length(cells) + 1]] <- cell(sprintf("poisson_select_tp_draw%02d", i),
+      "cnt ~ s(x) + s(z, k = 6) + s(w, k = 6)", "poisson", d, select = TRUE)
+  }
+
   # Slice P5 (ADR-254): the user guide's worked example. The data are the committed
   # synthetic CSVs that docs/GAM_USER_GUIDE.md and the notebook read; the formula string is
   # polaris_re.gam.example.GUIDE_FORMULA, copied here as text (a test pins the two equal).

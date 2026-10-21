@@ -458,13 +458,6 @@ def _build_model(
             assert call.k is not None
             need_numeric(call.variable, call.text)
             if call.basis == "tp":
-                if select:
-                    raise PolarisValidationError(
-                        f"gam(): select=True with the thin-plate smooth {call.text} is not "
-                        "supported — select=TRUE's null-space penalty is coordinate-dependent "
-                        "and the tp coordinate gauge is not reproduced element by element "
-                        f'(ADR-261); write bs="cr" or fit without select=True ({_COVERAGE} §2.3).'
-                    )
                 smooth.append(
                     TermSpec(label=call.text, variables=(call.variable,), basis="tp", k=(call.k,))
                 )
