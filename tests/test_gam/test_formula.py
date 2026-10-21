@@ -43,18 +43,23 @@ def test_single_quotes_and_whitespace_and_dotted_names() -> None:
     assert p.terms == (SmoothCall("age.at", "cr", 5),)
 
 
-def test_a_bare_smooth_is_refused_and_its_explicit_equivalent_is_accepted() -> None:
-    """Maintainer answer 2 (2026-10-07): bare ``s(x)`` stays refused until ``tp`` (L7),
-    provided the same model can be written with an explicit basis."""
-    with pytest.raises(PolarisValidationError, match=r"s\(x\).*bs='tp'.*L7"):
-        parse_formula("y ~ s(x)")
+def test_a_bare_smooth_is_thin_plate_with_mgcvs_default_k() -> None:
+    """Slice R4 (ADR-261) lifts the 2026-10-07 refusal: ``tp`` is verified, so a bare ``s(x)``
+    parses to it as in ``mgcv`` (default ``k = 10``); the explicit ``cr`` form is unchanged."""
+    assert parse_formula("y ~ s(x)").terms == (SmoothCall("x", "tp", 10),)
+    assert parse_formula('y ~ s(x, bs="tp")').terms == (SmoothCall("x", "tp", 10),)
+    assert parse_formula("y ~ s(x, k=7)").terms == (SmoothCall("x", "tp", 7),)
     assert parse_formula('y ~ s(x, bs="cr")').terms == (SmoothCall("x", "cr", 10),)
+
+
+def test_a_thin_plate_smooth_takes_no_by() -> None:
+    with pytest.raises(PolarisValidationError, match=r"by= on a thin-plate smooth"):
+        parse_formula("y ~ s(x, by=g)")
 
 
 @pytest.mark.parametrize(
     ("formula", "needle"),
     [
-        ('y ~ s(x, bs="tp")', "bs='tp'"),
         ('y ~ s(x, bs="ts")', "bs='ts'"),
         ('y ~ s(x, bs="cc")', "bs='cc'"),
         ('y ~ s(x, bs="ps")', "bs='ps'"),

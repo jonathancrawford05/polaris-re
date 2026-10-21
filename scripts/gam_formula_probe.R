@@ -231,6 +231,67 @@ main <- function(argv) {
     }
   }
 
+  # Slice R4 (ADR-261): thin-plate smooths. A bare s(x) is mgcv's default bs = "tp" (k = 10);
+  # Polaris parses the same string to its own tp basis. Named cells first, then draws (the
+  # R1 lesson: one cell can be lucky, a fit is judged on several independent data sets).
+  set.seed(20261201); n <- 500
+  d <- data.frame(x = runif(n, 0, 10), z = runif(n, 0, 5), f = sample(lv3, n, TRUE),
+                  stringsAsFactors = FALSE)
+  d$y <- sin(d$x) + 0.2 * d$z + c(a = 0, b = 0.4, c = -0.3)[d$f] + rnorm(n, sd = 0.3)
+  cells[[length(cells) + 1]] <- cell("gaussian_tp_bare", "y ~ s(x)", "gaussian", d)
+  cells[[length(cells) + 1]] <- cell("gaussian_tp_two_smooths",
+    "y ~ f + s(x, k = 12) + s(z, bs = 'tp', k = 6)", "gaussian", d)
+  cells[[length(cells) + 1]] <- cell("gaussian_tp_beside_cr",
+    "y ~ s(x) + s(z, k = 6, bs = 'cr')", "gaussian", d)
+  lam <- exp(0.3 + 0.4 * sin(d$x / 2) + 0.1 * d$z)
+  d$cnt <- rpois(n, lam)
+  d$ovd <- rnbinom(n, mu = lam, size = 4)
+  d$bin <- rbinom(n, 1, plogis(-0.3 + sin(d$x / 2) + 0.2 * (d$z - 2.5)))
+  cells[[length(cells) + 1]] <- cell("poisson_tp", "cnt ~ s(x) + s(z, k = 7)", "poisson", d)
+  cells[[length(cells) + 1]] <- cell("quasipoisson_tp", "ovd ~ s(x) + s(z, k = 7)",
+    "quasipoisson", d)
+  cells[[length(cells) + 1]] <- cell("binomial_tp", "bin ~ s(x) + s(z, k = 6)", "binomial", d)
+  # the R2 trial's shape: tp mains plus a cr tensor interaction, Poisson with an offset
+  set.seed(20261202); n <- 700
+  d <- data.frame(age = runif(n, 45, 85), dur = runif(n, 2, 22), expo = runif(n, 200, 4000))
+  q <- 0.0004 + 0.00003 * exp(0.085 * (d$age - 45))
+  d$y <- rpois(n, d$expo * q * exp(0.05 * sin(d$age / 11) - 0.18 * exp(-d$dur / 9)))
+  d$off <- log(d$expo * q)
+  cells[[length(cells) + 1]] <- cell("poisson_tp_with_cr_ti",
+    paste0("y ~ offset(off) + s(age, k = 13) + s(dur, k = 6) + ",
+           "ti(age, dur, k = c(7, 5), bs = 'cr')"), "poisson", d)
+  # integer grids with heavy ties, as the ILEC covariates are
+  set.seed(20261203); n <- 3000
+  d <- data.frame(age = sample(25:95, n, TRUE), dur = sample(1:26, n, TRUE))
+  d$y <- rpois(n, exp(-1 + 0.02 * (d$age - 60) - 0.05 * sqrt(d$dur) + 0.3 * sin(d$age / 9)))
+  cells[[length(cells) + 1]] <- cell("poisson_tp_integer_grid",
+    "y ~ s(age, k = 13) + s(dur, k = 6)", "poisson", d)
+  for (i in 1:8) {
+    set.seed(20261210 + i); n <- 400
+    d <- data.frame(x = runif(n, 0, 10), z = runif(n, 0, 5))
+    d$y <- sin(d$x + i / 3) + 0.15 * d$z + rnorm(n, sd = 0.4)
+    d$cnt <- rpois(n, exp(0.4 + 0.5 * sin(d$x / 2 + i / 5) + 0.05 * d$z))
+    cells[[length(cells) + 1]] <- cell(sprintf("gaussian_tp_draw%02d", i),
+      "y ~ s(x) + s(z, k = 6)", "gaussian", d)
+    cells[[length(cells) + 1]] <- cell(sprintf("poisson_tp_draw%02d", i),
+      "cnt ~ s(x) + s(z, k = 6)", "poisson", d)
+  }
+
+  # Slice R4 follow-up (ADR-261 amendment 1): select=TRUE with thin-plate smooths. The tp null
+  # space after the sum-to-zero constraint is ONE linear direction, so the shrinkage penalty is
+  # gauge-invariant up to a scalar that sp absorbs -- the prediction under test. Two families,
+  # a pure-noise smooth (the plateau case) and 8 draws each.
+  for (i in 1:8) {
+    set.seed(20261230 + i); n <- 400
+    d <- data.frame(x = runif(n, 0, 10), z = runif(n, 0, 5), w = runif(n, 0, 1))
+    d$y <- sin(d$x + i / 3) + 0.15 * d$z + rnorm(n, sd = 0.4)
+    d$cnt <- rpois(n, exp(0.4 + 0.5 * sin(d$x / 2 + i / 5) + 0.05 * d$z))
+    cells[[length(cells) + 1]] <- cell(sprintf("gaussian_select_tp_draw%02d", i),
+      "y ~ s(x) + s(z, k = 6) + s(w, k = 6)", "gaussian", d, select = TRUE)
+    cells[[length(cells) + 1]] <- cell(sprintf("poisson_select_tp_draw%02d", i),
+      "cnt ~ s(x) + s(z, k = 6) + s(w, k = 6)", "poisson", d, select = TRUE)
+  }
+
   # Slice P5 (ADR-254): the user guide's worked example. The data are the committed
   # synthetic CSVs that docs/GAM_USER_GUIDE.md and the notebook read; the formula string is
   # polaris_re.gam.example.GUIDE_FORMULA, copied here as text (a test pins the two equal).

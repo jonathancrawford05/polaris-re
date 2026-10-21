@@ -334,7 +334,7 @@ def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
             for v in t.variables:
                 groups.setdefault(v, set()).add(f"smooth:{t.label}")
             continue
-        if len(t.variables) != 1 or t.basis != "cr":
+        if len(t.variables) != 1 or t.basis not in ("cr", "tp"):
             continue
         if t.by is not None and t.by_factor is None:
             continue  # a numeric by smooth beside a factor by: 60 of 60 draws agree (ADR-258)
@@ -347,7 +347,8 @@ def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
                 f"gam(): select=True with a factor-by smooth of {var!r} and another smooth of "
                 f"{var!r} (a bare smooth, a second by-smooth or a ti term) "
                 "is not "
-                "supported — measured against mgcv, the free-sp search stops at a point its REML "
+                "supported (a thin-plate s(x) counts as a bare smooth, ADR-261 amendment 2) — "
+                "measured against mgcv, the free-sp search stops at a point its REML "
                 "scores lower in about 1 draw in 7 with a bare smooth and 1 in 11 with a second "
                 "by-smooth (poisson), and for a ti term an equal-score ridge with a different "
                 "eta (ADR-258, R1-d). Use one smooth of "
@@ -395,7 +396,8 @@ def _build_model(
         col = _column(df, name)
         if _is_factor_dtype(col.dtype):
             raise PolarisValidationError(
-                f"gam(): {where} uses {name!r} as a number, but it is a factor column."
+                f"gam(): {where} uses {name!r} as a number, but it is a factor column "
+                '(write s(f, bs="re") for a random effect).'
             )
         data[name] = _numeric(df, name)
 
@@ -456,7 +458,12 @@ def _build_model(
         else:
             assert call.k is not None
             need_numeric(call.variable, call.text)
-            if call.by is None:
+            if call.basis == "tp":
+                smooth.append(
+                    TermSpec(label=call.text, variables=(call.variable,), basis="tp", k=(call.k,))
+                )
+                smooth_meta.append((call.text, call.k))
+            elif call.by is None:
                 smooth.append(
                     TermSpec(label=call.text, variables=(call.variable,), basis="cr", k=(call.k,))
                 )
@@ -521,7 +528,8 @@ def gam(
 
     Args:
         formula: e.g. ``'y ~ g + s(x, bs="cr", k=8) + ti(x, z, bs="cr", k=c(6, 5))'``.
-            Supported: ``s(x, bs="cr", k=, by=)`` (numeric or factor ``by``),
+            Supported: a bare ``s(x, k=)`` / ``s(x, bs="tp", k=)`` (thin-plate, ``mgcv``'s
+            default, ADR-261), ``s(x, bs="cr", k=, by=)`` (numeric or factor ``by``),
             ``s(f, bs="re")``, ``ti(x, z, bs="cr", k=)``, factors ``a``, ``a:b``
             (with both main effects), ``offset(col)``. Anything else is refused by
             name (:class:`~polaris_re.core.exceptions.PolarisValidationError`).

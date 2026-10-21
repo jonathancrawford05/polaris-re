@@ -66,7 +66,7 @@ def _synthetic_recipe(name: str, seed: int = 3) -> PredictRecipe:
         name=name,
         family="gaussian",
         link="identity",
-        offset_column="off" if name == "poisson_offset" else None,
+        offset_column="off" if name in ("poisson_offset", "poisson_tp_with_cr_ti") else None,
         n_levels={"f": 3, "A": 3, "B": 2},
         train=cols(n),
         y=rng.normal(size=n).tolist(),
@@ -99,6 +99,8 @@ def _factor_names(name: str) -> set[str]:
         "gaussian_select_factor_by_main": {"f"},
         "poisson_select_factor_by_only": {"f"},
         "gaussian_sz": {"f"},
+        "poisson_tp": set(),
+        "poisson_tp_with_cr_ti": set(),
     }[name]
 
 

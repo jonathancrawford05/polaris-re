@@ -506,3 +506,17 @@ def test_factor_by_terms_rejects_mismatched_level_labels() -> None:
             n_levels=3,
             level_labels=("A", "B"),
         )
+
+
+def test_a_tp_term_takes_one_variable_one_k_and_no_by_knots_or_factor() -> None:
+    ok = TermSpec(label="s(x)", variables=("x",), basis="tp", k=(10,))
+    assert ok.basis == "tp"
+    for kwargs in (
+        {"variables": ("x", "z"), "k": (5, 5)},
+        {"variables": ("x",), "k": ()},
+        {"variables": ("x",), "k": (10,), "by": "w"},
+        {"variables": ("x",), "k": (10,), "factor": True},
+        {"variables": ("x",), "k": (10,), "knots": (("x", (0.0, 1.0)),)},
+    ):
+        with pytest.raises(PolarisValidationError):
+            TermSpec(label="s(x)", basis="tp", **kwargs)  # type: ignore[arg-type]

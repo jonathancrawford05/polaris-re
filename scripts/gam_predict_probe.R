@@ -260,6 +260,28 @@ main <- function(argv) {
     y ~ s(x, by = f, k = 8, bs = "cr"),
     poisson(), d, "y", list(x = 1), list(f = lv3), 111, select = TRUE)
 
+  # 12-13. Slice R4 (ADR-261): thin-plate smooths. The lpmatrix of a tp term depends on the
+  # coefficient gauge (module gam_basis_tp), so for these cells it is compared as a column
+  # space and reported; the gates are eta, edf_total and se.fit, which are gauge-free.
+  set.seed(20261201)
+  n <- 500
+  d <- data.frame(x = runif(n, 0, 10), z = runif(n, 0, 5))
+  d$y <- rpois(n, exp(0.4 + 0.5 * sin(d$x / 2) + 0.1 * d$z))
+  cells[[12]] <- cell("poisson_tp",
+    y ~ s(x) + s(z, k = 7),
+    poisson(), d, "y", list(x = 1, z = 1), list(), 112)
+
+  set.seed(20261202)
+  n <- 700
+  d <- data.frame(age = runif(n, 45, 85), dur = runif(n, 2, 22), expo = runif(n, 200, 4000))
+  q <- 0.0004 + 0.00003 * exp(0.085 * (d$age - 45))
+  d$y <- rpois(n, d$expo * q * exp(0.05 * sin(d$age / 11) - 0.18 * exp(-d$dur / 9)))
+  d$off <- log(d$expo * q)
+  cells[[13]] <- cell("poisson_tp_with_cr_ti",
+    y ~ offset(off) + s(age, k = 13) + s(dur, k = 6) + ti(age, dur, k = c(7, 5), bs = "cr"),
+    poisson(), d, "y", list(age = 1, dur = 1), list(), 113,
+    offset_col = "off", offset_range = range(d$off))
+
   out <- list(
     schema_version = 1L,
     mgcv_version = as.character(packageVersion("mgcv")),

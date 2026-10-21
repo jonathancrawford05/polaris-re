@@ -49,7 +49,10 @@ def build_report(probe: Path) -> tuple[str, int, int]:
         f"mgcv {payload['mgcv_version']} / {payload['r_version']}. Gates: lpmatrix < 1e-9 "
         "(Stage A, imported); in-range eta < 2e-2 and |edf_total diff| < 1 (ADR-221, "
         "imported). Beyond-range eta, response and the training-row control are reported, "
-        "not gated.",
+        "not gated. For the `tp` cells (Slice R4) the lpmatrix columns are only defined up to "
+        "a coefficient transformation, so those two columns are the sine of the largest "
+        "principal angle between the column spaces and are REPORTED, not gated; eta, "
+        "edf_total and se.fit are the gates there.",
         "",
         "| cell | lpmatrix in | lpmatrix beyond | eta in | eta beyond | response rel in | "
         "eta train (control) | edf_total diff | converged | agrees |",

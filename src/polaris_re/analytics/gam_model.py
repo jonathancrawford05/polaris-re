@@ -108,6 +108,7 @@ from polaris_re.analytics.gam_stage_a import (
     build_python_re_term,
     build_python_sz_term,
     build_python_ti_term,
+    build_python_tp_term,
 )
 from polaris_re.analytics.gam_term_spec import ModelSpec, TermSpec
 from polaris_re.analytics.gam_vcov import (
@@ -122,6 +123,7 @@ from polaris_re.core.exceptions import (
 )
 
 __all__ = [
+    "TP_LOG10_BOUNDS",
     "ModelDesign",
     "PolarisGAMFit",
     "TermBlock",
@@ -193,6 +195,20 @@ independently. `select_lambdas_continuous`'s own default is untouched
 artifact)."""
 
 
+TP_LOG10_BOUNDS = (-8.0, 12.0)
+""":func:`fit_polaris_gam`'s default search domain for a model with a ``tp`` term (Slice R4,
+ADR-261): the lower edge is widened from ``-2`` to ``-8``.
+
+**Measured, not guessed:** with ``mgcv``'s own ``scale.penalty`` (which the ``tp`` basis
+reproduces, :mod:`~polaris_re.analytics.gam_basis_tp`), ``mgcv``'s REML optimum for a plain
+``s(x)`` sits at ``sp = 4.9e-3`` (``log10 = -2.3``) on a 300-row smooth signal, already below
+the ``cr``-era lower edge; the guard that rejects a lower-bound selection as "always a
+conditioning defect" would then reject ``mgcv``'s own answer. The widening moves the search
+domain, not a tolerance or an acceptance criterion, and a selection at the new lower edge is
+still reported by the same guard. ``PRODUCTION_LOG10_BOUNDS`` and every ``cr``/``ti`` fit are
+unchanged."""
+
+
 def resolve_family(family: str, link: str) -> Family:
     """The ``(family, link)`` -> :class:`Family` lookup every ``ModelSpec``-driven
     fit needs. Raises rather than guessing on an unrecognised pair."""
@@ -244,6 +260,8 @@ def _build_term_extract(term: TermSpec, data: Mapping[str, np.ndarray]) -> TermE
             return build_python_cr_by_factor_term(x, group, term)
         by = None if term.by is None else np.asarray(data[term.by], dtype=np.float64)
         return build_python_cr_term(x, term, by=by)
+    if term.basis == "tp":
+        return build_python_tp_term(np.asarray(data[term.variables[0]], dtype=np.float64), term)
     if term.basis == "ti":
         x1 = np.asarray(data[term.variables[0]], dtype=np.float64)
         x2 = np.asarray(data[term.variables[1]], dtype=np.float64)
@@ -736,7 +754,7 @@ def fit_polaris_gam(
     *,
     gamma: float = 1.0,
     x0: np.ndarray | None = None,
-    bounds: tuple[float, float] = PRODUCTION_LOG10_BOUNDS,
+    bounds: tuple[float, float] | None = None,
     gtol: float = 1.0e-8,
     maxiter: int = 200,
     strict: bool = False,
@@ -774,9 +792,10 @@ def fit_polaris_gam(
             reach whichever search runs; ``x0`` and ``gtol`` are L-BFGS-B-only
             (``outer="lbfgsb"``). For that search they are passed through to
             :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`
-            unchanged, except ``bounds`` defaults to
-            :data:`PRODUCTION_LOG10_BOUNDS` rather than that module's own
-            (narrower) default — see its docstring. ``x0`` applies only when
+            unchanged, except ``bounds`` defaults (``None``) to
+            :data:`PRODUCTION_LOG10_BOUNDS` — or :data:`TP_LOG10_BOUNDS` when the model has a
+            ``tp`` term — rather than that module's own (narrower) default — see their
+            docstrings. ``x0`` applies only when
             ``multistart=False`` (the default) —
             :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous_multistart`
             has no ``x0`` parameter of its own (its first start is always
@@ -925,6 +944,12 @@ def fit_polaris_gam(
             "fit_polaris_gam: outer='newton' is mutually exclusive with x0, multistart, "
             "analytic_gradient, max_gtol_restarts and initial_sp_start -- it always uses the "
             "analytic gradient and its one start is mgcv's initial.spg."
+        )
+    if bounds is None:
+        bounds = (
+            TP_LOG10_BOUNDS
+            if any(term.basis == "tp" for term in model.terms)
+            else PRODUCTION_LOG10_BOUNDS
         )
     full_design = assemble_model_design(model, data)
     design = pivot_design(full_design)

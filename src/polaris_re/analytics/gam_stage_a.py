@@ -93,6 +93,7 @@ from polaris_re.analytics.gam_basis_cr import (
 )
 from polaris_re.analytics.gam_basis_parametric import parametric_design
 from polaris_re.analytics.gam_basis_re import re_basis
+from polaris_re.analytics.gam_basis_tp import TP_BASIS_CLAIM, tp_basis
 from polaris_re.analytics.gam_term_spec import SUPPORTED_BASES, TermSpec
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.verification import (
@@ -111,6 +112,7 @@ __all__ = [
     "SMOOTH_PATH_CLAIM",
     "SZ_BASIS_CLAIM",
     "TI_BASIS_CLAIM",
+    "TP_BASIS_CLAIM",
     "RTermPayload",
     "TermExtract",
     "TermExtractComparison",
@@ -120,6 +122,7 @@ __all__ = [
     "build_python_re_term",
     "build_python_sz_term",
     "build_python_ti_term",
+    "build_python_tp_term",
     "compare_term_extract",
     "extract_raw_terms",
     "extract_smooth_terms",
@@ -1007,6 +1010,32 @@ def build_python_cr_term(
         # review [P1]).
         evidence=CR_BY_BASIS_CLAIM if by is not None else CR_BASIS_CLAIM,
         knots=tuple(float(v) for v in knots),
+    )
+
+
+def build_python_tp_term(x: np.ndarray, term: TermSpec) -> TermExtract:
+    """The independent Python producer for a ``bs="tp"`` term (Slice R4, ADR-261).
+
+    Builds ``design_X`` / ``penalty_S`` from ``x`` and ``term.k`` alone via
+    :mod:`polaris_re.analytics.gam_basis_tp`; the signature takes no R payload
+    (ADR-193's mechanical test). The coefficient gauge is not unique, so
+    :func:`~polaris_re.analytics.gam_basis_tp.compare_tp_basis` compares gauge-free.
+    """
+    if term.basis != "tp" or len(term.variables) != 1 or len(term.k) != 1:
+        raise PolarisValidationError(
+            f"build_python_tp_term only handles a one-covariate basis='tp'; got {term.label!r} "
+            f"(basis={term.basis!r}, variables={term.variables!r}, k={term.k!r})."
+        )
+    design_u, s_u, _ = tp_basis(np.asarray(x, dtype=np.float64), term.k[0])
+    design, s = absorb_sum_to_zero_constraint(design_u, s_u)
+    return TermExtract(
+        label=term.label,
+        index_start=0,
+        index_end=design.shape[1],
+        design=design,
+        s=(s,),
+        rank=(int(np.linalg.matrix_rank(s)),),
+        evidence=TP_BASIS_CLAIM,
     )
 
 
