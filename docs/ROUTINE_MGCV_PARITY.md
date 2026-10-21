@@ -18,11 +18,16 @@
 > the box is a maintainer edit nobody else can make.
 **Repo:** `jonathancrawford05/polaris-re`
 **Connectors:** GitHub
-**Plan:** `docs/PLAN_gam_real_data_readiness.md` (the ACTIVE epic from 2026-10-10, ADR-257; previous: `docs/PLAN_gam_parity_preview.md`, DONE);
+**Plan:** `docs/PLAN_gam_dashboard.md` (the ACTIVE epic from 2026-10-21); previous: `docs/PLAN_gam_real_data_readiness.md` (R1-R4, merged; ADR-257; previous: `docs/PLAN_gam_parity_preview.md`, DONE);
 parent plan and anchors: `docs/PLAN_mgcv_parity_engine.md`
 **Created:** 2026-08-10, from maintainer direction plus the measurements in the parent PLAN §1.
 
-> **ACTIVE EPIC POINTER (maintainer, 2026-10-10, ADR-257) — READ THIS FIRST.**
+> **ACTIVE EPIC POINTER (maintainer, 2026-10-21, after PR #275) — READ THIS FIRST.**
+> The active epic is now **`docs/PLAN_gam_dashboard.md`** (the HGAM fitter in the existing dashboard page, read-only first; slices D1-D3). It has **no CONTINUATION yet, so the next session is the EPIC START: write its ADR and `docs/CONTINUATION_gam_dashboard.md` (status IN PROGRESS), then take slice D1.** Its decisions (§3) are the maintainer's and are not re-asked. The previous epic `docs/PLAN_gam_real_data_readiness.md` (R1-R4) is merged with no open slice; its pick-up notes (`ti()` with `tp`; `select=TRUE` with `tp` beside a factor-`by`, owned by the outer-solver plan) stay in its CONTINUATION. This epic is not a parity epic: the SETUP/provenance steps below still bind any comparison it reports, and a number Polaris computes alone is labelled MEASUREMENT.
+>
+> *Previous pointer (2026-10-10, ADR-257) follows.*
+
+> **ACTIVE EPIC POINTER (maintainer, 2026-10-10, ADR-257) — superseded 2026-10-21, kept as the record.**
 > The active epic is **`docs/PLAN_gam_real_data_readiness.md`** (`docs/CONTINUATION_gam_real_data_readiness.md`;
 > **R1 DONE 2026-10-11, ADR-258, PR #266; R2's routine half DONE 2026-10-11 (ADR-259); **R2 DONE 2026-10-15** with the maintainer's run recorded. The ceiling was exceeded, so R3 (`bam`, R3-bam) ran next (ADR-260); **R3 DONE 2026-10-20** (maintainer, ADR-260 amendment 23; the `S1_mid` (B) miss is a recorded limitation), **R4 (`tp`) IMPLEMENTED 2026-10-21 (ADR-261, awaiting merge/maintainer DONE) — all four slices exist, so the next session should ask the maintainer what follows**; maintainer order 2026-10-15**; the `select=TRUE` solver findings are in
 > `docs/FINDINGS_select_factor_by_outer_search.md`). Its slices are R1 `select=TRUE` + factor-`by`, R2 the ILEC trial and profile,
