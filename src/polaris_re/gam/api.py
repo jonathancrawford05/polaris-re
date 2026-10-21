@@ -334,7 +334,7 @@ def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
             for v in t.variables:
                 groups.setdefault(v, set()).add(f"smooth:{t.label}")
             continue
-        if len(t.variables) != 1 or t.basis != "cr":
+        if len(t.variables) != 1 or t.basis not in ("cr", "tp"):
             continue
         if t.by is not None and t.by_factor is None:
             continue  # a numeric by smooth beside a factor by: 60 of 60 draws agree (ADR-258)
@@ -347,7 +347,8 @@ def _refuse_select_with_bare_and_factor_by(smooth: Sequence[TermSpec]) -> None:
                 f"gam(): select=True with a factor-by smooth of {var!r} and another smooth of "
                 f"{var!r} (a bare smooth, a second by-smooth or a ti term) "
                 "is not "
-                "supported — measured against mgcv, the free-sp search stops at a point its REML "
+                "supported (a thin-plate s(x) counts as a bare smooth, ADR-261 amendment 2) — "
+                "measured against mgcv, the free-sp search stops at a point its REML "
                 "scores lower in about 1 draw in 7 with a bare smooth and 1 in 11 with a second "
                 "by-smooth (poisson), and for a ti term an equal-score ridge with a different "
                 "eta (ADR-258, R1-d). Use one smooth of "

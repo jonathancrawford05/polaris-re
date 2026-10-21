@@ -19,6 +19,7 @@
 #   main_two_by   y ~ f + g + s(x, by = f) + s(x, by = g)   until this probe, ADR-258 review P1)
 #   main_by_ti    y ~ f + s(x, by = f) + ti(x, z)   (ti beside the by smooth; ADR-258 re-review P2)
 #   main_by_numby y ~ f + s(x, by = f) + s(x, by = w)   (w numeric; was unmeasured and refused)
+#   bare_tp_by / main_tp_by   the bare and main forms with a TP main smooth s(x) (ADR-261 amend. 2)
 #
 # USAGE: Rscript scripts/gam_select_bare_by_draws_probe.R [out.json]
 suppressPackageStartupMessages({ library(mgcv); library(jsonlite) })
@@ -31,7 +32,10 @@ forms <- list(
   two_by = 'y ~ s(x, by = f, k = 8, bs = "cr") + s(x, by = g, k = 8, bs = "cr")',
   main_two_by = 'y ~ f + g + s(x, by = f, k = 8, bs = "cr") + s(x, by = g, k = 8, bs = "cr")',
   main_by_ti = 'y ~ f + s(x, by = f, k = 8, bs = "cr") + ti(x, z, k = c(5, 5), bs = "cr")',
-  main_by_numby = 'y ~ f + s(x, by = f, k = 8, bs = "cr") + s(x, by = w, k = 8, bs = "cr")')
+  main_by_numby = 'y ~ f + s(x, by = f, k = 8, bs = "cr") + s(x, by = w, k = 8, bs = "cr")',
+  # Slice R4 follow-up (ADR-261 amendment 2): a THIN-PLATE main smooth beside the factor-by smooth
+  bare_tp_by = 'y ~ s(x) + s(x, by = f, k = 8, bs = "cr")',
+  main_tp_by = 'y ~ f + s(x) + s(x, by = f, k = 8, bs = "cr")')
 
 one <- function(name, fam, form, d) {
   dfit <- d; dfit$f <- factor(dfit$f); dfit$g <- factor(dfit$g)

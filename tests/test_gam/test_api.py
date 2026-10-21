@@ -324,3 +324,17 @@ def test_the_discrete_bam_path_refuses_a_thin_plate_smooth(frame: pl.DataFrame) 
 def test_a_thin_plate_smooth_of_a_factor_column_is_refused(frame: pl.DataFrame) -> None:
     with pytest.raises(PolarisValidationError, match="factor column"):
         gam("y ~ s(g)", frame, "gaussian")
+
+
+def test_select_true_refuses_a_thin_plate_smooth_beside_a_factor_by_smooth(
+    frame: pl.DataFrame,
+) -> None:
+    """ADR-261 amendment 2: measured (tier 1) 14 of 120 draws disagree, the ADR-258 plateau."""
+    for formula in (
+        'y ~ s(x) + s(x, by=g, bs="cr", k=6)',
+        'y ~ g + s(x) + s(x, by=g, bs="cr", k=6)',
+    ):
+        with pytest.raises(PolarisValidationError, match="thin-plate s"):
+            gam(formula, frame, "gaussian", select=True)
+    # a tp smooth of a DIFFERENT covariate is fine
+    assert gam('y ~ s(z) + s(x, by=g, bs="cr", k=6)', frame, "gaussian", select=True).converged

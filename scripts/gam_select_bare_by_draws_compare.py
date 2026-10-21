@@ -80,7 +80,9 @@ def _spec(form: str, levels: int, family: str, link: str, g_levels: int = 2) -> 
             terms.append(
                 TermSpec(label="g", variables=("g",), basis="parametric", levels=(g_levels,))
             )
-    if "bare" in form:
+    if "_tp_" in form:
+        terms.append(TermSpec(label="s(x)", variables=("x",), basis="tp", k=(10,)))
+    elif "bare" in form:
         terms.append(TermSpec(label="s(x)", variables=("x",), basis="cr", k=(8,)))
     terms.extend(
         factor_by_terms(base_label="s(x):f", variable="x", k=8, by_factor="f", n_levels=levels)
