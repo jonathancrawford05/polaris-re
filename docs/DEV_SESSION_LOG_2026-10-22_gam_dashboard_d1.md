@@ -30,4 +30,7 @@ No parity gap in scope (not a parity slice). Before: no HGAM fit reachable from 
 The box names no slice; the repo's pointer named the epic start + D1. Followed the repo.
 
 ## Follow-ups
-Maintainer run of predicted vs actual on one ILEC cell (CONTINUATION Q1). No perf/history.jsonl row: PR touches `src/polaris_re/` but adds only new modules outside the pricing perf closure — see below.
+Maintainer run of predicted vs actual on one ILEC cell (CONTINUATION Q1). perf/history.jsonl row appended (the PR touches `src/polaris_re/` outside amendments 1-2's exemptions).
+
+## After-change suite
+`pytest tests/ -m "not slow"` with the 5 known table-dependent failures deselected (the whole `test_synthetic_block.py` file plus the one loader test): **4220 passed, 22 skipped, 150 deselected, 0 failed**. `pytest tests/qa/`: 85 passed, 9 skipped; goldens byte-identical (not edited). ruff format/check clean.
