@@ -455,6 +455,10 @@ def page_experience_improvement() -> None:
         except (PolarisValidationError, PolarisComputationError) as exc:
             st.error(f"Bayesian projection failed: {exc}")
 
+    from polaris_re.dashboard.views.gam_fit_section import render_gam_section
+
+    render_gam_section(cells)
+
     st.caption(
         "Diagnostics only. Slice 2 wires a versioned improvement basis into the "
         "Deal Pricing page (IMPORTANT #12 / ADR-148). See "
