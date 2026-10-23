@@ -54,6 +54,16 @@ type Engine = Literal["gam", "bam"]
 BAM_DEFAULT_THRESHOLD_ROWS: Final = 300_000
 """Maintainer decision 2026-10-21 (PLAN §3.3): default ``gam`` at or below, ``bam`` above."""
 
+GAM_MEMORY_FLOOR_MULTIPLIER: Final = 12.0
+"""ASSUMPTION for the RAM block only: peak RSS over the dense-design floor. The synthetic sweep
+(``docs/measurements/gam_dashboard_memory_2026-10-22.json``) gives 11.1x at 10k rows and 5.6x at
+40k (above the import baseline; 39x at 2k is dominated by fixed overhead); 12 is the larger of
+the n >= 10k ratios, rounded up. Off-range and off-machine: stated in the warning text."""
+
+GAM_R2_RSS_UPPER_BOUND_GB: Final = 10.2
+"""R2 JSON ``polaris.peak_rss_mb`` maximum over fitted cells (10,434 MB): a process high-water
+mark, an upper bound per cell, not attributable."""
+
 MACHINE: Final = "Apple M4 (4P+6E), 24 GB RAM, macOS, OPENBLAS_NUM_THREADS=1 (maintainer's MacBook)"
 
 # (cell, n_rows, n_coef, best-of-repeats fit seconds): the R2 trial, every `fitted` cell.
@@ -76,7 +86,8 @@ GAM_MEASURED: Final[tuple[tuple[str, int, int, float], ...]] = (
 )
 """``tests/test_gam/test_cost_model.py`` asserts this table equals the committed JSON."""
 
-# (cell, n_rows, fit seconds, peak RSS GB): ADR-260 amendments 15-16, real ILEC cells, tier L.
+# (cell, n_rows, fit seconds, peak RSS GB): ADR-260 amendment 15's table (S1_mid: amendment 16),
+# real ILEC cells, tier L. Guarded by tests/test_gam/test_cost_model.py against docs/DECISIONS.md.
 BAM_MEASURED: Final[tuple[tuple[str, int, float, float], ...]] = (
     ("T1_mid", 109_158, 0.28, 0.5),
     ("T1_full", 413_776, 1.1, 1.6),
@@ -369,14 +380,18 @@ def pre_run_warning(
         lines.append(
             f"Expected peak memory ~{est.memory_gb:.1f} GB (+/- {model.bam_mem_band_gb:.1f} GB)."
         )
-        need = est.memory_gb
+        need = est.memory_gb + model.bam_mem_band_gb
     else:
         lines.append(
             f"Peak memory for gam is NOT modelled. The dense design alone needs {floor:.2f} GB; "
-            "the real peak is several times that (R2 gam fits of 0.3M-0.9M rows reached 10.4 GB "
-            "as a process high-water mark, an upper bound)."
+            f"the real peak is several times that (R2 gam fits of 0.3M-0.9M rows reached "
+            f"{GAM_R2_RSS_UPPER_BOUND_GB:.1f} GB as a process high-water mark, an upper bound). "
+            f"The block check ASSUMES {GAM_MEMORY_FLOOR_MULTIPLIER:.0f}x the floor "
+            f"(~{floor * GAM_MEMORY_FLOOR_MULTIPLIER:.1f} GB); that multiplier is the largest "
+            "above-baseline peak/floor ratio of the synthetic sweep at 10k rows or more, on a "
+            "different machine and at 18 coefficients, not a fitted model."
         )
-        need = floor * 4.0
+        need = floor * GAM_MEMORY_FLOOR_MULTIPLIER
     lines.extend(est.notes)
     if est.seconds_high > 600.0:
         level = "warning"

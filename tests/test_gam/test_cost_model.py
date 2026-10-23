@@ -121,3 +121,28 @@ def test_estimate_n_coef_matches_fit() -> None:
 def test_estimate_n_coef_unknown_column_refused() -> None:
     with pytest.raises(PolarisValidationError):
         estimate_n_coef('y ~ s(x, bs="cr", by=g)', pl.DataFrame({"y": [1.0], "x": [1.0]}))
+
+
+def test_bam_measured_matches_adr_260_tables() -> None:
+    from polaris_re.gam.cost_model import BAM_MEASURED
+
+    adr = Path(__file__).parents[2] / "docs" / "DECISIONS.md"
+    if not adr.exists():
+        pytest.skip("docs/DECISIONS.md not present (container image)")
+    text = adr.read_text()
+    for name, n, sec, gb in BAM_MEASURED:
+        rows = [ln for ln in text.splitlines() if name in ln and f"{n:,}" in ln and "GB" in ln]
+        # earlier amendments quote the same cell at a different (superseded) time
+        assert any(f"{sec} s / {gb} GB" in ln for ln in rows), name
+
+
+def test_gam_block_uses_stated_multiplier_and_bam_band() -> None:
+    from polaris_re.gam.cost_model import GAM_MEMORY_FLOOR_MULTIPLIER
+
+    m = fit_cost_model()
+    # floor 0.8 GB x 12 = 9.6 GB > 0.8 x 8 GB: blocked, and the assumption is printed.
+    w = pre_run_warning(
+        m, "gam", 500_000, 200, formula='y ~ s(x, bs="cr")', family="poisson", available_gb=8.0
+    )
+    assert w.blocked
+    assert f"ASSUMES {GAM_MEMORY_FLOOR_MULTIPLIER:.0f}x" in " ".join(w.lines)

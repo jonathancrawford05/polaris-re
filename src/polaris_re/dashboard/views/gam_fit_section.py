@@ -91,7 +91,8 @@ def run_gam_request(data: pl.DataFrame, formula: str, family: str, engine: Engin
 
 def fit_signature(data: pl.DataFrame, formula: str, family: str, engine: str) -> int:
     """Content+config hash keying a fit, as ``_fit_signature`` does for the older models."""
-    return hash((tuple(data.hash_rows().to_list()), formula, family, engine))
+    row_hashes = data.hash_rows()
+    return hash((int(row_hashes.sum()), data.height, formula, family, engine))
 
 
 def effect_profiles(

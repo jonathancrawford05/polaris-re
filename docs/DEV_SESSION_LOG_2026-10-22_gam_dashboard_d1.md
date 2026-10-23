@@ -34,3 +34,9 @@ Maintainer run of predicted vs actual on one ILEC cell (CONTINUATION Q1). perf/h
 
 ## After-change suite
 `pytest tests/ -m "not slow"` with the 5 known table-dependent failures deselected (the whole `test_synthetic_block.py` file plus the one loader test): **4220 passed, 22 skipped, 150 deselected, 0 failed**. `pytest tests/qa/`: 85 passed, 9 skipped; goldens byte-identical (not edited). ruff format/check clean.
+
+## Perf History
+Row appended for commit `5b06d40`; creep verdict (PR review, `detect_creep` over 70 rows): no structural creep.
+
+## Review round 1 (PR #277)
+P1 harvest: PRODUCT_DIRECTION addendum 2026-10-22 added. P1 memory multiplier: the unmeasured 4x was replaced by a stated ASSUMPTION of 12x the floor (largest above-baseline ratio of the synthetic sweep at >=10k rows: 11.1x at 10k, 5.6x at 40k), printed in the warning text; the R2 per-cell ratios (5.6x-238x) are high-water confounded and not used. P2-1 signature now hashes the summed row hashes. P2-2 bam block uses estimate + LOO band; the 10.2 GB bound is a named constant. P2-3 `BAM_MEASURED` is now tested against the ADR-260 tables. P2-4 DoD line labelled MEASUREMENT in the PR body.
