@@ -1,0 +1,52 @@
+{
+ "kind": "MEASUREMENT (own criterion): Polaris against itself, synthetic data, one fit per subprocess",
+ "formula": "s(age, bs=\"cr\", k=10) + s(year, bs=\"cr\", k=8) + sex + offset(log_exposure)",
+ "import_baseline_rss_kb": 125916,
+ "machine": {
+  "platform": "Linux-6.18.44-fc-v139-x86_64-with-glibc2.39",
+  "processor": "x86_64",
+  "python": "3.12.3"
+ },
+ "results": [
+  {
+   "engine": "gam",
+   "n_rows": 2000,
+   "n_coef": 18,
+   "seconds": 0.14447385899998721,
+   "peak_rss_gb": 0.14023971557617188,
+   "converged": true
+  },
+  {
+   "engine": "gam",
+   "n_rows": 10000,
+   "n_coef": 18,
+   "seconds": 0.3521066479999888,
+   "peak_rss_gb": 0.1448516845703125,
+   "converged": true
+  },
+  {
+   "engine": "gam",
+   "n_rows": 40000,
+   "n_coef": 18,
+   "seconds": 1.056573410999988,
+   "peak_rss_gb": 0.1613006591796875,
+   "converged": true
+  },
+  {
+   "engine": "bam",
+   "n_rows": 40000,
+   "n_coef": 18,
+   "seconds": 0.331961060999987,
+   "peak_rss_gb": 0.160919189453125,
+   "converged": true
+  },
+  {
+   "engine": "bam",
+   "n_rows": 200000,
+   "n_coef": 18,
+   "seconds": 1.3386776680000025,
+   "peak_rss_gb": 0.2511138916015625,
+   "converged": true
+  }
+ ]
+}

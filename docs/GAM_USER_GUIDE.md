@@ -167,7 +167,7 @@ construct named). Nothing in the preview falls back to a guess.
 - **One draw per cell.** Every cell in the report is one synthetic sample. Agreement there
   is evidence, not a coverage guarantee.
 - **Not in the preview:** p-values / `anova.gam`, `bam`, `fREML`, `discrete=TRUE`, `tp` with `by`/two covariates,
-  `te`, `t2`, `fs`, free-`sp` `sz`, and any CLI, API, dashboard or MCP exposure.
+  `te`, `t2`, `fs`, free-`sp` `sz`, and any CLI, API or MCP exposure. (The experience-improvement dashboard page hosts a read-only fit section, ADR-262; nothing it shows feeds pricing.)
 
 ## 8. How it is verified, and what that does and does not show
 
