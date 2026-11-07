@@ -40,3 +40,6 @@ Row appended for commit `5b06d40`; creep verdict (PR review, `detect_creep` over
 
 ## Review round 1 (PR #277)
 P1 harvest: PRODUCT_DIRECTION addendum 2026-10-22 added. P1 memory multiplier: the unmeasured 4x was replaced by a stated ASSUMPTION of 12x the floor (largest above-baseline ratio of the synthetic sweep at >=10k rows: 11.1x at 10k, 5.6x at 40k), printed in the warning text; the R2 per-cell ratios (5.6x-238x) are high-water confounded and not used. P2-1 signature now hashes the summed row hashes. P2-2 bam block uses estimate + LOO band; the 10.2 GB bound is a named constant. P2-3 `BAM_MEASURED` is now tested against the ADR-260 tables. P2-4 DoD line labelled MEASUREMENT in the PR body.
+
+## Maintainer local-run finding (2026-11-07)
+Uploading the T1_mid `cells.csv` (109,158 rows) stopped at the page's `q_base` validation and the GAM section never rendered: the section was placed after a check it does not need. Fixed: a frame missing the A/E columns now skips only the older diagnostics (warning) and still renders the HGAM section (`_missing_columns_fallback`; AppTest `test_frame_without_q_base_still_offers_the_gam_section`). The default formula names `death_count`, `attained_age`, `calendar_year`, `log_exposure`; a frame with other column names needs its own formula typed in.

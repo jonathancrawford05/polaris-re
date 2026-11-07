@@ -75,3 +75,29 @@ def test_page_shows_warning_before_run_and_fits_only_on_click() -> None:
     at.run()
     assert not at.exception
     assert any("Result — engine: gam" in s.value for s in at.subheader)
+
+
+@pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
+def test_frame_without_q_base_still_offers_the_gam_section() -> None:
+    def app() -> None:
+        import polars as pl
+
+        from polaris_re.dashboard.views.experience_improvement import (
+            _missing_columns_fallback,
+        )
+
+        cells = pl.DataFrame(
+            {
+                "attained_age": [40, 41, 42, 43] * 5,
+                "calendar_year": [2015] * 20,
+                "death_count": [1.0, 2.0, 1.0, 3.0] * 5,
+                "central_exposure": [1000.0] * 20,
+            }
+        )
+        _missing_columns_fallback(cells, "count", {"q_base"})
+
+    at = AppTest.from_function(app, default_timeout=60)
+    at.run()
+    assert not at.exception
+    assert any("skipped" in w.value for w in at.warning)
+    assert any(b.key == "gam_run" for b in at.button)
