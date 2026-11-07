@@ -30,7 +30,7 @@ from polaris_re.dashboard.views.gam_fit_section import (
     prepare_frame,
     run_gam_request,
 )
-from polaris_re.gam.cost_model import estimate_n_coef, pre_run_warning, physical_memory_gb
+from polaris_re.gam.cost_model import estimate_n_coef, physical_memory_gb, pre_run_warning
 
 
 def _spec(cell_dir: Path) -> tuple[str, str]:
