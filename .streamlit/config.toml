@@ -3,5 +3,3 @@
 # T2_full cells.csv is ~330 MB; 500 MB gives headroom for T3c_full and similar.
 maxUploadSize = 500
 
-[theme]
-base = "light"

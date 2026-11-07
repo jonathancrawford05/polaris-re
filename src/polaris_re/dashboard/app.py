@@ -85,20 +85,6 @@ def main() -> None:
 
     page = st.sidebar.radio("Navigation", _PAGES)
 
-    # Narrow-viewport fallback nav — the sidebar collapses to a hamburger button on small
-    # screens (< ~768 px wide), making page switching invisible.  This compact selectbox in
-    # the main column is always visible and stays in sync with the sidebar selection.
-    with st.expander("📋 Page navigation (compact)", expanded=False):
-        compact_page = st.selectbox(
-            "Go to page",
-            _PAGES,
-            index=_PAGES.index(page),
-            key="compact_nav",
-            label_visibility="collapsed",
-        )
-        if compact_page != page:
-            page = compact_page
-
     if page == "Inforce Block":
         page_inforce()
     elif page == "Assumptions":

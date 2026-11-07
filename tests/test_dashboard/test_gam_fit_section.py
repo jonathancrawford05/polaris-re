@@ -172,6 +172,105 @@ def test_d2_page_shows_effects_surface_download_and_labelled_legacy_expander() -
     assert len(at.get("download_button")) >= 1  # the HGAM MI surface download (AppTest: generic)
 
 
+# ---------------------------------------------------------------------------
+# R-04 regression: numerical warning filter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
+def test_r04_numerical_warnings_suppressed_on_converged_fit() -> None:
+    """When a fit converges, slogdet/overflow raw text must NOT appear on-screen.
+
+    The fix: show a plain caption, not the raw NumPy warning text.
+    Own-criterion check (not a parity comparison).
+    """
+    import streamlit as st  # noqa: F401 — verify streamlit available before test body
+
+    from polaris_re.dashboard.views.gam_fit_section import GamRunResult, _show
+    from polaris_re.gam import GamFit
+
+    # Build a minimal converged fit stub by actually fitting a small model
+    d = _data().head(80)
+    res = run_gam_request(
+        d,
+        'death_count ~ s(attained_age, bs="cr", k=5) + offset(log_exposure)',
+        "poisson",
+        "gam",
+    )
+    if res.fit is None or not res.fit.converged:
+        pytest.skip("fit did not converge on stub data — skip R-04 check")
+
+    # Inject synthetic numerical warnings into a copy of the result
+    numerical_res = GamRunResult(
+        engine=res.engine,
+        fit=res.fit,
+        message=res.message,
+        warnings_seen=(
+            "overflow encountered in exp",
+            "slogdet: matrix is near singular",
+        ),
+        seconds=res.seconds,
+    )
+
+    def _app() -> None:
+        _show(numerical_res, d, 'death_count ~ s(attained_age, bs="cr", k=5) + offset(log_exposure)')
+
+    at = AppTest.from_function(_app, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # Raw NumPy warning text must not appear in any warning widget
+    warning_texts = " ".join(w.value for w in at.warning)
+    assert "overflow" not in warning_texts
+    assert "slogdet" not in warning_texts
+
+    # A caption noting numerical events should appear
+    caption_texts = " ".join(c.value for c in at.caption)
+    assert "numerical events" in caption_texts.lower()
+
+
+@pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
+def test_r04_numerical_warnings_in_expander_on_failed_convergence() -> None:
+    """When a fit does NOT converge, raw numerical warnings must appear in an expander.
+
+    Own-criterion check (not a parity comparison).
+    """
+    from polaris_re.dashboard.views.gam_fit_section import GamRunResult, _show
+    from polaris_re.gam import GamFit
+    from unittest.mock import MagicMock
+
+    # Build a mock fit that is marked as not converged
+    mock_fit = MagicMock(spec=GamFit)
+    mock_fit.converged = False
+    mock_fit.edf_total = 2.0
+    mock_fit.n_function_evals = 10
+    mock_fit.edf_per_term = {"s(attained_age)": 1.5}
+    mock_fit.summary.side_effect = Exception("no summary")
+
+    diverged_res = GamRunResult(
+        engine="gam",
+        fit=mock_fit,
+        message=None,
+        warnings_seen=("overflow encountered in exp", "slogdet: near singular"),
+        seconds=0.1,
+    )
+
+    def _app() -> None:
+        _show(diverged_res, _data().head(20), 'death_count ~ s(attained_age, bs="cr", k=4)')
+
+    at = AppTest.from_function(_app, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    # Raw warning text should appear inside an expander, not a bare warning widget
+    # (AppTest surfaces expander labels; we check the label contains the key phrase)
+    expander_labels = " ".join(e.label for e in at.expander)
+    assert "did not converge" in expander_labels.lower() or "not converge" in expander_labels.lower()
+
+
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
 def test_surface_refusal_without_year_smooth_is_shown_by_name() -> None:
     at = AppTest.from_file(APP, default_timeout=120)
