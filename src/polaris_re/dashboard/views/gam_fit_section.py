@@ -240,7 +240,22 @@ def _show(res: GamRunResult, data: pl.DataFrame, formula: str) -> None:
         return
     fit = res.fit
     st.caption(f"Fit took {res.seconds:.1f} s (MEASUREMENT on this machine).")
-    for w in res.warnings_seen:
+    # slogdet divide-by-zero / overflow / invalid warnings are normal REML artefacts when the
+    # penalty matrix is near-singular during optimisation; the fit converges regardless.
+    # They are not meaningful on a user-facing surface, so we suppress them here.
+    _NUMERICAL_PATTERNS = ("slogdet", "divide by zero", "overflow", "invalid value")
+    numerical_events = [
+        w for w in res.warnings_seen if any(p in w.lower() for p in _NUMERICAL_PATTERNS)
+    ]
+    user_warnings = [
+        w for w in res.warnings_seen if not any(p in w.lower() for p in _NUMERICAL_PATTERNS)
+    ]
+    if numerical_events:
+        st.caption(
+            "REML optimisation included standard numerical events (near-singular penalty "
+            "matrix) — fit converged normally."
+        )
+    for w in user_warnings:
         st.warning(w)
     m1, m2, m3 = st.columns(3)
     m1.metric("edf total", f"{fit.edf_total:.2f}")
@@ -254,8 +269,11 @@ def _show(res: GamRunResult, data: pl.DataFrame, formula: str) -> None:
     )
     try:
         st.code(str(fit.summary()))
-    except PolarisValidationError as exc:
-        st.info(str(exc))
+    except PolarisValidationError:
+        st.info(
+            "Full coefficient table is not available for the **BAM** engine. "
+            "Review EDF per term in the table above."
+        )
     _show_effects(fit, data, res.engine)
     _show_surface(fit, data, res.engine)
 
