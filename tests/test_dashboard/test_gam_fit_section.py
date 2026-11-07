@@ -101,3 +101,44 @@ def test_frame_without_q_base_still_offers_the_gam_section() -> None:
     assert not at.exception
     assert any("skipped" in w.value for w in at.warning)
     assert any(b.key == "gam_run" for b in at.button)
+
+
+def test_cloglog_link_is_kept_end_to_end(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    import importlib.util
+    import json
+    from pathlib import Path
+
+    from polaris_re.dashboard.views.gam_fit_section import FAMILY_CHOICES
+
+    assert 'binomial(link="cloglog")' in FAMILY_CHOICES
+    script = Path(__file__).parents[2] / "scripts" / "gam_dashboard_local_check.py"
+    mod_spec = importlib.util.spec_from_file_location("local_check", script)
+    assert mod_spec is not None and mod_spec.loader is not None
+    mod = importlib.util.module_from_spec(mod_spec)
+    mod_spec.loader.exec_module(mod)
+
+    cell = tmp_path
+    (cell / "spec.json").write_text(
+        json.dumps({"formula": "y ~ s(x, bs='cr', k=5)", "family": 'binomial(link="cloglog")'})
+    )
+    assert mod._spec(cell) == ("y ~ s(x, bs='cr', k=5)", 'binomial(link="cloglog")')
+    (cell / "spec.json").write_text(
+        json.dumps({"formula": "y ~ s(x)", "family": "poisson", "weights": "w"})
+    )
+    with pytest.raises(SystemExit, match="weights"):
+        mod._spec(cell)
+    (cell / "spec.json").write_text(json.dumps({"formula": "y ~ s(x)", "family": "gamma"}))
+    with pytest.raises(SystemExit, match="not one the page offers"):
+        mod._spec(cell)
+
+
+def test_cloglog_family_string_reaches_the_fit() -> None:
+    import numpy as np
+
+    rng = np.random.default_rng(3)
+    x = rng.uniform(0, 1, 400)
+    p = 1 - np.exp(-np.exp(-1.0 + 1.5 * x))
+    df = pl.DataFrame({"x": x, "y": (rng.uniform(size=400) < p).astype(float)})
+    res = run_gam_request(df, 'y ~ s(x, bs="cr", k=5)', 'binomial(link="cloglog")', "gam")
+    assert res.fit is not None
+    assert res.fit.model.link == "cloglog"

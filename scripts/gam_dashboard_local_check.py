@@ -34,10 +34,21 @@ from polaris_re.gam.cost_model import estimate_n_coef, physical_memory_gb, pre_r
 
 
 def _spec(cell_dir: Path) -> tuple[str, str]:
+    """The formula and the FULL family string (the link is kept: ``binomial(link="cloglog")``).
+
+    A spec the page cannot reproduce is refused, never silently simplified: an unsupported
+    family, or a weights column (``run_gam_request`` takes none).
+    """
     spec = json.loads((cell_dir / "spec.json").read_text())
-    family = str(spec["family"]).split("(")[0].strip()
-    if family not in FAMILIES:
-        raise SystemExit(f"spec family {spec['family']!r} is not one the page offers: {FAMILIES}")
+    family = str(spec["family"]).strip()
+    base = family.split("(")[0].strip()
+    if base not in FAMILIES:
+        raise SystemExit(f"spec family {family!r} is not one the page offers: {FAMILIES}")
+    if spec.get("weights"):
+        raise SystemExit(
+            f"spec has weights={spec['weights']!r}; the page and this check fit without weights, "
+            "so the result would not be the same model. Refusing rather than dropping them."
+        )
     return spec["formula"], family
 
 

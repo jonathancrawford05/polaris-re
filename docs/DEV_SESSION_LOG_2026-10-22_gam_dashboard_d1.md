@@ -46,3 +46,6 @@ Uploading the T1_mid `cells.csv` (109,158 rows) stopped at the page's `q_base` v
 
 ## Tier-L batch (2026-11-07)
 Six real-cell readings on the maintainer's M4 are recorded in `docs/CONTINUATION_gam_dashboard.md`: all inside the model's bands; MEASUREMENT, one machine. Follow-ups (slogdet warnings; per-fit gam RSS) are in the PRODUCT_DIRECTION addendum. CI on head 7e6e4b8 was fully green.
+
+## Link handling fix (2026-11-07, review of PR #278's script)
+`gam_dashboard_local_check.py::_spec` stripped the link from the family (`binomial(link="cloglog")` became `binomial`, i.e. logit) and silently ignored a weights column; the page's family list also had no link option. Fixed: the script keeps the full family string and refuses a spec with weights or an unsupported family; the page offers `binomial(link="cloglog")`. Tests: `test_cloglog_link_is_kept_end_to_end`, `test_cloglog_family_string_reaches_the_fit`. The cost model was not re-fitted (it never saw a cloglog cell: S1 was not fitted in R2).

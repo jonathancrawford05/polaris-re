@@ -35,6 +35,9 @@ __all__ = ["GamRunResult", "render_gam_section", "run_gam_request"]
 
 GAM_CACHE_KEY = "gam_hgam_fit_cache"
 FAMILIES = ("poisson", "quasipoisson", "binomial", "gaussian")
+FAMILY_CHOICES = (*FAMILIES, 'binomial(link="cloglog")')
+"""What the page offers: the families, plus the cloglog link the R2 sensitivity cell S1 used.
+``gam()`` takes the family string verbatim, so the link is never dropped."""
 DEFAULT_FORMULA = (
     'death_count ~ s(attained_age, bs="cr", k=8) + s(calendar_year, bs="cr", k=5) '
     "+ offset(log_exposure)"
@@ -151,7 +154,7 @@ def render_gam_section(cells: pl.DataFrame) -> None:
         st.caption("`log_exposure` = ln(`central_exposure`) was added for the offset.")
     formula = st.text_input("Formula", value=DEFAULT_FORMULA, help=HELP, key="gam_formula")
     c1, c2 = st.columns(2)
-    family = c1.selectbox("Family", list(FAMILIES), key="gam_family")
+    family = c1.selectbox("Family", list(FAMILY_CHOICES), key="gam_family")
     dflt = default_engine(n_rows)
     engine = cast(
         Engine,
