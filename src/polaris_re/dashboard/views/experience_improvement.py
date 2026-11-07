@@ -233,64 +233,12 @@ def _missing_columns_fallback(cells: pl.DataFrame, basis: str, missing: set[str]
     render_gam_section(cells)
 
 
-def page_experience_improvement() -> None:
-    """Mortality Improvement page — experience-GAM diagnostics (Slice 1)."""
-    st.header("Mortality Improvement (Experience-GAM Diagnostics)")
-    st.caption(
-        "Inspect a fitted data-driven mortality-improvement surface (A4' epic). "
-        "Load the built-in sample or upload a grouped-cell experience CSV with "
-        "`attained_age`, `calendar_year`, `q_base`, and the exposure/deaths pair, "
-        "then view the fitted effects, the `MI_x(y)` surface, and (optionally) a "
-        "forward projection fan. This page is diagnostics only — it does not "
-        "change any pricing output."
-    )
+def _render_legacy_model(cells: pl.DataFrame, basis: str) -> None:
+    """The older tensor P-spline experience GAM views, kept unchanged behind an expander.
 
-    # --- Data source ---
-    source = st.radio("Data source", ["Sample data", "Upload CSV"], horizontal=True)
-
-    basis = st.selectbox(
-        "Experience basis",
-        ["count", "amount"],
-        help="'count' uses central_exposure/death_count; 'amount' uses "
-        "amount_exposed/death_amount (overdispersed → wider bands).",
-    )
-
-    cells: pl.DataFrame | None = None
-    if source == "Sample data":
-        cells = _sample_cells()
-        st.info(
-            f"Using built-in sample: ages {_SAMPLE_AGES[0]}-{_SAMPLE_AGES[1]} x "
-            f"years {_SAMPLE_YEARS[0]}-{_SAMPLE_YEARS[1]}, flat "
-            f"{_SAMPLE_MI:.1%}/yr improvement (count basis)."
-        )
-        if basis == "amount":
-            st.warning(
-                "The built-in sample carries the count basis only. Switch to "
-                "'count', or upload an amount-basis CSV."
-            )
-            return
-    else:
-        uploaded = st.file_uploader("Experience CSV", type=["csv"])
-        if uploaded is not None:
-            try:
-                cells = _read_uploaded_csv(uploaded)
-                st.success(f"Loaded {len(cells):,} rows from {uploaded.name}")
-            except Exception as exc:  # broad — surface any parse error to the UI
-                st.error(f"Failed to read CSV: {exc}")
-                return
-
-    if cells is None:
-        st.caption("Upload a CSV above to begin, or switch to **Sample data**.")
-        return
-
-    missing = _missing_basis_columns(cells, basis)
-    if missing:
-        _missing_columns_fallback(cells, basis, missing)
-        return
-
-    with st.expander("Preview data", expanded=False):
-        st.dataframe(cells.head(20).to_pandas(), use_container_width=True)
-
+    These feed the CLI and the improvement-version pricing path (ADR-148); the HGAM section
+    leads the page since D2 (ADR-263). This is NOT the HGAM: every figure here is the older
+    model's."""
     # --- Configuration ---
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -471,9 +419,77 @@ def page_experience_improvement() -> None:
         except (PolarisValidationError, PolarisComputationError) as exc:
             st.error(f"Bayesian projection failed: {exc}")
 
+
+def page_experience_improvement() -> None:
+    """Mortality Improvement page — experience-GAM diagnostics (Slice 1)."""
+    st.header("Mortality Improvement (Experience-GAM Diagnostics)")
+    st.caption(
+        "Inspect a fitted data-driven mortality-improvement surface (A4' epic). "
+        "Load the built-in sample or upload a grouped-cell experience CSV with "
+        "`attained_age`, `calendar_year`, `q_base`, and the exposure/deaths pair, "
+        "then view the fitted effects, the `MI_x(y)` surface, and (optionally) a "
+        "forward projection fan. This page is diagnostics only — it does not "
+        "change any pricing output."
+    )
+
+    # --- Data source ---
+    source = st.radio("Data source", ["Sample data", "Upload CSV"], horizontal=True)
+
+    basis = st.selectbox(
+        "Experience basis",
+        ["count", "amount"],
+        help="'count' uses central_exposure/death_count; 'amount' uses "
+        "amount_exposed/death_amount (overdispersed → wider bands).",
+    )
+
+    cells: pl.DataFrame | None = None
+    if source == "Sample data":
+        cells = _sample_cells()
+        st.info(
+            f"Using built-in sample: ages {_SAMPLE_AGES[0]}-{_SAMPLE_AGES[1]} x "
+            f"years {_SAMPLE_YEARS[0]}-{_SAMPLE_YEARS[1]}, flat "
+            f"{_SAMPLE_MI:.1%}/yr improvement (count basis)."
+        )
+        if basis == "amount":
+            st.warning(
+                "The built-in sample carries the count basis only. Switch to "
+                "'count', or upload an amount-basis CSV."
+            )
+            return
+    else:
+        uploaded = st.file_uploader("Experience CSV", type=["csv"])
+        if uploaded is not None:
+            try:
+                cells = _read_uploaded_csv(uploaded)
+                st.success(f"Loaded {len(cells):,} rows from {uploaded.name}")
+            except Exception as exc:  # broad — surface any parse error to the UI
+                st.error(f"Failed to read CSV: {exc}")
+                return
+
+    if cells is None:
+        st.caption("Upload a CSV above to begin, or switch to **Sample data**.")
+        return
+
+    missing = _missing_basis_columns(cells, basis)
+    if missing:
+        _missing_columns_fallback(cells, basis, missing)
+        return
+
+    with st.expander("Preview data", expanded=False):
+        st.dataframe(cells.head(20).to_pandas(), use_container_width=True)
+
     from polaris_re.dashboard.views.gam_fit_section import render_gam_section
 
     render_gam_section(cells)
+
+    with st.expander(
+        "Legacy model: older tensor P-spline experience GAM (not the HGAM above)", expanded=False
+    ):
+        st.caption(
+            "A different model from the HGAM section. Kept because pricing-adjacent paths use it "
+            "(ADR-148); the Bayesian projection fan exists only on this model."
+        )
+        _render_legacy_model(cells, basis)
 
     st.caption(
         "Diagnostics only. Slice 2 wires a versioned improvement basis into the "

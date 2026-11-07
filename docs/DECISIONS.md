@@ -25642,9 +25642,9 @@ Not changed: the gate; the recorded `S1_mid` result (NOT MET on (B) as written);
 **Not done / limits.** The cost model has never been checked on a machine other than the maintainer's (the sandbox timings are far below the fitted range). `estimate_n_coef` is a formula-level count checked against one synthetic fit, not the 15 real formulas (no real data in the cloud). Profiles for `ti`, `re` and `by` terms are not drawn. No D2 work.
 
 
-## ADR-263: GAM dashboard Slice D2 — the page's effects and improvement surface are driven by the HGAM fit; correctness is truth recovery, not agreement with the older model (PROPOSED)
+## ADR-263: GAM dashboard Slice D2 — the page's effects and improvement surface are driven by the HGAM fit; correctness is truth recovery, not agreement with the older model (IMPLEMENTED, awaiting the maintainer's confirmation)
 
-**Status:** PROPOSED 2026-11-07 (planning with the maintainer; no code). Becomes ACCEPTED when the maintainer confirms on the D2 PR.
+**Status:** IMPLEMENTED 2026-11-07 (all six checkpoints, one session; amendment 1 holds the pre-registration and the first-run results). Becomes ACCEPTED when the maintainer confirms on the D2 PR.
 
 **Decisions (maintainer, 2026-11-07).** Both fitted effects and the improvement surface `MI_x(y)`; HGAM-driven views; the older `ExperienceGAM`/`TensorMIModel` code stays untouched (it feeds the CLI and the `improvement_version_id` pricing path, ADR-148), its retirement is neither part of D2 nor a priority; no pricing link; `q_base` an optional offset; true partial effects; `gam`/`bam` the only engine choice; the Bayesian projection fan stays on the old model, labelled, until an HGAM Bayesian feature is planned (wanted eventually; not D2).
 
@@ -25655,3 +25655,25 @@ Not changed: the gate; the recorded `S1_mid` result (NOT MET on (B) as written);
 **Pre-registration.** Tolerances for the truth-recovery tests are derived from the fits' own standard errors and written in the test module and this ADR BEFORE the first run; a miss is a result.
 
 **Risks recorded.** `ti` surfaces on sparse cells; `bam`'s `Vp` for a contrast; the unexamined `slogdet` warnings on the `gam` path.
+
+### ADR-263 amendment 1 (2026-11-07, D2 session): checkpoint 1 definitions and the PRE-REGISTERED truth-recovery tolerances (written before the first run)
+
+**Code:** `polaris_re/gam/effects.py` (`partial_effects`, `improvement_surface`, `truth_recovery_claim`); tests `tests/test_gam/test_effects.py`, `tests/test_gam/test_improvement_truth.py`.
+
+**Definitions.** Partial effect of a term: `B(grid) beta[block]`, other terms/intercept/offset excluded (the `plot.gam` convention); smooths are centred over the TRAINING rows by the absorbed sum-to-zero constraint; band `z * sqrt(diag(B Vp_block B^T))`, conditional `Vp`. `MI_x(y) = 1 - exp(d)`, `d = D beta`, `D = X(x,y) - X(x,y-1)`, `Var(d) = D Vp D^T`, band `1 - exp(d +- z se_d)`. Other covariates at the median / first level (matters only for a term involving both the year and that covariate).
+
+**Claim sentence (closed form, INDEPENDENT producers, not `mgcv` parity).** "The data generator computes MI_x(y) from its closed-form improvement law; `improvement_surface` computes MI_x(y) from the HGAM fitted to a draw of that data; compared on MI at each (age, year) cell and on band coverage."
+
+**Test (a), the built-in sample (noise-free).** Truth `MI = 0.015` at every cell. Derivation of the bound: the true `eta` is linear in year, which is in the null space of the `cr` penalty, and the age effect `log q0(age)` is linear in age (also null space), so the truth is in the model space with zero penalty AND zero deviance; the penalised criterion is minimised at the truth for every smoothing parameter. The fit therefore differs from the truth only by the IRLS stopping tolerance. Pre-registered bound: `max |MI - 0.015| <= 1e-6` (relative 7e-5 of MI) at every cell, and `0.015` inside the 95% band at every cell. A miss is reported, not widened.
+
+**Test (b), seeded Poisson draws with an AGE-VARYING improvement.** Truth `log(1 - MI_x) = -(b0 + b1 (x - 40))`, `b0 = 0.02`, `b1 = 0.0005` (so `MI` runs 1.98% at 40 to 3.4% at 70 per cell, constant in year), written as a closed form in the test. Ages 40-70, years 2005-2020, exposure 5e4 per cell, `q0(x) = 0.004 exp(0.08 (x - 45))`, deaths `Poisson(exposure * q0 * exp(-(b0 + b1 (x-40)) (y-2005)))`. Formula `death_count ~ s(age, cr, k=8) + s(year, cr, k=5) + ti(age, year, cr) + offset(log_exposure)`. The truth's `eta` interaction is bilinear (age x year), which the `ti` null space contains. Criteria, per seed (10 seeds, `gam`; 3 seeds, `bam`):
+1. `max over cells |MI - truth| / mi_se <= 4.5`. Derivation: 496 cells, strongly correlated; a Gaussian pointwise tail at 4.5 is 7e-6, so even with no correlation the chance of any exceedance in 496 cells is about 0.4%; a miss is evidence of bias or an understated se, not of noise.
+2. Band coverage (fraction of cells whose 95% band contains the truth) `>= 0.75` per seed, and mean over the seeds `>= 0.90`. Derivation: a Bayesian-smoother band has nominal coverage averaged over the surface, not at every point (Nychka 1988; Marra and Wood 2012); cells are correlated so one seed can sit well off 0.95; 0.90 for the mean allows for the average-coverage shortfall at the edges.
+3. `converged` for every `gam` fit (the `bam` fits do not report it the same way; their convergence is the engine's).
+Seeds: 20260101 + i. Nothing is tuned between runs; a failing seed is a result.
+
+**What the recovery tests do NOT show.** They show the HGAM + delta method recover a known surface on this generator, once, at these sizes. They are not parity with `mgcv` (that is established elsewhere, ADR-258/260/261), and a bound that passed on a smooth bilinear truth says nothing about a sharply varying one.
+
+**Results of the first and only run (tier: none; no `mgcv` involved; MEASUREMENT against a closed form).** Everything pre-registered passed, nothing was tuned. Test (a): max |MI - 0.015| = 5.0e-14 (bound 1e-6), 0.015 inside the band at every cell. Test (b), `gam`, 10 seeds: max |z| 0.64-2.76 (bound 4.5); coverage per seed 0.791-1.000 (bound 0.75), mean 0.961 (bound 0.90); 7 of 10 seeds covered 1.000. `bam`, 3 seeds: the same numbers as `gam` on seeds 1 and 2, mean coverage 0.951. All 10 `gam` fits converged. **Reading, stated against itself:** the band is on the conservative side (7/10 seeds with every cell covered) and two seeds (0.852, 0.791) sit in the 0.75-0.90 range the pre-registration allowed for; the truth is smooth and bilinear in the `ti` null space, so this says nothing about a sharply varying surface. Report: `scripts/gam_d2_truth_report.py` (output quoted in `docs/DEV_SESSION_LOG_2026-11-07_gam_dashboard_d2.md`).
+
+**Page wiring (checkpoint 5).** The HGAM section leads the page; the old views render inside an expander labelled "Legacy model: older tensor P-spline experience GAM (not the HGAM above)"; the Bayesian projection fan stays inside it. `q_base`, when present, becomes `log_expected = ln(central_exposure * q_base)` and the default offset (decision 4). D1's link profiles (`effect_profiles`) remain as a function (their test stays) but the page now shows `partial_effects`. **Not done, recorded:** the `amount` basis (`amount_exposed`/`death_amount`) is not wired into the HGAM section (its default formula reads `death_count`); a user can type a formula against their own columns.

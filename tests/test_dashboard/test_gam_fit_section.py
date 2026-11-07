@@ -142,3 +142,47 @@ def test_cloglog_family_string_reaches_the_fit() -> None:
     res = run_gam_request(df, 'y ~ s(x, bs="cr", k=5)', 'binomial(link="cloglog")', "gam")
     assert res.fit is not None
     assert res.fit.model.link == "cloglog"
+
+
+def test_default_formula_uses_q_base_offset_when_present() -> None:
+    from polaris_re.dashboard.views.gam_fit_section import default_formula
+
+    d = _data()
+    assert "log_expected" in d.columns
+    assert "offset(log_expected)" in default_formula(d)
+    assert "offset(log_exposure)" in default_formula(d.drop("log_expected", "q_base"))
+
+
+@pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
+def test_d2_page_shows_effects_surface_download_and_labelled_legacy_expander() -> None:
+    at = AppTest.from_file(APP, default_timeout=120)
+    at.run()
+    at.sidebar.radio[0].set_value("Mortality Improvement")
+    at.run()
+    assert any(
+        "Legacy model" in e.label and "not the HGAM" in e.label for e in at.expander
+    )  # old views stay reachable, labelled
+    next(b for b in at.button if b.key == "gam_run").click()
+    at.run()
+    assert not at.exception
+    heads = " | ".join(s.value for s in at.subheader)
+    assert "Partial effects — engine: gam" in heads
+    assert "Improvement surface MI_x(y) — engine: gam" in heads
+    assert any("not fed to pricing" in w.value for w in at.warning)
+    assert len(at.get("download_button")) >= 1  # the HGAM MI surface download (AppTest: generic)
+
+
+@pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
+def test_surface_refusal_without_year_smooth_is_shown_by_name() -> None:
+    at = AppTest.from_file(APP, default_timeout=120)
+    at.run()
+    at.sidebar.radio[0].set_value("Mortality Improvement")
+    at.run()
+    at.text_input(key="gam_formula_qbase").set_value(
+        'death_count ~ s(attained_age, bs="cr", k=6) + offset(log_expected)'
+    )
+    at.run()
+    next(b for b in at.button if b.key == "gam_run").click()
+    at.run()
+    assert not at.exception
+    assert any("no smooth term of 'calendar_year'" in i.value for i in at.info)
