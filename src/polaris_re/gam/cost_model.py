@@ -55,14 +55,18 @@ BAM_DEFAULT_THRESHOLD_ROWS: Final = 300_000
 """Maintainer decision 2026-10-21 (PLAN §3.3): default ``gam`` at or below, ``bam`` above."""
 
 GAM_MEMORY_FLOOR_MULTIPLIER: Final = 12.0
-"""ASSUMPTION for the RAM block only: peak RSS over the dense-design floor. The synthetic sweep
-(``docs/measurements/gam_dashboard_memory_2026-10-22.json``) gives 11.1x at 10k rows and 5.6x at
-40k (above the import baseline; 39x at 2k is dominated by fixed overhead); 12 is the larger of
-the n >= 10k ratios, rounded up. Off-range and off-machine: stated in the warning text."""
+"""ASSUMPTION for the RAM block only: peak RSS over the dense-design floor (decimal GB, bytes/1e9).
+It sits above every ratio measured on real cells: T1_mid 8.2x (530.5 MiB script-measured peak
+against a 68 MB floor, import baseline included, tier L) and the R2 process high-water bound of
+about 10x (10,434 MiB against a 1.08 GB floor at 886k x 152). The synthetic sweep is NOT the
+source: its above-baseline ratios are 18.5x at 10k rows and 7.7x at 40k (its ``peak_rss_gb`` is
+GiB), dominated by fixed overhead at small sizes. A higher figure would block fits known to
+have run on the 24 GB M4. Off-machine for everyone else; not a fitted model."""
 
-GAM_R2_RSS_UPPER_BOUND_GB: Final = 10.2
-"""R2 JSON ``polaris.peak_rss_mb`` maximum over fitted cells (10,434 MB): a process high-water
-mark, an upper bound per cell, not attributable."""
+GAM_R2_RSS_UPPER_BOUND_GB: Final = 10.9
+"""R2 JSON ``polaris.peak_rss_mb`` maximum over fitted cells, 10,434 MiB = 10.9 decimal GB (the
+unit of the dense floor printed beside it): a process high-water mark, an upper bound per cell,
+not attributable."""
 
 MACHINE: Final = "Apple M4 (4P+6E), 24 GB RAM, macOS, OPENBLAS_NUM_THREADS=1 (maintainer's MacBook)"
 
@@ -387,9 +391,9 @@ def pre_run_warning(
             f"the real peak is several times that (R2 gam fits of 0.3M-0.9M rows reached "
             f"{GAM_R2_RSS_UPPER_BOUND_GB:.1f} GB as a process high-water mark, an upper bound). "
             f"The block check ASSUMES {GAM_MEMORY_FLOOR_MULTIPLIER:.0f}x the floor "
-            f"(~{floor * GAM_MEMORY_FLOOR_MULTIPLIER:.1f} GB); that multiplier is the largest "
-            "above-baseline peak/floor ratio of the synthetic sweep at 10k rows or more, on a "
-            "different machine and at 18 coefficients, not a fitted model."
+            f"(~{floor * GAM_MEMORY_FLOOR_MULTIPLIER:.1f} GB); 12x sits above the real-cell "
+            "ratios seen on the maintainer's M4 (T1_mid 8.2x measured, R2 about 10x upper "
+            "bound). It is an assumption, not a fitted model."
         )
         need = floor * GAM_MEMORY_FLOOR_MULTIPLIER
     lines.extend(est.notes)

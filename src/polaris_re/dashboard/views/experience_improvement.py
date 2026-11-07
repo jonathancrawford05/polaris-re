@@ -223,7 +223,7 @@ def _missing_columns_fallback(cells: pl.DataFrame, basis: str, missing: set[str]
     from polaris_re.dashboard.views.gam_fit_section import render_gam_section
 
     st.warning(
-        f"The experience-GAM diagnostics above are skipped: the CSV is missing required columns "
+        f"The experience-GAM diagnostics are skipped: the CSV is missing required columns "
         f"for the '{basis}' basis: {sorted(missing)} (they need a pre-built `q_base` offset; the "
         f"versioned-table attach path is a later slice). The HGAM fitter below needs only the "
         f"columns its formula names."
