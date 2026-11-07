@@ -213,6 +213,26 @@ def _cached_fit_models(
     return models
 
 
+def _missing_columns_fallback(cells: pl.DataFrame, basis: str, missing: set[str]) -> None:
+    """The A/E diagnostics need the canonical columns; the GAM section below does not.
+
+    A frame without ``q_base`` (or the exposure/deaths pair) skips the older experience-GAM
+    diagnostics with a warning and still offers the HGAM fitter, which reads only the columns
+    its own formula names.
+    """
+    from polaris_re.dashboard.views.gam_fit_section import render_gam_section
+
+    st.warning(
+        f"The experience-GAM diagnostics are skipped: the CSV is missing required columns "
+        f"for the '{basis}' basis: {sorted(missing)} (they need a pre-built `q_base` offset; the "
+        f"versioned-table attach path is a later slice). The HGAM fitter below needs only the "
+        f"columns its formula names."
+    )
+    with st.expander("Preview data", expanded=False):
+        st.dataframe(cells.head(20).to_pandas(), use_container_width=True)
+    render_gam_section(cells)
+
+
 def page_experience_improvement() -> None:
     """Mortality Improvement page — experience-GAM diagnostics (Slice 1)."""
     st.header("Mortality Improvement (Experience-GAM Diagnostics)")
@@ -265,11 +285,7 @@ def page_experience_improvement() -> None:
 
     missing = _missing_basis_columns(cells, basis)
     if missing:
-        st.error(
-            f"CSV is missing required columns for the '{basis}' basis: "
-            f"{sorted(missing)}. Slice 1 requires a pre-built `q_base` offset "
-            f"column; the versioned-table attach path is a later slice."
-        )
+        _missing_columns_fallback(cells, basis, missing)
         return
 
     with st.expander("Preview data", expanded=False):
@@ -454,6 +470,10 @@ def page_experience_improvement() -> None:
             plt.close(fig_proj)
         except (PolarisValidationError, PolarisComputationError) as exc:
             st.error(f"Bayesian projection failed: {exc}")
+
+    from polaris_re.dashboard.views.gam_fit_section import render_gam_section
+
+    render_gam_section(cells)
 
     st.caption(
         "Diagnostics only. Slice 2 wires a versioned improvement basis into the "
