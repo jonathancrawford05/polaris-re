@@ -25640,3 +25640,18 @@ Not changed: the gate; the recorded `S1_mid` result (NOT MET on (B) as written);
 **Page.** `dashboard/views/gam_fit_section.py`, rendered after the existing diagnostics; additive, existing behaviour unchanged. The fit runs only on the explicit button, is cached by a content+config signature in `st.session_state` (so widget moves do not refit; changed inputs show "press Run again" instead of stale results), a refusal is a displayed result naming the construct, the effects are profiles of the link along each single-covariate smooth (other covariates at median/first level, offset 0) with +/-2 Vp se. `summary()` is shown for `gam`; the `bam` path states it is unavailable (ADR-260).
 
 **Not done / limits.** The cost model has never been checked on a machine other than the maintainer's (the sandbox timings are far below the fitted range). `estimate_n_coef` is a formula-level count checked against one synthetic fit, not the 15 real formulas (no real data in the cloud). Profiles for `ti`, `re` and `by` terms are not drawn. No D2 work.
+
+
+## ADR-263: GAM dashboard Slice D2 — the page's effects and improvement surface are driven by the HGAM fit; correctness is truth recovery, not agreement with the older model (PROPOSED)
+
+**Status:** PROPOSED 2026-11-07 (planning with the maintainer; no code). Becomes ACCEPTED when the maintainer confirms on the D2 PR.
+
+**Decisions (maintainer, 2026-11-07).** Both fitted effects and the improvement surface `MI_x(y)`; HGAM-driven views; the older `ExperienceGAM`/`TensorMIModel` code stays untouched (it feeds the CLI and the `improvement_version_id` pricing path, ADR-148), its retirement is neither part of D2 nor a priority; no pricing link; `q_base` an optional offset; true partial effects; `gam`/`bam` the only engine choice; the Bayesian projection fan stays on the old model, labelled, until an HGAM Bayesian feature is planned (wanted eventually; not D2).
+
+**Why no comparison with the old model.** The older model is being superseded, so agreement or disagreement with it says nothing about whether the HGAM surface is right. D2 instead tests against closed-form truth: data generated with a known improvement, where `MI_x(y)` is a formula. Both sides are then different producers (the generating formula and the fit), which is a real check, labelled MEASUREMENT (own criterion) because it is neither `mgcv` parity nor an actuarial result.
+
+**Definition.** `MI_x(y) = 1 - exp(eta(x,y) - eta(x,y-1))`, identical to the documented definition of the older model, so the figure keeps its meaning; band from the linear contrast, `Var = D Vp D^T` with `D` the difference of two design rows (`predict_design`) and `Vp = vcov()`.
+
+**Pre-registration.** Tolerances for the truth-recovery tests are derived from the fits' own standard errors and written in the test module and this ADR BEFORE the first run; a miss is a result.
+
+**Risks recorded.** `ti` surfaces on sparse cells; `bam`'s `Vp` for a contrast; the unexamined `slogdet` warnings on the `gam` path.

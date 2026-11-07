@@ -4170,3 +4170,8 @@ Provenance: INDEPENDENT comparison (Polaris two-start fit vs `mgcv` `quasipoisso
 
 - **Update 2026-11-07 (D1 tier-L reading, PR #277):** the 1st-order cost-model check above is DONE for one cell (T1_mid, both engines inside their bands; one machine). **2nd-order (NICE-TO-HAVE, new):** the `numpy` `slogdet` divide-by-zero/overflow warnings seen on the page's `gam` fit (the same unexamined path as R2 finding 8, `gam_reml.py` `reml_score_general`); examine before the page is used on more cells. Also check a second cell and, ideally, a second machine before widening trust in the band.
 - **Update 2026-11-07 (second tier-L batch, PR #277):** the cost-model check now has six readings, all inside the band (see the CONTINUATION). **Follow-up kept (2nd-order, NICE-TO-HAVE):** the `slogdet` warnings (present on every gam fit, absent on bam); examine `reml_score_general` for whether they signal a real numerical issue or benign evaluation at a bound. **3rd-order (parked):** a per-fit peak RSS on real gam cells (currently one: T1_mid 530 MB) to replace the 12x assumption.
+
+## Addendum 2026-11-07 — D2 planning (ADR-263)
+- **1st-order (promoted, sequenced after D2):** an HGAM Bayesian projection feature (replacing the old model's fan); needs its own PLAN and a definition of correct (the `Vp` posterior is already Bayesian; a forward projection needs a prior on the calendar trend). Until then the fan stays on the old model, labelled. Source: maintainer 2026-11-07.
+- **2nd-order (NICE-TO-HAVE):** retirement of the older `ExperienceGAM`/`TensorMIModel` code and the `improvement_version_id` path onto the HGAM (maintainer: not a priority); it touches pricing and the goldens, so it needs its own PLAN.
+- **3rd-order (parked):** none new.
