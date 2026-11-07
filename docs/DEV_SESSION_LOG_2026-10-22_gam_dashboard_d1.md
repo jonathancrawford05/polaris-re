@@ -43,3 +43,6 @@ P1 harvest: PRODUCT_DIRECTION addendum 2026-10-22 added. P1 memory multiplier: t
 
 ## Maintainer local-run finding (2026-11-07)
 Uploading the T1_mid `cells.csv` (109,158 rows) stopped at the page's `q_base` validation and the GAM section never rendered: the section was placed after a check it does not need. Fixed: a frame missing the A/E columns now skips only the older diagnostics (warning) and still renders the HGAM section (`_missing_columns_fallback`; AppTest `test_frame_without_q_base_still_offers_the_gam_section`). The default formula names `death_count`, `attained_age`, `calendar_year`, `log_exposure`; a frame with other column names needs its own formula typed in.
+
+## Tier-L batch (2026-11-07)
+Six real-cell readings on the maintainer's M4 are recorded in `docs/CONTINUATION_gam_dashboard.md`: all inside the model's bands; MEASUREMENT, one machine. Follow-ups (slogdet warnings; per-fit gam RSS) are in the PRODUCT_DIRECTION addendum. CI on head 7e6e4b8 was fully green.
