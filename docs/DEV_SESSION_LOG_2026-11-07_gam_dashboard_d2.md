@@ -58,7 +58,7 @@ No convergence loop (no gap to close). One pre-registered test family, run once,
 `polaris_re/gam/effects.py` (`partial_effects`, `improvement_surface`, `truth_recovery_claim`); page: HGAM section leads, partial effects replace link profiles, MI surface + band-width map + CSV download, `q_base` offset (`log_expected`), old views inside an expander labelled "Legacy model ... (not the HGAM above)". Old model code untouched; goldens not re-pointed (no pricing path calls any of this).
 
 ## Baseline
-<!--BASELINE-->
+Full run, `pytest tests/ -m "not slow"` (no `-x`), with R installed, after the D2 changes: **5 failed, 4236 passed, 22 skipped, 147 deselected** (556.75 s). The 5 failures (`test_experience_loaders::test_loaded_ilec_feeds_tensor_mi_surface`, 4 x `test_synthetic_block::TestCalibratedPremiums`) fail identically on the pre-change base `05333c1` (re-run in a clean worktree): `FileNotFoundError: data/mortality_tables/soa_vbt_2015_male_smoker.csv` -- the mortality-table CSVs are not converted in this environment. Standing environment failures, not caused by D2. The 4 new slow truth tests pass when run with `-m "slow or not slow"` (also run via `scripts/gam_d2_truth_report.py`). The `tests/qa` goldens ran inside this suite and passed (byte-identical, nothing re-pointed).
 
 ## Quality gate
 `ruff format`, `ruff check`: clean. mypy on the new module: clean (`scipy.stats` avoided; `statistics.NormalDist` used).
