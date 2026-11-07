@@ -11,7 +11,7 @@
 | D3 CLI / MCP / API | NOT STARTED. Release: written go after D2 |
 
 ## Maintainer questions
-1. **Maintainer run of the cost model.** The model is fitted on your M4 timings, but nothing has confirmed its predictions on a fresh fit there. *Recommended:* run the page on one ILEC `mid` cell with each engine and tell me predicted vs actual; I would record it (tier L) and widen the band if it misses.
+1. **ANSWERED 2026-11-07 (PR #277 comment, tier L, one cell, one machine, MEASUREMENT): T1_mid (109,158 rows, ~78 coef) gam predicted 19.0 s (band 9.1-39.8) vs 13.5 s actual (page) / 13.48 s (headless); bam 0.3 s (0.1-0.7) vs 0.31 s; edf_total 62.68 vs 62.676, converged. Inside both bands; the model was fitted on this machine, so it is not a check elsewhere. The page also logged `slogdet` divide-by-zero/overflow warnings (fit converged); see the harvest.** *(Original question:)* Maintainer run of the cost model. The model is fitted on your M4 timings, but nothing has confirmed its predictions on a fresh fit there. *Recommended:* run the page on one ILEC `mid` cell with each engine and tell me predicted vs actual; I would record it (tier L) and widen the band if it misses.
 2. **Profiles vs partial effects.** D1 shows link profiles with others held at median/reference. *Recommended:* keep for D1; decide partial effects (and `ti`/`by` terms) when you specify D2.
 3. **Corrected fact:** R2 did record `gam` peak RSS, but only as a process high-water (upper bound). See ADR-262.
 
