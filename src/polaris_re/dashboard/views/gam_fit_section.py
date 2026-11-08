@@ -337,7 +337,9 @@ def _show_surface(fit: GamFit, data: pl.DataFrame, engine: Engine) -> None:
     st.warning(
         "MEASUREMENT: not an actuarial recommendation, not fed to pricing. "
         f"MI_x(y) = 1 - exp(eta(x,y) - eta(x,y-1)) from the {engine} fit; band = delta method "
-        "on the contrast, Var = D Vp D^T."
+        "on the contrast, Var = D Vp D^T. With a q_base offset this is the year-on-year change "
+        "in the A/E multiplier on q_base, i.e. total improvement only if q_base does not "
+        "itself vary by calendar year."
     )
     try:
         s = improvement_surface(fit, data)

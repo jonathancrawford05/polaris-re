@@ -17,7 +17,10 @@ effect per level; a factor term (``re``, ``parametric``) one value per level com
 
 **Improvement surface** ``MI_x(y) = 1 - exp(eta(x, y) - eta(x, y - step))``, the definition
 the older ``TensorMIModel.improvement_surface`` documents. Every term that does not involve
-the calendar-year covariate, and the offset, cancel in the difference exactly. The band is
+the calendar-year covariate cancels in the difference exactly. The offset is set to 0 rather than
+differenced, so with a `q_base` offset (`log_expected`) the surface is the year-on-year
+change in the A/E multiplier on `q_base`: it equals total improvement only if `q_base` does
+not itself vary by calendar year (true for a static select-and-ultimate base). The band is
 the delta method on the linear contrast ``d = D beta`` with ``D = X(x, y) - X(x, y - step)``
 (two rows of :func:`~polaris_re.analytics.gam_predict.predict_design`) and
 ``Var(d) = D Vp D^T`` — never two independent pointwise standard errors, because the

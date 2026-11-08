@@ -10,7 +10,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from polaris_re.gam import gam
+from polaris_re.gam import GamFit, gam
 from polaris_re.gam.effects import improvement_surface, truth_recovery_claim
 
 B0, B1 = 0.02, 0.0005
@@ -52,7 +52,7 @@ def truth_grid(surface_ages: np.ndarray, n_years: int) -> np.ndarray:
     return np.repeat(true_mi(surface_ages)[:, None], n_years, axis=1)
 
 
-def check(fit_frame: pl.DataFrame, fit, label: str) -> tuple[float, float]:  # type: ignore[no-untyped-def]
+def check(fit_frame: pl.DataFrame, fit: GamFit, label: str) -> tuple[float, float]:
     s = improvement_surface(fit, fit_frame)
     truth = truth_grid(s.ages, s.years.size)
     zmax = float(np.max(np.abs(s.mi - truth) / s.mi_se))
