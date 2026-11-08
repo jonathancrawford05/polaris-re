@@ -25680,7 +25680,7 @@ Seeds: 20260101 + i. Nothing is tuned between runs; a failing seed is a result.
 
 ## ADR-264: GAM dashboard epic redirected - stabilise the HGAM, then re-wire and deprecate the older experience-GAM; D3 (CLI/MCP/API) parked (ACCEPTED)
 
-**Status:** ACCEPTED 2026-11-08 (docs only; no code). Confirmed by the maintainer in conversation on PR #282, together with the plan, the slice order (S1, then R1 in parallel, then S2/S3) and the 0.95 saturation threshold.
+**Status:** ACCEPTED 2026-11-08 (docs only; no code). Confirmed by the maintainer in the working conversation on 2026-11-08 ("yes to all three": ADR-264 and the plan, the slice order S1, then R1 in parallel, then S2/S3, and the 0.95 saturation threshold); the maintainer was asked to leave the same one-line confirmation as a PR #282 comment so the record lives on the PR.
 
 **Decision (maintainer, 2026-11-08).** D3 is not taken. The next work gets the HGAM to a stable point in the Streamlit page, and then re-wires and deprecates the older approach. **This amends ADR-263 decision (2)**, which said the older `ExperienceGAM`/`TensorMIModel` code stays untouched and its retirement is "not a D2 task and not a priority": retirement is now the goal of the new plan, after stabilisation, and still not part of D2 (D2 is merged as built).
 
