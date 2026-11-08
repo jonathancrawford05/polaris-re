@@ -42,6 +42,20 @@ def _check_deps() -> None:
         sys.exit(1)
 
 
+PAGES = [
+    "Inforce Block",
+    "Assumptions",
+    "Deal Pricing",
+    "Portfolio",
+    "Treaty Comparison",
+    "Scenario Analysis",
+    "Monte Carlo UQ",
+    "IFRS 17",
+    "Experience Study",
+    "Mortality Improvement",
+]
+
+
 def main() -> None:
     """Launch the Polaris RE Streamlit dashboard."""
     _check_deps()
@@ -67,23 +81,10 @@ def main() -> None:
 
     init_session_state()
 
-    _PAGES = [
-        "Inforce Block",
-        "Assumptions",
-        "Deal Pricing",
-        "Portfolio",
-        "Treaty Comparison",
-        "Scenario Analysis",
-        "Monte Carlo UQ",
-        "IFRS 17",
-        "Experience Study",
-        "Mortality Improvement",
-    ]
-
     st.sidebar.title("Polaris RE")
     st.sidebar.caption("Life Reinsurance Pricing Engine")
 
-    page = st.sidebar.radio("Navigation", _PAGES)
+    page = st.sidebar.radio("Navigation", PAGES)
 
     if page == "Inforce Block":
         page_inforce()

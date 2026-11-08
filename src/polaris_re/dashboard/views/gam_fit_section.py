@@ -233,6 +233,10 @@ def render_gam_section(cells: pl.DataFrame) -> None:
     _show(cached[1], data, formula)
 
 
+# Substrings identifying NumPy/SciPy numerical warnings raised during REML optimisation (R-04).
+NUMERICAL_WARNING_PATTERNS = ("slogdet", "divide by zero", "overflow", "invalid value")
+
+
 def _show(res: GamRunResult, data: pl.DataFrame, formula: str) -> None:
     st.subheader(f"Result — engine: {res.engine}")
     if res.fit is None:
@@ -246,12 +250,11 @@ def _show(res: GamRunResult, data: pl.DataFrame, formula: str) -> None:
     # - when the fit converged: a brief caption noting numerical events occurred is enough.
     # - when the fit did NOT converge: show the raw text in a collapsed expander so the
     #   evidence is preserved for diagnosis without cluttering the normal path.
-    _NUMERICAL_PATTERNS = ("slogdet", "divide by zero", "overflow", "invalid value")
     numerical_events = [
-        w for w in res.warnings_seen if any(p in w.lower() for p in _NUMERICAL_PATTERNS)
+        w for w in res.warnings_seen if any(p in w.lower() for p in NUMERICAL_WARNING_PATTERNS)
     ]
     user_warnings = [
-        w for w in res.warnings_seen if not any(p in w.lower() for p in _NUMERICAL_PATTERNS)
+        w for w in res.warnings_seen if not any(p in w.lower() for p in NUMERICAL_WARNING_PATTERNS)
     ]
     if numerical_events:
         if fit.converged:

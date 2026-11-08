@@ -5,11 +5,14 @@ before any fit, a fit only runs on the explicit button, a refusal is shown by na
 `bam` request it cannot serve is never replaced by `gam`.
 """
 
+import dataclasses
+
 import polars as pl
 import pytest
 
 from polaris_re.dashboard.views.experience_improvement import _sample_cells
 from polaris_re.dashboard.views.gam_fit_section import (
+    GamRunResult,
     effect_profiles,
     prepare_frame,
     run_gam_request,
@@ -172,100 +175,74 @@ def test_d2_page_shows_effects_surface_download_and_labelled_legacy_expander() -
     assert len(at.get("download_button")) >= 1  # the HGAM MI surface download (AppTest: generic)
 
 
-# ---------------------------------------------------------------------------
 # R-04 regression: numerical warning filter
 # ---------------------------------------------------------------------------
+
+_R04_FORMULA = 'death_count ~ s(attained_age, bs="cr", k=5) + offset(log_exposure)'
+_R04_NUMERICAL = ("overflow encountered in exp", "slogdet: matrix is near singular")
+
+
+def _show_app(res: "GamRunResult", data: "pl.DataFrame", formula: str) -> None:
+    """AppTest script body. ``AppTest.from_function`` runs only this function's source,
+    so everything it needs is imported inside it or passed in through ``args`` (the
+    annotations are quoted because the script namespace has no module imports)."""
+    from polaris_re.dashboard.views.gam_fit_section import _show
+
+    _show(res, data, formula)
+
+
+def _r04_result(*, converged: bool) -> tuple[GamRunResult, pl.DataFrame]:
+    d = _data().head(80)
+    res = run_gam_request(d, _R04_FORMULA, "poisson", "gam")
+    if res.fit is None or not res.fit.converged:
+        pytest.skip("fit did not converge on stub data — skip R-04 check")
+    fit = res.fit if converged else dataclasses.replace(res.fit, converged=False)
+    return (
+        GamRunResult(
+            engine=res.engine,
+            fit=fit,
+            message=res.message,
+            warnings_seen=_R04_NUMERICAL,
+            seconds=res.seconds,
+        ),
+        d,
+    )
 
 
 @pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
 def test_r04_numerical_warnings_suppressed_on_converged_fit() -> None:
-    """When a fit converges, slogdet/overflow raw text must NOT appear on-screen.
-
-    The fix: show a plain caption, not the raw NumPy warning text.
-    Own-criterion check (not a parity comparison).
-    """
-    import streamlit as st  # noqa: F401 — verify streamlit available before test body
-
-    from polaris_re.dashboard.views.gam_fit_section import GamRunResult, _show
-    from polaris_re.gam import GamFit
-
-    # Build a minimal converged fit stub by actually fitting a small model
-    d = _data().head(80)
-    res = run_gam_request(
-        d,
-        'death_count ~ s(attained_age, bs="cr", k=5) + offset(log_exposure)',
-        "poisson",
-        "gam",
-    )
-    if res.fit is None or not res.fit.converged:
-        pytest.skip("fit did not converge on stub data — skip R-04 check")
-
-    # Inject synthetic numerical warnings into a copy of the result
-    numerical_res = GamRunResult(
-        engine=res.engine,
-        fit=res.fit,
-        message=res.message,
-        warnings_seen=(
-            "overflow encountered in exp",
-            "slogdet: matrix is near singular",
-        ),
-        seconds=res.seconds,
-    )
-
-    def _app() -> None:
-        _show(numerical_res, d, 'death_count ~ s(attained_age, bs="cr", k=5) + offset(log_exposure)')
-
-    at = AppTest.from_function(_app, default_timeout=30)
+    """When a fit converges, slogdet/overflow raw text must NOT appear on-screen; a plain
+    caption is shown instead. Own-criterion check (not a parity comparison)."""
+    res, d = _r04_result(converged=True)
+    at = AppTest.from_function(_show_app, args=(res, d, _R04_FORMULA), default_timeout=60)
     at.run()
     assert not at.exception
 
-    # Raw NumPy warning text must not appear in any warning widget
     warning_texts = " ".join(w.value for w in at.warning)
     assert "overflow" not in warning_texts
     assert "slogdet" not in warning_texts
+    assert not any("did not converge" in e.label.lower() for e in at.expander)
 
-    # A caption noting numerical events should appear
     caption_texts = " ".join(c.value for c in at.caption)
     assert "numerical events" in caption_texts.lower()
 
 
 @pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
 def test_r04_numerical_warnings_in_expander_on_failed_convergence() -> None:
-    """When a fit does NOT converge, raw numerical warnings must appear in an expander.
-
-    Own-criterion check (not a parity comparison).
-    """
-    from polaris_re.dashboard.views.gam_fit_section import GamRunResult, _show
-    from polaris_re.gam import GamFit
-    from unittest.mock import MagicMock
-
-    # Build a mock fit that is marked as not converged
-    mock_fit = MagicMock(spec=GamFit)
-    mock_fit.converged = False
-    mock_fit.edf_total = 2.0
-    mock_fit.n_function_evals = 10
-    mock_fit.edf_per_term = {"s(attained_age)": 1.5}
-    mock_fit.summary.side_effect = Exception("no summary")
-
-    diverged_res = GamRunResult(
-        engine="gam",
-        fit=mock_fit,
-        message=None,
-        warnings_seen=("overflow encountered in exp", "slogdet: near singular"),
-        seconds=0.1,
-    )
-
-    def _app() -> None:
-        _show(diverged_res, _data().head(20), 'death_count ~ s(attained_age, bs="cr", k=4)')
-
-    at = AppTest.from_function(_app, default_timeout=30)
+    """When a fit does NOT converge, the raw numerical warnings are kept, inside an
+    expander. Own-criterion check (not a parity comparison)."""
+    res, d = _r04_result(converged=False)
+    at = AppTest.from_function(_show_app, args=(res, d, _R04_FORMULA), default_timeout=60)
     at.run()
     assert not at.exception
 
-    # Raw warning text should appear inside an expander, not a bare warning widget
-    # (AppTest surfaces expander labels; we check the label contains the key phrase)
-    expander_labels = " ".join(e.label for e in at.expander)
-    assert "did not converge" in expander_labels.lower() or "not converge" in expander_labels.lower()
+    expanders = [e for e in at.expander if "did not converge" in e.label.lower()]
+    assert len(expanders) == 1
+    inside = " ".join(w.value for w in expanders[0].warning)
+    assert "overflow" in inside
+    assert "slogdet" in inside
+    caption_texts = " ".join(c.value for c in at.caption)
+    assert "numerical events" not in caption_texts.lower()
 
 
 # ---------------------------------------------------------------------------
