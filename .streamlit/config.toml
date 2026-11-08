@@ -1,0 +1,5 @@
+[server]
+# Raise the upload ceiling for large experience cell files (default is 200 MB).
+# T2_full cells.csv is ~330 MB; 500 MB gives headroom for T3c_full and similar.
+maxUploadSize = 500
+

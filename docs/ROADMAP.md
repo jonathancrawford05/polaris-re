@@ -550,3 +550,28 @@ blended table updates without manual intervention.
       (pytest-benchmark or locust)
 - [ ] `docs/QUICKSTART.md` updated with K8s deployment and observability guide
 - [ ] All ADRs current
+
+---
+
+## Dashboard UX Backlog (tracked post-Phase 6)
+
+Items identified during experience-GAM dashboard review (session Nov 2026).
+Target: Phase 7 / next dashboard milestone.
+
+### Named gap: versioned-table attach path for experience-GAM diagnostics (Slice 2)
+
+`dashboard/views/experience_improvement.py` line ~228 carries a "later slice"
+comment marking the attach path for versioned base-rate tables (`q_base`).
+The current Slice 1 requires the caller to supply `q_base` as a column in the
+uploaded CSV. Slice 2 should:
+
+- [ ] Allow the user to attach a versioned mortality table (select-and-ultimate
+      CSV, `data/mortality_tables/`) directly from the dashboard without
+      pre-computing `q_base` externally.
+- [ ] Derive `q_base = qx_select[attained_age, duration]` inside the page and
+      add a caption naming the table version used (audit trail).
+- [ ] Add an in-page "How to add q_base" collapsible section explaining the
+      formula and pointing to `scripts/convert_soa_tables.py` for the interim
+      manual path.
+
+Reference: A4' epic (#89), ADR-153, `experience_improvement.py` Slice 1 comment.

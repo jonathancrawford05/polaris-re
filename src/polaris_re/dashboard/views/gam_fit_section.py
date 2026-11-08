@@ -233,6 +233,10 @@ def render_gam_section(cells: pl.DataFrame) -> None:
     _show(cached[1], data, formula)
 
 
+# Substrings identifying NumPy/SciPy numerical warnings raised during REML optimisation (R-04).
+NUMERICAL_WARNING_PATTERNS = ("slogdet", "divide by zero", "overflow", "invalid value")
+
+
 def _show(res: GamRunResult, data: pl.DataFrame, formula: str) -> None:
     st.subheader(f"Result — engine: {res.engine}")
     if res.fit is None:
@@ -240,7 +244,26 @@ def _show(res: GamRunResult, data: pl.DataFrame, formula: str) -> None:
         return
     fit = res.fit
     st.caption(f"Fit took {res.seconds:.1f} s (MEASUREMENT on this machine).")
-    for w in res.warnings_seen:
+    # Numerical warnings (slogdet, divide-by-zero, overflow, invalid value) arise during
+    # optimisation and have not been characterised as specific to any failure mode.  We keep
+    # them but don't expose raw NumPy internals on a user-facing surface:
+    # - when the fit converged: a brief caption noting numerical events occurred is enough.
+    # - when the fit did NOT converge: show the raw text in a collapsed expander so the
+    #   evidence is preserved for diagnosis without cluttering the normal path.
+    numerical_events = [
+        w for w in res.warnings_seen if any(p in w.lower() for p in NUMERICAL_WARNING_PATTERNS)
+    ]
+    user_warnings = [
+        w for w in res.warnings_seen if not any(p in w.lower() for p in NUMERICAL_WARNING_PATTERNS)
+    ]
+    if numerical_events:
+        if fit.converged:
+            st.caption("Numerical events occurred during optimisation — fit converged.")
+        else:
+            with st.expander("Numerical warnings (fit did NOT converge)", expanded=True):
+                for w in numerical_events:
+                    st.warning(w)
+    for w in user_warnings:
         st.warning(w)
     m1, m2, m3 = st.columns(3)
     m1.metric("edf total", f"{fit.edf_total:.2f}")
@@ -254,8 +277,11 @@ def _show(res: GamRunResult, data: pl.DataFrame, formula: str) -> None:
     )
     try:
         st.code(str(fit.summary()))
-    except PolarisValidationError as exc:
-        st.info(str(exc))
+    except PolarisValidationError:
+        st.info(
+            "Fit summary not available for the **BAM** engine. "
+            "Review EDF per term in the table above."
+        )
     _show_effects(fit, data, res.engine)
     _show_surface(fit, data, res.engine)
 

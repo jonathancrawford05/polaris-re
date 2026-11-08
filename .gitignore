@@ -99,3 +99,10 @@ data/mgcv_exchange/**/mgcv_reference.json
 # scratch cell dumps (per-cell deaths/exposure are never committed; PLAN §3)
 /cells.csv
 /spec.json
+data/ilec_cells_agg.csv
+data/ilec_cells_agg_b.csv
+data/hgam_mi_surface_full_A.csv
+data/hgam_mi_surface_full_B.csv
+data/ilec_cells_full.csv
+hgam_mi_surface.csv
+results/

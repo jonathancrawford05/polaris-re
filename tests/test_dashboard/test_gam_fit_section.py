@@ -5,11 +5,14 @@ before any fit, a fit only runs on the explicit button, a refusal is shown by na
 `bam` request it cannot serve is never replaced by `gam`.
 """
 
+import dataclasses
+
 import polars as pl
 import pytest
 
 from polaris_re.dashboard.views.experience_improvement import _sample_cells
 from polaris_re.dashboard.views.gam_fit_section import (
+    GamRunResult,
     effect_profiles,
     prepare_frame,
     run_gam_request,
@@ -170,6 +173,79 @@ def test_d2_page_shows_effects_surface_download_and_labelled_legacy_expander() -
     assert "Improvement surface MI_x(y) — engine: gam" in heads
     assert any("not fed to pricing" in w.value for w in at.warning)
     assert len(at.get("download_button")) >= 1  # the HGAM MI surface download (AppTest: generic)
+
+
+# R-04 regression: numerical warning filter
+# ---------------------------------------------------------------------------
+
+_R04_FORMULA = 'death_count ~ s(attained_age, bs="cr", k=5) + offset(log_exposure)'
+_R04_NUMERICAL = ("overflow encountered in exp", "slogdet: matrix is near singular")
+
+
+def _show_app(res: "GamRunResult", data: "pl.DataFrame", formula: str) -> None:
+    """AppTest script body. ``AppTest.from_function`` runs only this function's source,
+    so everything it needs is imported inside it or passed in through ``args`` (the
+    annotations are quoted because the script namespace has no module imports)."""
+    from polaris_re.dashboard.views.gam_fit_section import _show
+
+    _show(res, data, formula)
+
+
+def _r04_result(*, converged: bool) -> tuple[GamRunResult, pl.DataFrame]:
+    d = _data().head(80)
+    res = run_gam_request(d, _R04_FORMULA, "poisson", "gam")
+    if res.fit is None or not res.fit.converged:
+        pytest.skip("fit did not converge on stub data — skip R-04 check")
+    fit = res.fit if converged else dataclasses.replace(res.fit, converged=False)
+    return (
+        GamRunResult(
+            engine=res.engine,
+            fit=fit,
+            message=res.message,
+            warnings_seen=_R04_NUMERICAL,
+            seconds=res.seconds,
+        ),
+        d,
+    )
+
+
+@pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
+def test_r04_numerical_warnings_suppressed_on_converged_fit() -> None:
+    """When a fit converges, slogdet/overflow raw text must NOT appear on-screen; a plain
+    caption is shown instead. Own-criterion check (not a parity comparison)."""
+    res, d = _r04_result(converged=True)
+    at = AppTest.from_function(_show_app, args=(res, d, _R04_FORMULA), default_timeout=60)
+    at.run()
+    assert not at.exception
+
+    warning_texts = " ".join(w.value for w in at.warning)
+    assert "overflow" not in warning_texts
+    assert "slogdet" not in warning_texts
+    assert not any("did not converge" in e.label.lower() for e in at.expander)
+
+    caption_texts = " ".join(c.value for c in at.caption)
+    assert "numerical events" in caption_texts.lower()
+
+
+@pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
+def test_r04_numerical_warnings_in_expander_on_failed_convergence() -> None:
+    """When a fit does NOT converge, the raw numerical warnings are kept, inside an
+    expander. Own-criterion check (not a parity comparison)."""
+    res, d = _r04_result(converged=False)
+    at = AppTest.from_function(_show_app, args=(res, d, _R04_FORMULA), default_timeout=60)
+    at.run()
+    assert not at.exception
+
+    expanders = [e for e in at.expander if "did not converge" in e.label.lower()]
+    assert len(expanders) == 1
+    inside = " ".join(w.value for w in expanders[0].warning)
+    assert "overflow" in inside
+    assert "slogdet" in inside
+    caption_texts = " ".join(c.value for c in at.caption)
+    assert "numerical events" not in caption_texts.lower()
+
+
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
