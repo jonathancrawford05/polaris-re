@@ -8,6 +8,7 @@ The older ``ExperienceGAM`` fit elsewhere on the page is a different model: ever
 this section is labelled with its engine.
 """
 
+import io
 import warnings
 from collections.abc import MutableMapping
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ from polaris_re.gam.cost_model import (
     physical_memory_gb,
     pre_run_warning,
 )
+from polaris_re.gam.effects import ImprovementSurface, improvement_surface, partial_effects
 from polaris_re.gam.formula import SmoothCall, TensorCall, parse_formula
 
 __all__ = ["GamRunResult", "render_gam_section", "run_gam_request"]
@@ -40,8 +42,21 @@ FAMILY_CHOICES = (*FAMILIES, 'binomial(link="cloglog")')
 ``gam()`` takes the family string verbatim, so the link is never dropped."""
 DEFAULT_FORMULA = (
     'death_count ~ s(attained_age, bs="cr", k=8) + s(calendar_year, bs="cr", k=5) '
-    "+ offset(log_exposure)"
+    '+ ti(attained_age, calendar_year, bs="cr") + offset(log_exposure)'
 )
+EXPECTED_OFFSET = "log_expected"
+"""``ln(central_exposure * q_base)``, added when ``q_base`` is present (ADR-263 decision 4): the
+fitted effects are then A/E multipliers on the static base, as on the older model; without
+``q_base`` the offset is ``log_exposure`` and the effects are on the log mortality rate."""
+
+
+def default_formula(data: pl.DataFrame) -> str:
+    """The starting formula: ``offset(log_expected)`` when ``q_base`` was supplied."""
+    if EXPECTED_OFFSET in data.columns:
+        return DEFAULT_FORMULA.replace("offset(log_exposure)", f"offset({EXPECTED_OFFSET})")
+    return DEFAULT_FORMULA
+
+
 HELP = (
     'Verified subset only: s(x, bs="cr"|"tp", k=), numeric/factor by=, s(f, bs="re"), '
     'ti(x, z, bs="cr"), factors a, a:b, offset(col). Anything else is refused by name '
@@ -61,10 +76,20 @@ class GamRunResult:
 
 
 def prepare_frame(cells: pl.DataFrame) -> pl.DataFrame:
-    """Add ``log_exposure`` from ``central_exposure`` when absent, so the default formula runs."""
-    if "log_exposure" not in cells.columns and "central_exposure" in cells.columns:
-        return cells.with_columns(pl.col("central_exposure").log().alias("log_exposure"))
-    return cells
+    """Add ``log_exposure`` (and ``log_expected`` when ``q_base`` is present) from
+    ``central_exposure``, so the default formula runs."""
+    out = cells
+    if "log_exposure" not in out.columns and "central_exposure" in out.columns:
+        out = out.with_columns(pl.col("central_exposure").log().alias("log_exposure"))
+    if (
+        EXPECTED_OFFSET not in out.columns
+        and "q_base" in out.columns
+        and "central_exposure" in out.columns
+    ):
+        out = out.with_columns(
+            (pl.col("central_exposure") * pl.col("q_base")).log().alias(EXPECTED_OFFSET)
+        )
+    return out
 
 
 def run_gam_request(data: pl.DataFrame, formula: str, family: str, engine: Engine) -> GamRunResult:
@@ -152,7 +177,13 @@ def render_gam_section(cells: pl.DataFrame) -> None:
     n_rows = data.height
     if "log_exposure" in data.columns and "log_exposure" not in cells.columns:
         st.caption("`log_exposure` = ln(`central_exposure`) was added for the offset.")
-    formula = st.text_input("Formula", value=DEFAULT_FORMULA, help=HELP, key="gam_formula")
+    start = default_formula(data)
+    formula = st.text_input(
+        "Formula",
+        value=start,
+        help=HELP,
+        key=f"gam_formula_{'qbase' if start != DEFAULT_FORMULA else 'plain'}",
+    )
     c1, c2 = st.columns(2)
     family = c1.selectbox("Family", list(FAMILY_CHOICES), key="gam_family")
     dflt = default_engine(n_rows)
@@ -225,16 +256,100 @@ def _show(res: GamRunResult, data: pl.DataFrame, formula: str) -> None:
         st.code(str(fit.summary()))
     except PolarisValidationError as exc:
         st.info(str(exc))
-    for name, grid, link, se in effect_profiles(fit, data, formula):
-        fig, ax = plt.subplots(figsize=(5, 3))
-        ax.plot(grid, link, label="link")
-        ax.fill_between(grid, link - 2 * se, link + 2 * se, alpha=0.25, label="±2 se")
-        ax.set_xlabel(name)
-        ax.set_title(f"{res.engine}: profile of η along {name}")
-        ax.legend()
+    _show_effects(fit, data, res.engine)
+    _show_surface(fit, data, res.engine)
+
+
+def _show_effects(fit: GamFit, data: pl.DataFrame, engine: Engine) -> None:
+    st.subheader(f"Partial effects — engine: {engine}")
+    st.caption(
+        "MEASUREMENT of the fitted model (own criterion). Each term alone: intercept, offset "
+        "and the other terms excluded (plot.gam convention); smooths are centred over the "
+        "training rows; band = 2 x se from the term's block of the conditional Vp."
+    )
+    for e in partial_effects(fit, data):
+        if e.kind == "curve":
+            fig, ax = plt.subplots(figsize=(5, 3))
+            ax.plot(e.axes[0], e.effect)
+            ax.fill_between(e.axes[0], e.effect - 2 * e.se, e.effect + 2 * e.se, alpha=0.25)
+            ax.set_xlabel(e.variables[0])
+            ax.set_title(f"{engine}: {e.label}")
+        elif e.kind == "surface":
+            fig, ax = plt.subplots(figsize=(5, 3.5))
+            mesh = ax.pcolormesh(e.axes[1], e.axes[0], e.effect, shading="auto")
+            fig.colorbar(mesh, ax=ax)
+            ax.set_xlabel(e.variables[1])
+            ax.set_ylabel(e.variables[0])
+            ax.set_title(f"{engine}: {e.label}")
+        else:
+            fig, ax = plt.subplots(figsize=(5, 3))
+            ax.errorbar(range(len(e.effect)), e.effect, yerr=2 * e.se, fmt="o")
+            ax.set_xticks(range(len(e.effect)), e.level_names, rotation=45)
+            ax.set_title(f"{engine}: {e.label}")
         st.pyplot(fig)
         plt.close(fig)
+        if e.note:
+            st.caption(e.note)
+
+
+def surface_csv(s: ImprovementSurface) -> str:
+    """The download: one row per (age, year) cell with the delta-method band."""
+    grid = pl.DataFrame(
+        {
+            s.age_var: np.repeat(s.ages, s.years.size),
+            s.year_var: np.tile(s.years, s.ages.size),
+            "mi": s.mi.reshape(-1),
+            "mi_lower": s.mi_lower.reshape(-1),
+            "mi_upper": s.mi_upper.reshape(-1),
+            "mi_se": s.mi_se.reshape(-1),
+        }
+    )
+    buf = io.StringIO()
+    grid.write_csv(buf)
+    return buf.getvalue()
+
+
+def _show_surface(fit: GamFit, data: pl.DataFrame, engine: Engine) -> None:
+    st.subheader(f"Improvement surface MI_x(y) — engine: {engine}")
+    st.warning(
+        "MEASUREMENT: not an actuarial recommendation, not fed to pricing. "
+        f"MI_x(y) = 1 - exp(eta(x,y) - eta(x,y-1)) from the {engine} fit; band = delta method "
+        "on the contrast, Var = D Vp D^T. With a q_base offset this is the year-on-year change "
+        "in the A/E multiplier on q_base, i.e. total improvement only if q_base does not "
+        "itself vary by calendar year."
+    )
+    try:
+        s = improvement_surface(fit, data)
+    except PolarisValidationError as exc:
+        st.info(f"No improvement surface: {exc}")
+        return
+    fig, ax = plt.subplots(figsize=(6, 3.5))
+    mesh = ax.pcolormesh(s.years, s.ages, s.mi, shading="auto")
+    fig.colorbar(mesh, ax=ax, label="MI")
+    ax.set_xlabel(s.year_var)
+    ax.set_ylabel(s.age_var)
+    ax.set_title(f"{engine}: MI_x(y)")
+    st.pyplot(fig)
+    plt.close(fig)
+    fig, ax = plt.subplots(figsize=(6, 3.5))
+    width = s.mi_upper - s.mi_lower
+    mesh = ax.pcolormesh(s.years, s.ages, width, shading="auto")
+    fig.colorbar(mesh, ax=ax, label=f"{s.level:.0%} band width")
+    ax.set_xlabel(s.year_var)
+    ax.set_ylabel(s.age_var)
+    ax.set_title(f"{engine}: where the surface is poorly identified")
+    st.pyplot(fig)
+    plt.close(fig)
     st.caption(
-        "Profiles hold other numeric covariates at their median, factors at the first level "
-        "and the offset at 0. Standard errors are the Bayesian Vp (conditional)."
+        "Other covariates held at: "
+        + (", ".join(f"{k} {v}" for k, v in s.reference.items()) or "none")
+        + ". The Bayesian projection fan is not available for the HGAM (it stays on the legacy "
+        "model)."
+    )
+    st.download_button(
+        "Download MI surface (CSV, HGAM)",
+        data=surface_csv(s),
+        file_name="hgam_mi_surface.csv",
+        mime="text/csv",
+        key="hgam_mi_download",
     )

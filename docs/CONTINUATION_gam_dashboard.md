@@ -2,12 +2,12 @@
 
 **Plan:** `docs/PLAN_gam_dashboard.md` · **ADR:** ADR-262 · **Routine:** `docs/ROUTINE_MGCV_PARITY.md`
 **Created:** 2026-10-22 (epic start + D1 in one session, as the pointer directed).
-**Status:** **IN PROGRESS. D1 IMPLEMENTED 2026-10-22, awaiting merge and the maintainer's use of it.** D2 and D3 are not started; release conditions in the PLAN §4.
+**Status:** **IN PROGRESS. D1 merged; D2 IMPLEMENTED 2026-11-07, awaiting merge and confirmation.** D3 is not started; its release condition is the maintainer's written go after D2 (PLAN §4).
 
 | slice | status |
 |---|---|
 | D1 fit and display, read-only | implemented (ADR-262): section in the experience-improvement page; cost model `polaris_re.gam.cost_model`; tests `tests/test_gam/test_cost_model.py`, `tests/test_dashboard/test_gam_fit_section.py` |
-| D2 HGAM-driven effects and improvement surface | PLANNED 2026-11-07 (PLAN §4, ADR-263 PROPOSED); no code. Release: the maintainer's go (given in conversation 2026-11-07; confirm on the D2 PR) |
+| D2 HGAM-driven effects and improvement surface | IMPLEMENTED 2026-11-07 (ADR-263, checkpoints 1-6): `polaris_re/gam/effects.py`; tests `tests/test_gam/test_effects.py`, `test_improvement_truth.py`, `tests/test_dashboard/test_gam_fit_section.py`; report `scripts/gam_d2_truth_report.py`. Awaiting merge and the maintainer's confirmation of ADR-263 on the D2 PR |
 | D3 CLI / MCP / API | NOT STARTED. Release: written go after D2 |
 
 **Merged-state note:** D1's DoD memory item stays PARTLY MET (gam peak RSS measured on one real cell only).
@@ -28,5 +28,9 @@
 | T2_coarse subsample | bam | 300,000 | 1.0 s (0.5-2.3) | 1.4 s | not measured |
 | T2_full | bam | 3,015,224 | 16.0 s (7.1-36.0) | 16.35 s | 6.82 GB vs 8.5 +/- 1.9 GB predicted |
 
+4. **D2 (new, 2026-11-07).** Truth recovery passed every pre-registered bound on the first run (ADR-263 amendment 1). Two items need you: (i) confirm ADR-263 (PROPOSED -> ACCEPTED) on the D2 PR; (ii) run the page on one real ILEC cell with the new default formula (`ti` + `log_expected` offset) and say whether the surface and its band width look sane at the sparse edges (the open design risk). *Recommended:* one `mid` cell, `gam`, then the same with `bam`, and tell me the band widths at the youngest/oldest ages. Not done and recorded: the `amount` basis is not wired into the HGAM section.
+
 ## Open limits
 `estimate_n_coef` is checked on one synthetic fit only. The sandbox memory sweep is off-range. `bam` has no `summary()` / `reml_score`.
+
+D2: `slogdet` divide-by-zero warnings on the `gam` path (PRODUCT_DIRECTION 2026-11-07 follow-up) are still unexamined; the surface is trusted only as far as the truth-recovery draws (smooth bilinear truth, 496 cells, count data) show. `bam`'s `Vp` for a contrast was checked on 3 seeds only.
