@@ -62,3 +62,23 @@ Full run, `pytest tests/ -m "not slow"` (no `-x`), with R installed, after the D
 
 ## Quality gate
 `ruff format`, `ruff check`: clean. mypy on the new module: clean (`scipy.stats` avoided; `statistics.NormalDist` used).
+
+## Slice status (D2 checkpoints, PLAN §4)
+| # | checkpoint | status |
+|---|---|---|
+| 1 | definitions and claim sentences | DONE (ADR-263 amendment 1) |
+| 2 | partial effects | DONE (`partial_effects`) |
+| 3 | improvement surface | DONE (`improvement_surface`, gam and bam) |
+| 4 | truth recovery, pre-registered | DONE, all bounds met |
+| 5 | page wiring | DONE |
+| 6 | honesty checks | DONE (labels, goldens green) |
+
+## Perf History
+One row appended (`8478f26`). `scripts/perf_history.py --check-only`: no structural creep, no wall-time creep, no config drift (project peak 33 -> 33 MiB, wall-time recent/baseline 1.193x, advisory).
+
+## Open Questions / Follow-ups (harvested to PRODUCT_DIRECTION 2026-07-24, D2 addendum)
+- 1st-order: `amount` basis not wired into the HGAM section.
+- 1st-order: `bam` `Vp` for the contrast checked on 3 smooth-truth seeds only.
+- 2nd-order: flag a `q_base` that varies by calendar year (surface = A/E-multiplier change, not total improvement; caveat now in the docstring and the page caption).
+- 2nd-order (already harvested): `slogdet` warnings on the `gam` path.
+- 3rd-order: `evidence_markdown` headline wording for closed-form comparisons.
