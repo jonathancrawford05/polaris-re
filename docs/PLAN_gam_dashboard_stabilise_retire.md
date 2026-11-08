@@ -1,6 +1,6 @@
 # Plan: stabilise the HGAM in the dashboard, then re-wire and deprecate the older experience-GAM
 
-> **STATUS: PROPOSED 2026-11-08 (docs only; ADR-264 PROPOSED). Becomes the ACTIVE EPIC when the maintainer confirms on the PR that adds it.** It replaces `PLAN_gam_dashboard.md`'s D3 (CLI/MCP/API), which is PARKED with no release condition.
+> **STATUS: ACTIVE from 2026-11-08 (ADR-264 ACCEPTED; the maintainer confirmed the plan, the slice order and the 0.95 saturation threshold). The next session takes S1 (release: none).** R1 (docs only) may run in parallel. It replaces `PLAN_gam_dashboard.md`'s D3 (CLI/MCP/API), which is PARKED with no release condition.
 
 **Source:** maintainer, 2026-11-08: *"lets not do D3 for now, I want to get to a stable point where we have the HGAM python implemented in streamlit, then we need to re-wire and deprecate the prior approach."* This changes ADR-263 decision (2) ("retirement is NOT a D2 task and not a priority"): retirement is now the epic's goal, after stabilisation.
 **Routine:** `ROUTINE_MGCV_PARITY.md`. Not a parity epic: ADR-193 still binds any comparison, and a number Polaris computes alone is MEASUREMENT.

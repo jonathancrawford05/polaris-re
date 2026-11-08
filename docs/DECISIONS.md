@@ -25678,9 +25678,9 @@ Seeds: 20260101 + i. Nothing is tuned between runs; a failing seed is a result.
 
 **Page wiring (checkpoint 5).** The HGAM section leads the page; the old views render inside an expander labelled "Legacy model: older tensor P-spline experience GAM (not the HGAM above)"; the Bayesian projection fan stays inside it. `q_base`, when present, becomes `log_expected = ln(central_exposure * q_base)` and the default offset (decision 4). D1's link profiles (`effect_profiles`) remain as a function (their test stays) but the page now shows `partial_effects`. **Not done, recorded:** the `amount` basis (`amount_exposed`/`death_amount`) is not wired into the HGAM section (its default formula reads `death_count`); a user can type a formula against their own columns.
 
-## ADR-264: GAM dashboard epic redirected - stabilise the HGAM, then re-wire and deprecate the older experience-GAM; D3 (CLI/MCP/API) parked (PROPOSED)
+## ADR-264: GAM dashboard epic redirected - stabilise the HGAM, then re-wire and deprecate the older experience-GAM; D3 (CLI/MCP/API) parked (ACCEPTED)
 
-**Status:** PROPOSED 2026-11-08 (docs only; no code). Becomes ACCEPTED when the maintainer confirms on the PR that adds it.
+**Status:** ACCEPTED 2026-11-08 (docs only; no code). Confirmed by the maintainer in conversation on PR #282, together with the plan, the slice order (S1, then R1 in parallel, then S2/S3) and the 0.95 saturation threshold.
 
 **Decision (maintainer, 2026-11-08).** D3 is not taken. The next work gets the HGAM to a stable point in the Streamlit page, and then re-wires and deprecates the older approach. **This amends ADR-263 decision (2)**, which said the older `ExperienceGAM`/`TensorMIModel` code stays untouched and its retirement is "not a D2 task and not a priority": retirement is now the goal of the new plan, after stabilisation, and still not part of D2 (D2 is merged as built).
 
@@ -25690,5 +25690,5 @@ Seeds: 20260101 + i. Nothing is tuned between runs; a failing seed is a result.
 
 **Not decided here.** The disposition of each older-model caller (R1 decides); the HGAM Bayesian projection (its own plan); any REMOVAL of code (separate written go); the pricing path (`improvement_version_id`, ADR-148), which no slice changes without the maintainer.
 
-**Open.** ADR-263's status is still "IMPLEMENTED, awaiting the maintainer's confirmation"; this PR does not flip it (the maintainer said they believed it matched their request but gave no explicit "ACCEPTED").
+**Open.** ADR-263's status is still "IMPLEMENTED, awaiting the maintainer's confirmation"; this PR does not flip it (the maintainer said they believed it matched their request but gave no explicit "ACCEPTED"; asked once more on the PR).
 

@@ -22,7 +22,7 @@
 parent plan and anchors: `docs/PLAN_mgcv_parity_engine.md`
 **Created:** 2026-08-10, from maintainer direction plus the measurements in the parent PLAN §1.
 
-> **ACTIVE EPIC POINTER (maintainer, 2026-11-08, ADR-264 PROPOSED) — READ THIS FIRST.** The active epic is **`docs/PLAN_gam_dashboard_stabilise_retire.md`** (stabilise the HGAM in the dashboard, then re-wire and deprecate the older experience-GAM; slices S1-S3, R1-R3; its CONTINUATION is `docs/CONTINUATION_gam_dashboard.md`). D2 is merged (PR #279); **D3 is parked**. The next session takes **S1** only once the maintainer has confirmed ADR-264 and the plan on the PR that added them; otherwise it reports waiting. The 2026-10-21 pointer below is kept as the record.
+> **ACTIVE EPIC POINTER (maintainer, 2026-11-08, ADR-264 PROPOSED) — READ THIS FIRST.** The active epic is **`docs/PLAN_gam_dashboard_stabilise_retire.md`** (stabilise the HGAM in the dashboard, then re-wire and deprecate the older experience-GAM; slices S1-S3, R1-R3; its CONTINUATION is `docs/CONTINUATION_gam_dashboard.md`). D2 is merged (PR #279); **D3 is parked**. ADR-264 and the plan were CONFIRMED by the maintainer on 2026-11-08 (PR #282), so the next session takes **S1** (no release condition; R1, docs only, may run in parallel). The 2026-10-21 pointer below is kept as the record.
 >
 > *Previous pointer follows.*
 
