@@ -22,7 +22,11 @@
 parent plan and anchors: `docs/PLAN_mgcv_parity_engine.md`
 **Created:** 2026-08-10, from maintainer direction plus the measurements in the parent PLAN §1.
 
-> **ACTIVE EPIC POINTER (maintainer, 2026-10-21, after PR #275) — READ THIS FIRST.**
+> **ACTIVE EPIC POINTER (maintainer, 2026-11-08, ADR-264 ACCEPTED) — READ THIS FIRST.** The active epic is **`docs/PLAN_gam_dashboard_stabilise_retire.md`** (stabilise the HGAM in the dashboard, then re-wire and deprecate the older experience-GAM; slices S1-S3, R1-R3; its CONTINUATION is `docs/CONTINUATION_gam_dashboard.md`). D2 is merged (PR #279); **D3 is parked**. ADR-264 and the plan were CONFIRMED by the maintainer on 2026-11-08 (PR #282), so the next session takes **S1** (no release condition; R1, docs only, may run in parallel). The 2026-10-21 pointer below is kept as the record.
+>
+> *Previous pointer follows.*
+
+> **ACTIVE EPIC POINTER (maintainer, 2026-10-21, after PR #275) — superseded 2026-11-08.**
 > The active epic is now **`docs/PLAN_gam_dashboard.md`** (the HGAM fitter in the existing dashboard page, read-only first; slices D1-D3). **Epic started 2026-10-22 (ADR-262, `docs/CONTINUATION_gam_dashboard.md`); D1 is IMPLEMENTED and awaits merge. The next session takes D2 only if its release condition (the maintainer's written go) is met; otherwise it reports waiting.** Its decisions (§3) are the maintainer's and are not re-asked. The previous epic `docs/PLAN_gam_real_data_readiness.md` (R1-R4) is merged with no open slice; its pick-up notes (`ti()` with `tp`; `select=TRUE` with `tp` beside a factor-`by`, owned by the outer-solver plan) stay in its CONTINUATION. This epic is not a parity epic: the SETUP/provenance steps below still bind any comparison it reports, and a number Polaris computes alone is labelled MEASUREMENT.
 >
 > *Previous pointer (2026-10-10, ADR-257) follows.*

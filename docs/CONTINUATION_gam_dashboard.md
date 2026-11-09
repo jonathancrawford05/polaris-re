@@ -8,7 +8,7 @@
 |---|---|
 | D1 fit and display, read-only | implemented (ADR-262): section in the experience-improvement page; cost model `polaris_re.gam.cost_model`; tests `tests/test_gam/test_cost_model.py`, `tests/test_dashboard/test_gam_fit_section.py` |
 | D2 HGAM-driven effects and improvement surface | IMPLEMENTED 2026-11-07 (ADR-263, checkpoints 1-6): `polaris_re/gam/effects.py`; tests `tests/test_gam/test_effects.py`, `test_improvement_truth.py`, `tests/test_dashboard/test_gam_fit_section.py`; report `scripts/gam_d2_truth_report.py`. Awaiting merge and the maintainer's confirmation of ADR-263 on the D2 PR |
-| D3 CLI / MCP / API | NOT STARTED. Release: written go after D2 |
+| D3 CLI / MCP / API | PARKED 2026-11-08 (maintainer; ADR-264). The epic continues in `PLAN_gam_dashboard_stabilise_retire.md` |
 
 **Merged-state note:** D1's DoD memory item stays PARTLY MET (gam peak RSS measured on one real cell only).
 
@@ -34,3 +34,6 @@
 `estimate_n_coef` is checked on one synthetic fit only. The sandbox memory sweep is off-range. `bam` has no `summary()` / `reml_score`.
 
 D2: `slogdet` divide-by-zero warnings on the `gam` path (PRODUCT_DIRECTION 2026-11-07 follow-up) are still unexamined; the surface is trusted only as far as the truth-recovery draws (smooth bilinear truth, 496 cells, count data) show. `bam`'s `Vp` for a contrast was checked on 3 seeds only.
+
+## 2026-11-08 - D2 merged; epic redirected (ADR-264 ACCEPTED)
+D2 merged as PR #279 (UX batch #281 merged after it). Real-data runs on aggregated ILEC cells (tier L, MEASUREMENT) found basis saturation, uninformative edge cells shown as results, an unhelpful exposure<=0 refusal, and `slogdet` warnings with a larger basis. Maintainer direction: no D3; stabilise, then re-wire and deprecate the older model. Active plan: `PLAN_gam_dashboard_stabilise_retire.md` (S1-S3, R1-R3). **Answered 2026-11-08 (maintainer, PR #282): ADR-264 and the plan confirmed; order S1, then R1 in parallel, then S2/S3; saturation threshold 0.95.** **Still open:** ADR-263 is "IMPLEMENTED, awaiting confirmation" - say "ACCEPTED" to flip it.
