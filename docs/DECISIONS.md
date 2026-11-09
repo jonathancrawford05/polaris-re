@@ -25642,9 +25642,9 @@ Not changed: the gate; the recorded `S1_mid` result (NOT MET on (B) as written);
 **Not done / limits.** The cost model has never been checked on a machine other than the maintainer's (the sandbox timings are far below the fitted range). `estimate_n_coef` is a formula-level count checked against one synthetic fit, not the 15 real formulas (no real data in the cloud). Profiles for `ti`, `re` and `by` terms are not drawn. No D2 work.
 
 
-## ADR-263: GAM dashboard Slice D2 — the page's effects and improvement surface are driven by the HGAM fit; correctness is truth recovery, not agreement with the older model (IMPLEMENTED, awaiting the maintainer's confirmation)
+## ADR-263: GAM dashboard Slice D2 — the page's effects and improvement surface are driven by the HGAM fit; correctness is truth recovery, not agreement with the older model (ACCEPTED)
 
-**Status:** IMPLEMENTED 2026-11-07 (all six checkpoints, one session; amendment 1 holds the pre-registration and the first-run results). Becomes ACCEPTED when the maintainer confirms on the D2 PR.
+**Status:** ACCEPTED 2026-11-09 (all six checkpoints implemented 2026-11-07; amendment 1 holds the pre-registration and the first-run results). Confirmed by the maintainer in the working conversation on 2026-11-09 ("you can flip these 2 ADRs to ACCEPTED"; ADR-263 and ADR-265).
 
 **Decisions (maintainer, 2026-11-07).** Both fitted effects and the improvement surface `MI_x(y)`; HGAM-driven views; the older `ExperienceGAM`/`TensorMIModel` code stays untouched (it feeds the CLI and the `improvement_version_id` pricing path, ADR-148), its retirement is neither part of D2 nor a priority; no pricing link; `q_base` an optional offset; true partial effects; `gam`/`bam` the only engine choice; the Bayesian projection fan stays on the old model, labelled, until an HGAM Bayesian feature is planned (wanted eventually; not D2).
 
@@ -25693,9 +25693,9 @@ Seeds: 20260101 + i. Nothing is tuned between runs; a failing seed is a result.
 **Open.** ADR-263's status is still "IMPLEMENTED, awaiting the maintainer's confirmation"; this PR does not flip it (the maintainer said they believed it matched their request but gave no explicit "ACCEPTED"; asked once more on the PR).
 
 
-## ADR-265: GAM dashboard Slice S1 — fit-report honesty: a saturation flag, a surface mask, and an exposure message (MEASUREMENT, own criterion; PROPOSED)
+## ADR-265: GAM dashboard Slice S1 — fit-report honesty: a saturation flag, a surface mask, and an exposure message (MEASUREMENT, own criterion; ACCEPTED)
 
-**Status:** PROPOSED 2026-11-09 (S1 session). Not a parity slice: nothing here is compared with `mgcv`, so the classification is MEASUREMENT (own criterion) throughout. No pricing path is touched; goldens stay byte-identical.
+**Status:** ACCEPTED 2026-11-09 (S1 session; confirmed by the maintainer in the working conversation the same day, after the tier-L readings recorded in the CONTINUATION). Not a parity slice: nothing here is compared with `mgcv`, so the classification is MEASUREMENT (own criterion) throughout. No pricing path is touched; goldens stay byte-identical.
 
 **Claim sentence (ADR-193, written before the code).** Polaris computes, from the fit alone, (a) which smooth terms use at least 0.95 of their available coefficients, (b) which age x year surface cells carry no data or a band far wider than the surface's typical band, and (c) which input rows have non-positive exposure. There is no second producer and none is claimed: the tests assert the messages, the arithmetic of the rule and the mask on constructed inputs. This is a harness/UX slice (`harness(...)`), not a parity check.
 
