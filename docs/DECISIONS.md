@@ -25692,3 +25692,19 @@ Seeds: 20260101 + i. Nothing is tuned between runs; a failing seed is a result.
 
 **Open.** ADR-263's status is still "IMPLEMENTED, awaiting the maintainer's confirmation"; this PR does not flip it (the maintainer said they believed it matched their request but gave no explicit "ACCEPTED"; asked once more on the PR).
 
+
+## ADR-265: GAM dashboard Slice S1 — fit-report honesty: a saturation flag, a surface mask, and an exposure message (MEASUREMENT, own criterion; PROPOSED)
+
+**Status:** PROPOSED 2026-11-09 (S1 session). Not a parity slice: nothing here is compared with `mgcv`, so the classification is MEASUREMENT (own criterion) throughout. No pricing path is touched; goldens stay byte-identical.
+
+**Claim sentence (ADR-193, written before the code).** Polaris computes, from the fit alone, (a) which smooth terms use at least 0.95 of their available coefficients, (b) which age x year surface cells carry no data or a band far wider than the surface's typical band, and (c) which input rows have non-positive exposure. There is no second producer and none is claimed: the tests assert the messages, the arithmetic of the rule and the mask on constructed inputs. This is a harness/UX slice (`harness(...)`), not a parity check.
+
+**Pre-registered constants (fixed BEFORE the first run; a miss is a result, not a reason to retune — plan §5.6).**
+1. **Saturation threshold = 0.95** (maintainer, 2026-11-08). A smooth term is *saturated* when `edf >= 0.95 * n_coef`, `n_coef` being the term's design block width AFTER constraints (`SmoothSummary.n_coef`, i.e. `k-1` for `s(x,k)`, `(k1-1)(k2-1)` for `ti`, the level count for `re`; a factor-`by` smooth is one block per level, each judged on its own). Derivation: `edf <= n_coef` always (the edf is the trace of a projection-like influence matrix restricted to the block), so the ratio is a fraction of the available flexibility used. The flag is a statement that the basis, not the penalty, may be limiting the fit; it is not a test and has no p-value.
+2. **Mask multiple = 5.** A surface cell is masked as *wide* when its band width `mi_upper - mi_lower` exceeds `5 x` the median band width over the cells that have exposure. Rationale (stated, not tuned): the 2026-11-08 tier-L readings had ages 30-90 under 0.1 and the sparse edges 0.4-1.2, i.e. roughly 4-12 x the interior; 5 x the median separates "an order of magnitude less informative than the typical cell" from ordinary variation. The value was chosen from those descriptive numbers before this slice's code ran and is not adjusted after the first run.
+3. **No-exposure cell.** A surface cell `(x, y)` is masked as *no exposure* when the data have no positive `central_exposure` at `(x, y)` OR at `(x, y - step)` (the contrast reads both points). Where the frame has no `central_exposure` but has `log_exposure`, exposure is `exp(log_exposure)`; with neither, no exposure mask is applied and the page says so.
+4. **Non-positive exposure.** Rows with `central_exposure <= 0` (or null/NaN) are counted and named; the fit is refused with that count and cause, unless the user chooses to drop those rows (default: do not drop; dropping is stated, with the count, on the page).
+
+**Surface output.** Masked cells are NaN in the plotted `mi` and in the CSV `mi`, `mi_lower`, `mi_upper`, `mi_se` columns, and carry a `mask_reason` (`no_exposure`, `wide_band`, or empty). The unmasked arrays stay on `ImprovementSurface` for audit.
+
+**Not decided here.** Whether a saturated term should trigger an automatic refit with a larger `k` (it does not; the page only says so). S2 (`slogdet`), S3 (`amount` basis, sharper truth), R1-R3 are untouched.

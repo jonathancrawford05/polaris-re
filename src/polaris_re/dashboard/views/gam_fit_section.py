@@ -31,6 +31,15 @@ from polaris_re.gam.cost_model import (
     pre_run_warning,
 )
 from polaris_re.gam.effects import ImprovementSurface, improvement_surface, partial_effects
+from polaris_re.gam.fit_report import (
+    MaskedSurface,
+    drop_nonpositive_exposure,
+    mask_surface,
+    nonpositive_exposure,
+    nonpositive_exposure_message,
+    saturation_lines,
+    term_saturation,
+)
 from polaris_re.gam.formula import SmoothCall, TensorCall, parse_formula
 
 __all__ = ["GamRunResult", "render_gam_section", "run_gam_request"]
@@ -173,6 +182,16 @@ def render_gam_section(cells: pl.DataFrame) -> None:
         "DIFFERENT model from the experience GAM above; numbers here are labelled with their "
         "engine. Nothing on this section feeds pricing."
     )
+    n_bad = nonpositive_exposure(cells)
+    if n_bad:
+        st.error(nonpositive_exposure_message(n_bad, cells.height))
+        if not st.checkbox(f"Drop these rows ({n_bad})", value=False, key="gam_drop_bad_exposure"):
+            return
+        cells = drop_nonpositive_exposure(cells)
+        st.caption(f"Dropped {n_bad} row(s) with non-positive exposure; {cells.height} remain.")
+        if cells.height == 0:
+            st.error("No rows remain after dropping non-positive exposure.")
+            return
     data = prepare_frame(cells)
     n_rows = data.height
     if "log_exposure" in data.columns and "log_exposure" not in cells.columns:
@@ -275,6 +294,22 @@ def _show(res: GamRunResult, data: pl.DataFrame, formula: str) -> None:
         ).to_pandas(),
         use_container_width=True,
     )
+    sat = term_saturation(fit)
+    if sat:
+        st.dataframe(
+            pl.DataFrame(
+                {
+                    "smooth": [t.label for t in sat],
+                    "edf": [t.edf for t in sat],
+                    "coefficients": [t.n_coef for t in sat],
+                    "edf / coefficients": [t.ratio for t in sat],
+                    "saturated": [t.saturated for t in sat],
+                }
+            ).to_pandas(),
+            use_container_width=True,
+        )
+    for line in saturation_lines(fit):
+        st.warning(f"Basis saturation — {line}")
     try:
         st.code(str(fit.summary()))
     except PolarisValidationError:
@@ -318,8 +353,27 @@ def _show_effects(fit: GamFit, data: pl.DataFrame, engine: Engine) -> None:
             st.caption(e.note)
 
 
-def surface_csv(s: ImprovementSurface) -> str:
-    """The download: one row per (age, year) cell with the delta-method band."""
+def surface_csv(s: ImprovementSurface, mask: MaskedSurface | None = None) -> str:
+    """The download: one row per (age, year) cell with the delta-method band.
+
+    With a ``mask``, masked cells carry no values (null) and a ``mask_reason`` (ADR-265).
+    """
+    if mask is not None:
+        grid = pl.DataFrame(
+            {
+                s.age_var: np.repeat(s.ages, s.years.size),
+                s.year_var: np.tile(s.years, s.ages.size),
+                "mi": mask.apply(s.mi).reshape(-1),
+                "mi_lower": mask.apply(s.mi_lower).reshape(-1),
+                "mi_upper": mask.apply(s.mi_upper).reshape(-1),
+                "mi_se": mask.apply(s.mi_se).reshape(-1),
+                "mask_reason": mask.reason().reshape(-1).astype(str),
+            },
+            nan_to_null=True,
+        )
+        buf = io.StringIO()
+        grid.write_csv(buf)
+        return buf.getvalue()
     grid = pl.DataFrame(
         {
             s.age_var: np.repeat(s.ages, s.years.size),
@@ -349,8 +403,13 @@ def _show_surface(fit: GamFit, data: pl.DataFrame, engine: Engine) -> None:
     except PolarisValidationError as exc:
         st.info(f"No improvement surface: {exc}")
         return
+    mask = mask_surface(s, data)
+    st.info(
+        f"{mask.summary()} Masked cells are not plotted as values and are blank in the "
+        "download (MEASUREMENT, ADR-265)."
+    )
     fig, ax = plt.subplots(figsize=(6, 3.5))
-    mesh = ax.pcolormesh(s.years, s.ages, s.mi, shading="auto")
+    mesh = ax.pcolormesh(s.years, s.ages, np.ma.masked_invalid(mask.apply(s.mi)), shading="auto")
     fig.colorbar(mesh, ax=ax, label="MI")
     ax.set_xlabel(s.year_var)
     ax.set_ylabel(s.age_var)
@@ -374,7 +433,7 @@ def _show_surface(fit: GamFit, data: pl.DataFrame, engine: Engine) -> None:
     )
     st.download_button(
         "Download MI surface (CSV, HGAM)",
-        data=surface_csv(s),
+        data=surface_csv(s, mask),
         file_name="hgam_mi_surface.csv",
         mime="text/csv",
         key="hgam_mi_download",

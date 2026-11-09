@@ -26,6 +26,7 @@ from polaris_re.core.exceptions import PolarisValidationError
 
 __all__ = [
     "EPSILON_REL",
+    "SATURATION_THRESHOLD",
     "GamSummary",
     "SmoothSummary",
     "build_summary",
@@ -35,6 +36,11 @@ __all__ = [
 EPSILON_REL: float = MGCV_NEWTON_CONV_TOL
 """The Newton search's relative gradient tolerance (``gam.control()$newton$conv.tol``,
 ADR-248), imported rather than redeclared."""
+
+
+SATURATION_THRESHOLD: float = 0.95
+"""A smooth is saturated when ``edf >= SATURATION_THRESHOLD * n_coef`` (maintainer, 2026-11-08;
+ADR-265). Defined here so the fit report and :mod:`polaris_re.gam.fit_report` share one value."""
 
 
 @dataclass(frozen=True)
@@ -47,6 +53,11 @@ class SmoothSummary:
     """``log10`` of each of the term's smoothing parameters (``ti`` and ``select=TRUE``
     terms carry more than one), in penalty-block order."""
     n_coef: int
+
+    @property
+    def saturated(self) -> bool:
+        """``edf >= 0.95 x n_coef`` (ADR-265): the basis may be limiting the term."""
+        return self.n_coef > 0 and self.edf >= SATURATION_THRESHOLD * self.n_coef
 
 
 @dataclass(frozen=True)
@@ -109,6 +120,12 @@ class GamSummary:
             lines.append(
                 f"Outer search: {self.outer}, {self.n_function_evals} penalised fits — "
                 + ("converged" if self.converged else "NOT CONVERGED")
+            )
+        sat = [t for t in self.smooths if t.saturated]
+        if sat:
+            lines.append(
+                f"Basis saturation (edf >= {SATURATION_THRESHOLD:.0%} of coefficients; consider "
+                f"a larger k): " + ", ".join(f"{t.label} ({t.edf:.2f} of {t.n_coef})" for t in sat)
             )
         if self.at_bound_blocks:
             lines.append(
