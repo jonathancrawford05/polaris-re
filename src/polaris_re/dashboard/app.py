@@ -67,24 +67,37 @@ def main() -> None:
 
     init_session_state()
 
+    pages = [
+        "Inforce Block",
+        "Assumptions",
+        "Deal Pricing",
+        "Portfolio",
+        "Treaty Comparison",
+        "Scenario Analysis",
+        "Monte Carlo UQ",
+        "IFRS 17",
+        "Experience Study",
+        "Mortality Improvement",
+    ]
+
     st.sidebar.title("Polaris RE")
     st.sidebar.caption("Life Reinsurance Pricing Engine")
 
-    page = st.sidebar.radio(
-        "Navigation",
-        [
-            "Inforce Block",
-            "Assumptions",
-            "Deal Pricing",
-            "Portfolio",
-            "Treaty Comparison",
-            "Scenario Analysis",
-            "Monte Carlo UQ",
-            "IFRS 17",
-            "Experience Study",
-            "Mortality Improvement",
-        ],
-    )
+    page = st.sidebar.radio("Navigation", pages)
+
+    # Narrow-viewport fallback nav — the sidebar collapses to a hamburger button on small
+    # screens (< ~768 px wide), making page switching invisible.  This compact selectbox in
+    # the main column is always visible and stays in sync with the sidebar selection.
+    with st.expander("📋 Page navigation (compact)", expanded=False):
+        compact_page = st.selectbox(
+            "Go to page",
+            pages,
+            index=pages.index(page),
+            key="compact_nav",
+            label_visibility="collapsed",
+        )
+        if compact_page != page:
+            page = compact_page
 
     if page == "Inforce Block":
         page_inforce()

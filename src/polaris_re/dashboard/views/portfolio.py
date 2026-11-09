@@ -392,6 +392,12 @@ def _render_scenarios(result: PortfolioResult) -> None:
 def _render_capital(result: PortfolioResult) -> None:
     """LICAT capital sub-section — tiles + capital-by-period chart."""
     st.subheader("LICAT Capital")
+    st.info(
+        "⚠️ **C-1 (asset default) and C-3 (interest rate) risk components are placeholder "
+        "values** pending full implementation (ADR-060). The figures shown reflect C-2 "
+        "(mortality/morbidity) only. Do not use these capital numbers for external reporting "
+        "or regulatory submissions."
+    )
     st.caption(
         "Apply a single LICAT factor schedule to the aggregate cash flow "
         "(ADR-060). The interim schedule populates C-1 / C-3 placeholders "
