@@ -206,7 +206,24 @@ def _show(res: GamRunResult, data: pl.DataFrame, formula: str) -> None:
         return
     fit = res.fit
     st.caption(f"Fit took {res.seconds:.1f} s (MEASUREMENT on this machine).")
-    for w in res.warnings_seen:
+    # Numerical warnings (slogdet, divide-by-zero, overflow, invalid value) arise during
+    # REML optimisation when the penalty matrix is near-singular; they are expected and do
+    # not indicate a failed fit.  Surface them only when the fit did NOT converge (R-04).
+    _numerical_patterns = ("slogdet", "divide by zero", "overflow", "invalid value")
+    numerical_events = [
+        w for w in res.warnings_seen if any(p in w.lower() for p in _numerical_patterns)
+    ]
+    user_warnings = [
+        w for w in res.warnings_seen if not any(p in w.lower() for p in _numerical_patterns)
+    ]
+    if numerical_events:
+        if fit.converged:
+            st.caption("Numerical events occurred during optimisation — fit converged.")
+        else:
+            with st.expander("Numerical warnings (fit did NOT converge)", expanded=True):
+                for w in numerical_events:
+                    st.warning(w)
+    for w in user_warnings:
         st.warning(w)
     m1, m2, m3 = st.columns(3)
     m1.metric("edf total", f"{fit.edf_total:.2f}")
@@ -220,8 +237,11 @@ def _show(res: GamRunResult, data: pl.DataFrame, formula: str) -> None:
     )
     try:
         st.code(str(fit.summary()))
-    except PolarisValidationError as exc:
-        st.info(str(exc))
+    except PolarisValidationError:
+        st.info(
+            "Full coefficient table is not available for the **BAM** engine. "
+            "Review EDF per term in the table above."
+        )
     for name, grid, link, se in effect_profiles(fit, data, formula):
         fig, ax = plt.subplots(figsize=(5, 3))
         ax.plot(grid, link, label="link")
