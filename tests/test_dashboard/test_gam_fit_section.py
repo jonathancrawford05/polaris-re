@@ -262,3 +262,71 @@ def test_surface_refusal_without_year_smooth_is_shown_by_name() -> None:
     at.run()
     assert not at.exception
     assert any("no smooth term of 'calendar_year'" in i.value for i in at.info)
+
+
+# ---------------------------------------------------------------------------
+# S1 (ADR-265): fit-report honesty on the page
+# ---------------------------------------------------------------------------
+
+
+def test_surface_csv_blanks_masked_cells_and_names_the_reason() -> None:
+    import numpy as np
+
+    from polaris_re.dashboard.views.gam_fit_section import surface_csv
+    from polaris_re.gam.effects import improvement_surface
+    from polaris_re.gam.fit_report import mask_surface
+
+    d = _data()
+    res = run_gam_request(
+        d,
+        'death_count ~ s(attained_age, bs="cr", k=5) + s(calendar_year, bs="cr", k=4)'
+        " + offset(log_exposure)",
+        "poisson",
+        "gam",
+    )
+    assert res.fit is not None
+    s = improvement_surface(res.fit, d)
+    m = mask_surface(s, d)
+    forced = dataclasses.replace(
+        m,
+        wide_band=np.zeros_like(m.wide_band)
+        | (np.arange(m.masked.size).reshape(m.masked.shape) == 0),
+    )
+    csv = surface_csv(s, forced).splitlines()
+    assert csv[0].endswith("mask_reason")
+    first = csv[1].split(",")
+    assert first[2:6] == ["", "", "", ""]
+    assert first[-1] in ("wide_band", "no_exposure")
+    assert len(csv) == 1 + s.mi.size
+
+
+@pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
+def test_page_names_nonpositive_exposure_and_offers_to_drop_them() -> None:
+    def app() -> None:
+        import polars as pl
+
+        from polaris_re.dashboard.views.gam_fit_section import render_gam_section
+
+        render_gam_section(
+            pl.DataFrame(
+                {
+                    "attained_age": [40, 41, 42, 43] * 5,
+                    "calendar_year": [2015] * 20,
+                    "death_count": [1.0, 2.0, 1.0, 3.0] * 5,
+                    "central_exposure": [1000.0] * 17 + [0.0, -1.0, 0.0],
+                }
+            )
+        )
+
+    at = AppTest.from_function(app, default_timeout=60)
+    at.run()
+    assert not at.exception
+    assert any(
+        "3 of 20 rows" in e.value and "zero, negative or missing" in e.value for e in at.error
+    )
+    assert not any(b.key == "gam_run" for b in at.button)  # refused until the user chooses
+    at.checkbox(key="gam_drop_bad_exposure").check()
+    at.run()
+    assert not at.exception
+    assert any("Dropped 3 row(s)" in c.value for c in at.caption)
+    assert any(b.key == "gam_run" for b in at.button)
