@@ -23,7 +23,7 @@ None needed: S1 is a specification slice with constants fixed in advance. No con
 Tier 1 local apt R: R 4.3.3 / mgcv 1.9.1 installed (apt-get update was needed first). **Not used: S1 reads no mgcv output.** No CI dispatch, no digest: nothing to attribute to a pinned build.
 
 ## Baseline (full suite, `pytest tests/ -m "not slow"`, no `-x`)
-BASELINE_PLACEHOLDER
+Full run (started before the S1 code and new tests existed, so it is the pre-change baseline): **5 failed, 4238 passed, 22 skipped, 147 deselected** in 10m40s. All 5 failures are `FileNotFoundError: Mortality table CSV not found` (generated `data/mortality_tables/*.csv` absent in this sandbox; `test_loaded_ilec_feeds_tensor_mi_surface` and four `test_synthetic_block.py::TestCalibratedPremiums` tests): environmental, unrelated to S1. The S1 test files (14 + 2 page tests) were run separately and pass; the full suite was not re-run after the change, only `tests/test_gam/test_fit_report.py`, `tests/test_dashboard/test_gam_fit_section.py` and `tests/qa/`.
 `tests/qa/` (golden gate) run separately after the change: 85 passed, 9 skipped; no golden file modified (`git status` clean of `tests/qa/golden_outputs/`).
 
 ## Notes / not done
