@@ -25709,9 +25709,9 @@ Seeds: 20260101 + i. Nothing is tuned between runs; a failing seed is a result.
 
 **Not decided here.** Whether a saturated term should trigger an automatic refit with a larger `k` (it does not; the page only says so). S2 (`slogdet`), S3 (`amount` basis, sharper truth), R1-R3 are untouched.
 
-## ADR-266: GAM dashboard Slice S2 — the `slogdet` warnings are NOT REPRODUCED on synthetic data; the page keeps the R-04 handling (MEASUREMENT, own criterion; PROPOSED)
+## ADR-266: GAM dashboard Slice S2 — the `slogdet` warnings are NOT REPRODUCED on synthetic data; the page keeps the R-04 handling (MEASUREMENT, own criterion; ACCEPTED)
 
-**Status:** PROPOSED 2026-11-09 (S2 session; no src/ change; scripts + docs only).
+**Status:** ACCEPTED 2026-11-09 (maintainer review on PR #285, relayed in the review text; the maintainer's reading is that the warnings are benign and R-04 is the right disposition. That reading is the maintainer's: this ADR's own measurement shows only that the warnings were not reproduced on synthetic data, and the mechanism was not measured). S2 session; no src/ change; scripts + docs only.
 
 **Claim sentence (ADR-193).** *Polaris records every `np.linalg.slogdet` call and every `RuntimeWarning` during its own fit; there is no second producer, so every number here is MEASUREMENT (own criterion), tier: none (no `mgcv` involved).*
 
