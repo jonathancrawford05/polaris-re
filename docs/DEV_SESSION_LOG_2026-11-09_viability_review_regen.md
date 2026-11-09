@@ -111,9 +111,14 @@ No comparison was produced. All figures (PR counts, day counts) come from
 `git log` or the GitHub PR list.
 
 ## Baseline
-See "Baseline result" below. The prior recorded baseline (the PR #282 review, at
-the PR head with mortality tables converted) was **4238 passed, 27 skipped, 147
-deselected, 0 failed**.
+**Baseline result:** `uv run pytest tests/ -m "not slow"` on this branch, with
+mortality tables converted (6 CSVs; pymort reported the CIA 2014 female tables
+MISSING) and R not installed: **4238 passed, 27 skipped, 147 deselected, 0
+failed** (530 s). This run includes `tests/qa/`. It is identical to the prior
+recorded baseline from the PR #282 review, so there is no delta.
+
+The first `uv sync` stalled on a large wheel download and was killed at 30
+minutes. A retry completed from the cache.
 
 ## Impact on Golden Baselines
 None. No source change.
