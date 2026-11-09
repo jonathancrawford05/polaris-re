@@ -31,3 +31,6 @@ Full run (started before the S1 code and new tests existed, so it is the pre-cha
 - The band-width heat map is left unmasked on purpose: it is the diagnostic that shows why cells are masked.
 - Unexpected: the stale pointer text in ROUTINE_MGCV_PARITY.md said "next session takes S1"; updated.
 - `perf/history.jsonl`: src/polaris_re changed (non-conformance modules), so one row is appended on this initial open.
+
+## PR #283 review round 1 (APPROVE, P2 only)
+Fixed: float-key drift in `mask_surface` for a non-integer `step` (keys rounded to 9 dp; new test); `==` on floats in the constants test; docstrings on `SaturatedTerm`. Perf-history verdict from the append: no structural, wall-time or config creep (peak 33 -> 33 MiB, wall-time 1.036x). Not done, with reason: vectorising the grid loop (grid cells, tiny, loop is clearer); the duplicated saturation rule is deliberate (`SmoothSummary` guards `n_coef > 0`; `SaturatedTerm` is built only from non-empty blocks, now stated in its docstring). Non-positive `q_base` stays a 2nd-order maintainer question (CONTINUATION), proposed for S3.

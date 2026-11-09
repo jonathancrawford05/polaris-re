@@ -27,8 +27,8 @@ from polaris_re.gam.summary import SmoothSummary
 
 
 def test_constants_are_the_preregistered_values() -> None:
-    assert SATURATION_THRESHOLD == 0.95
-    assert MASK_BAND_MULTIPLE == 5.0
+    np.testing.assert_allclose(SATURATION_THRESHOLD, 0.95, rtol=0)
+    np.testing.assert_allclose(MASK_BAND_MULTIPLE, 5.0, rtol=0)
 
 
 @pytest.mark.parametrize(
@@ -195,3 +195,19 @@ def test_nonpositive_exposure_is_counted_named_and_droppable() -> None:
     with pytest.raises(PolarisValidationError):
         nonpositive_exposure_message(0, 6)
     assert nonpositive_exposure(pl.DataFrame({"x": [1, 2]})) == 0
+
+
+def test_fractional_step_does_not_lose_cells_to_float_drift() -> None:
+    ages = np.array([30.0])
+    years = np.array([2010.1, 2010.2, 2010.3])
+    n = (1, 3)
+    base = _surface(np.full(n, 0.02))
+    surf = ImprovementSurface(**{**base.__dict__, "ages": ages, "years": years, "step": 0.1})
+    data = pl.DataFrame(
+        {
+            "attained_age": [30.0] * 4,
+            "calendar_year": [0.1 + 2010.0, 2010.2, 2010.3, 2010.0],
+            "central_exposure": [1.0] * 4,
+        }
+    )
+    assert not mask_surface(surf, data).no_exposure.any()

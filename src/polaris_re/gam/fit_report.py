@@ -54,10 +54,12 @@ class SaturatedTerm:
 
     @property
     def ratio(self) -> float:
+        """``edf / n_coef``: the fraction of the block's coefficients the fit used."""
         return self.edf / self.n_coef
 
     @property
     def saturated(self) -> bool:
+        """Same rule as ``SmoothSummary.saturated`` (``term_saturation`` drops empty blocks)."""
         return self.edf >= SATURATION_THRESHOLD * self.n_coef
 
 
@@ -173,11 +175,18 @@ def mask_surface(
         age = data.get_column(surface.age_var).cast(pl.Float64).to_numpy()
         year = data.get_column(surface.year_var).cast(pl.Float64).to_numpy()
         keep = np.isfinite(expo) & (expo > 0.0)
-        have = set(zip(age[keep].tolist(), year[keep].tolist(), strict=True))
+        # Rounded keys: a non-integer step (e.g. 0.1) must not lose cells to float drift.
+        have = {
+            (round(a, 9), round(y, 9))
+            for a, y in zip(age[keep].tolist(), year[keep].tolist(), strict=True)
+        }
         no_expo = np.zeros(shape, dtype=bool)
         for i, a in enumerate(surface.ages.tolist()):
             for j, y in enumerate(surface.years.tolist()):
-                no_expo[i, j] = (a, y) not in have or (a, y - surface.step) not in have
+                no_expo[i, j] = (round(a, 9), round(y, 9)) not in have or (
+                    round(a, 9),
+                    round(y - surface.step, 9),
+                ) not in have
         known = True
     ok = ~no_expo & np.isfinite(width)
     median = float(np.median(width[ok])) if ok.any() else float("nan")
