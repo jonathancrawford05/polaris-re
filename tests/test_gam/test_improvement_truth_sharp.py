@@ -135,6 +135,7 @@ def test_claim_is_declared_independent_closed_form() -> None:
 @pytest.mark.slow
 @pytest.mark.parametrize("k_label", list(KS))
 @pytest.mark.xfail(
+    raises=AssertionError,
     strict=True,
     reason="ADR-267 finding: the pre-registered property FAILS (gam, default `ti` margins: "
     "unflagged misses on seeds 20260201 and 20260210, z 5.17 and 4.61 vs 4.5, at both k sets). "
@@ -158,6 +159,7 @@ def test_gam_unflagged_miss_is_a_failure(k_label: str) -> None:
 @pytest.mark.slow
 @pytest.mark.parametrize("k_label", list(KS))
 @pytest.mark.xfail(
+    raises=AssertionError,
     strict=True,
     reason="ADR-267 finding: the pre-registered property FAILS (bam, seed 20260201, z 5.17 at "
     "both k sets, nothing flagged). The `ti` term (edf 3.9 of 16, 24%) carries the step "

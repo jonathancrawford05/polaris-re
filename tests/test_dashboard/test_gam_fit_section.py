@@ -332,6 +332,36 @@ def test_page_names_nonpositive_exposure_and_offers_to_drop_them() -> None:
     assert any(b.key == "gam_run" for b in at.button)
 
 
+def scale_invariance_claim():  # type: ignore[no-untyped-def]
+    """Declared provenance of the amount-vs-count comparison (review P1, ADR-193).
+
+    Both operands come from the SAME engine (``gam`` quasipoisson) on rescaled copies of one
+    draw: a Polaris-against-itself MEASUREMENT (own criterion). ``ComparisonProvenance`` has
+    no MEASUREMENT member, so ECHO (harness evidence, never parity) is the conservative label
+    and the claim text says what it really is."""
+    from polaris_re.core.verification import (
+        ComparedQuantity,
+        ComparisonProvenance,
+        VerificationClaim,
+    )
+
+    return VerificationClaim(
+        claim=(
+            "gam quasipoisson computes MI_x(y) on the count-basis copy of a draw; the same "
+            "gam quasipoisson computes it on the amount-basis copy (x1e5); compared on MI per "
+            "cell. Own-criterion MEASUREMENT of Polaris against itself, not parity."
+        ),
+        quantities=(
+            ComparedQuantity(
+                quantity="mi_age_year",
+                left_producer="polaris_re.gam.gam quasipoisson, count basis",
+                right_producer="polaris_re.gam.gam quasipoisson, amount basis",
+                provenance=ComparisonProvenance.ECHO,
+            ),
+        ),
+    )
+
+
 # --- S3 (ADR-267): the amount basis and the bam non-PD refusal ---------------------------
 
 
@@ -356,6 +386,7 @@ def test_amount_basis_frame_and_default_formula() -> None:
 
 
 @pytest.mark.xfail(
+    raises=AssertionError,
     strict=True,
     reason="ADR-267 finding: pre-registered bound MISSED (max |dMI| 6.55e-5 vs 1e-6). REML sp "
     "selection with an estimated scale is not exactly scale invariant (mgcv 1.9.1 on tier 1 "
@@ -363,6 +394,8 @@ def test_amount_basis_frame_and_default_formula() -> None:
     "is kept, not widened.",
 )
 def test_amount_basis_mi_is_scale_invariant_preregistered_bound() -> None:
+    claim = scale_invariance_claim()
+    assert not claim.is_parity_claim  # Polaris vs Polaris: never reportable as parity
     """MEASUREMENT (own criterion; both sides are Polaris, so NOT parity). Closed form: with a
     constant face F, death_amount = F x death_count and amount_exposed = F x exposure, and a
     quasi-Poisson fit is scale invariant in the point estimate (score equations are linear in
@@ -370,6 +403,9 @@ def test_amount_basis_mi_is_scale_invariant_preregistered_bound() -> None:
     max |MI_amount - MI_count| <= 1e-6. (A second pre-registered bound, se ratio = sqrt(F), had
     an algebra error: Var(beta) = phi (X'WX)^-1 with W ~ F and phi ~ F, so se is invariant, not
     scaled; that bound was dropped, not retuned. Recorded in ADR-267.)
+    NOTE (review P2): the closed form holds at a FIXED smoothing parameter, but the test runs
+    REML-selected sp, so the bound tests a stronger property than the derivation gives; ADR-267
+    finding 4 reads the miss accordingly. The engine has no fixed-sp path, so no variant exists.
     (The noise-free sample is NOT used: at y ~ 1e8 with zero deviance the inner IRLS stopping
     rule fails at the starting point - a degenerate case recorded in ADR-267.)"""
     import numpy as np

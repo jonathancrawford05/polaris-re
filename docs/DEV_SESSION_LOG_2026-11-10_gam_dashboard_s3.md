@@ -20,4 +20,4 @@ Tier 1 local apt R: R 4.3.3 / mgcv 1.9.1 (as expected). No CI dispatch, no diges
 **5 failed, 4262 passed, 22 skipped, 152 deselected, 1 xfailed** in 13m12s. The 5 failures are the standing ones (missing `data/mortality_tables/*.csv`: 4 in `tests/test_synthetic_block.py`, 1 `test_experience_loaders.py::test_loaded_ilec_feeds_tensor_mi_surface`), confirmed failing on the stashed tree too. `tests/qa/`: 85 passed, 9 skipped (goldens byte-identical).
 
 ## Perf / mypy
-perf row appended (ADR-177; src touched, not a conformance-only change). mypy is CI's job.
+perf row appended (ADR-177; src touched, not a conformance-only change), pinned to the branch commit c7cce58; verdict: no structural creep (peak MiB 33 -> 33, wall-time recent/baseline 0.985x). mypy is CI's job.

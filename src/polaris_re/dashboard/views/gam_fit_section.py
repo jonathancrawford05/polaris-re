@@ -76,7 +76,7 @@ def default_formula(data: pl.DataFrame, basis: str = "count") -> str:
         offset = (
             AMOUNT_EXPECTED_OFFSET
             if AMOUNT_EXPECTED_OFFSET in data.columns
-            else (AMOUNT_LOG_EXPOSURE)
+            else AMOUNT_LOG_EXPOSURE
         )
         return DEFAULT_FORMULA.replace("death_count", "death_amount").replace(
             "offset(log_exposure)", f"offset({offset})"
@@ -231,10 +231,18 @@ def render_gam_section(cells: pl.DataFrame, basis: str = "count") -> None:
     data = prepare_frame(cells, basis)
     n_rows = data.height
     if basis == "amount":
-        if AMOUNT_LOG_EXPOSURE not in data.columns:
+        missing_amount = [
+            name
+            for name, present in (
+                ("amount_exposed", AMOUNT_LOG_EXPOSURE in data.columns),
+                ("death_amount", "death_amount" in data.columns),
+            )
+            if not present
+        ]
+        if missing_amount:
             st.error(
-                "The amount basis needs an `amount_exposed` column (and `death_amount`, "
-                "the response); neither the offset nor the default formula can be built."
+                f"The amount basis needs the column(s) {missing_amount}: `amount_exposed` "
+                "builds the offset and `death_amount` is the response."
             )
             return
         st.caption(
