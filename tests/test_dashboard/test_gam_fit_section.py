@@ -10,6 +10,11 @@ import dataclasses
 import polars as pl
 import pytest
 
+from polaris_re.core.verification import (
+    ComparedQuantity,
+    ComparisonProvenance,
+    VerificationClaim,
+)
 from polaris_re.dashboard.views.experience_improvement import _sample_cells
 from polaris_re.dashboard.views.gam_fit_section import (
     GamRunResult,
@@ -332,19 +337,13 @@ def test_page_names_nonpositive_exposure_and_offers_to_drop_them() -> None:
     assert any(b.key == "gam_run" for b in at.button)
 
 
-def scale_invariance_claim():  # type: ignore[no-untyped-def]
+def scale_invariance_claim() -> VerificationClaim:
     """Declared provenance of the amount-vs-count comparison (review P1, ADR-193).
 
     Both operands come from the SAME engine (``gam`` quasipoisson) on rescaled copies of one
     draw: a Polaris-against-itself MEASUREMENT (own criterion). ``ComparisonProvenance`` has
     no MEASUREMENT member, so ECHO (harness evidence, never parity) is the conservative label
     and the claim text says what it really is."""
-    from polaris_re.core.verification import (
-        ComparedQuantity,
-        ComparisonProvenance,
-        VerificationClaim,
-    )
-
     return VerificationClaim(
         claim=(
             "gam quasipoisson computes MI_x(y) on the count-basis copy of a draw; the same "
@@ -394,8 +393,6 @@ def test_amount_basis_frame_and_default_formula() -> None:
     "is kept, not widened.",
 )
 def test_amount_basis_mi_is_scale_invariant_preregistered_bound() -> None:
-    claim = scale_invariance_claim()
-    assert not claim.is_parity_claim  # Polaris vs Polaris: never reportable as parity
     """MEASUREMENT (own criterion; both sides are Polaris, so NOT parity). Closed form: with a
     constant face F, death_amount = F x death_count and amount_exposed = F x exposure, and a
     quasi-Poisson fit is scale invariant in the point estimate (score equations are linear in
@@ -408,6 +405,7 @@ def test_amount_basis_mi_is_scale_invariant_preregistered_bound() -> None:
     finding 4 reads the miss accordingly. The engine has no fixed-sp path, so no variant exists.
     (The noise-free sample is NOT used: at y ~ 1e8 with zero deviance the inner IRLS stopping
     rule fails at the starting point - a degenerate case recorded in ADR-267.)"""
+    assert not scale_invariance_claim().is_parity_claim  # Polaris vs Polaris: never parity
     import numpy as np
 
     from polaris_re.gam.effects import improvement_surface
