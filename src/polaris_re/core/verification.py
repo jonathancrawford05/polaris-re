@@ -3,7 +3,7 @@ Verification provenance — what makes a comparison *parity evidence* (ADR-193).
 
 A comparison between this engine and a reference implementation only demonstrates
 parity when **two independent producers** computed the compared quantity from the
-same recipe. Four relationships all render as a table of near-zero diffs, and
+same recipe. Five relationships all render as a table of near-zero diffs, and
 nothing in a rendered table distinguishes them:
 
 - ``INDEPENDENT`` — both sides computed the quantity from the same *recipe*
@@ -14,6 +14,11 @@ nothing in a rendered table distinguishes them:
   them are the reference** and this engine is absent from the comparison
   entirely (``mgcv`` against ``mgcv``). Real evidence, and it can genuinely
   disagree — but evidence about *the reference*, never about us.
+- ``MEASUREMENT`` — this engine measured against *itself* (a thread axis, a rescaled
+  copy of the same draw, its own criterion). Not a harness check and not parity: no
+  second producer exists, so it can show the engine is stable or invariant, never
+  that it is right. Unlike ``ECHO``/``TRANSPORT`` it may name the same function on
+  both sides, because the two operands differ in *input*, not in producer.
 - ``ECHO`` — one side supplied the quantity and the other returned it. A real
   check (it proves the reference did not silently reparameterise or rescale what
   it was handed) but a *no-tampering* check, not a parity check.
@@ -59,11 +64,13 @@ class ComparisonProvenance(StrEnum):
     REFERENCE_INTERNAL = "REFERENCE_INTERNAL"
     ECHO = "ECHO"
     TRANSPORT = "TRANSPORT"
+    MEASUREMENT = "MEASUREMENT"
 
     @property
     def is_parity_evidence(self) -> bool:
         """Only an independent comparison demonstrates parity *for this engine*.
 
+        ``MEASUREMENT`` is this engine against itself: own-criterion, never parity.
         ``ECHO`` and ``TRANSPORT`` comparisons are harness evidence: worth running
         and worth reporting, but never the basis of a parity claim.
         ``REFERENCE_INTERNAL`` is neither harness nor parity — it is a real
@@ -200,6 +207,11 @@ class VerificationClaim(PolarisBaseModel):
         )
 
     @property
+    def measurement_quantities(self) -> tuple[ComparedQuantity, ...]:
+        """The engine-against-itself quantities (own criterion) — never parity."""
+        return tuple(q for q in self.quantities if q.provenance is ComparisonProvenance.MEASUREMENT)
+
+    @property
     def harness_quantities(self) -> tuple[ComparedQuantity, ...]:
         """The echoed/transported quantities — real checks, but not parity.
 
@@ -273,6 +285,13 @@ def evidence_headline(claim: VerificationClaim) -> str:
     parity = ", ".join(f"`{q.quantity}`" for q in claim.parity_quantities)
     harness = ", ".join(f"`{q.quantity}` ({q.provenance.value})" for q in claim.harness_quantities)
     internal = ", ".join(f"`{q.quantity}`" for q in claim.reference_internal_quantities)
+    measure = ", ".join(f"`{q.quantity}`" for q in claim.measurement_quantities)
+    measure_clause = (
+        f" **Own-criterion measurement — NOT parity:** {measure}. This engine against "
+        "itself; it can show stability or invariance, never correctness."
+        if measure
+        else ""
+    )
     internal_clause = (
         f" **Reference-internal — NOT parity:** {internal}. Both operands are the "
         "reference; this engine is absent, so these are evidence about the "
@@ -280,6 +299,12 @@ def evidence_headline(claim: VerificationClaim) -> str:
         if internal
         else ""
     )
+    if not parity and not harness and not internal and measure:
+        return (
+            "**Own-criterion measurement — NOT parity.** Every column compares this "
+            f"engine against itself: {measure}. It can show stability or invariance, "
+            "never that the engine is right."
+        )
     if claim.is_parity_claim:
         return f"**Parity comparison** — independently produced on both sides: {parity}."
     if parity and not harness:
@@ -288,15 +313,16 @@ def evidence_headline(claim: VerificationClaim) -> str:
         # whole thing a "harness check" would be wrong in the other direction —
         # the parity columns are real parity, and the rest are real measurements
         # of the reference. Name both rather than averaging them.
+        extra = "reference-internal" if internal else "own-criterion measurement"
         return (
-            "**Parity comparison, with reference-internal columns.** Parity "
-            f"evidence for this engine: {parity}.{internal_clause}"
+            f"**Parity comparison, with {extra} columns.** Parity "
+            f"evidence for this engine: {parity}.{internal_clause}{measure_clause}"
         )
     if not parity and not harness:
         return (
             "**Reference-internal measurement — NOT parity.** Every column has two "
             f"real producers, but both of them are the reference: {internal}. This "
-            "engine is absent, so nothing here is evidence about it."
+            f"engine is absent, so nothing here is evidence about it.{measure_clause}"
         )
     if not parity:
         # What a zero actually proves differs by kind, so say only what holds:
@@ -321,7 +347,7 @@ def evidence_headline(claim: VerificationClaim) -> str:
             )
         return (
             "**Harness check — NOT parity.** No column here is independently "
-            f"produced: {harness}. {proves}{internal_clause}"
+            f"produced: {harness}. {proves}{internal_clause}{measure_clause}"
         )
     # Lead with the SHARE of parity columns (maintainer, 2026-10-09, PR #262): a bold lead that
     # opened with "Parity comparison" oversold ECHO-dominated claims. The ECHO/TRANSPORT
@@ -332,7 +358,8 @@ def evidence_headline(claim: VerificationClaim) -> str:
     verb = "is" if n_parity == 1 and n_all == 1 else "are"
     return (
         f"**{n_parity} of {n_all} {columns} {verb} parity evidence; the rest are harness-only.** "
-        f"Parity evidence: {parity}. Harness only (not parity): {harness}.{internal_clause}"
+        f"Parity evidence: {parity}. Harness only (not parity): {harness}."
+        f"{internal_clause}{measure_clause}"
     )
 
 

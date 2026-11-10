@@ -402,3 +402,61 @@ def test_evidence_markdown_is_deterministic() -> None:
         quantities=(_echo("design_X"), _echo("penalty_S"), _independent("rank")),
     )
     assert evidence_markdown(claim) == evidence_markdown(claim)
+
+
+# --- MEASUREMENT: this engine against itself (own criterion) ------------------------------
+
+
+def _measurement(quantity: str = "mi_rescaled") -> ComparedQuantity:
+    return ComparedQuantity(
+        quantity=quantity,
+        left_producer="polaris_re.gam.gam on the count-basis copy",
+        right_producer="polaris_re.gam.gam on the amount-basis copy",
+        provenance=ComparisonProvenance.MEASUREMENT,
+    )
+
+
+def test_measurement_is_neither_parity_nor_two_producers() -> None:
+    assert not ComparisonProvenance.MEASUREMENT.is_parity_evidence
+    assert not ComparisonProvenance.MEASUREMENT.has_two_producers
+
+
+def test_measurement_may_name_the_same_function_on_both_sides() -> None:
+    q = ComparedQuantity(
+        quantity="thread_axis",
+        left_producer="fit_polaris_gam, 1 thread",
+        right_producer="fit_polaris_gam, 1 thread",
+        provenance=ComparisonProvenance.MEASUREMENT,
+    )
+    assert q.provenance is ComparisonProvenance.MEASUREMENT
+
+
+def test_measurement_cannot_satisfy_a_parity_gate() -> None:
+    with pytest.raises(PolarisValidationError, match="MEASUREMENT"):
+        require_parity_evidence([_measurement()], claim="x")
+
+
+def test_measurement_is_its_own_group() -> None:
+    claim = VerificationClaim(claim="c", quantities=(_independent(), _measurement()))
+    assert [q.quantity for q in claim.measurement_quantities] == ["mi_rescaled"]
+    assert claim.harness_quantities == ()
+    assert not claim.is_parity_claim
+
+
+def test_headline_of_a_pure_measurement_claim_says_not_parity() -> None:
+    head = evidence_headline(VerificationClaim(claim="c", quantities=(_measurement(),)))
+    assert "Own-criterion measurement" in head and "NOT parity" in head
+    assert "harness" not in head.lower()
+
+
+def test_headline_names_measurement_columns_beside_parity_ones() -> None:
+    head = evidence_headline(
+        VerificationClaim(claim="c", quantities=(_independent(), _measurement()))
+    )
+    assert "own-criterion measurement" in head and "`mi_rescaled`" in head
+    assert "NOT parity" in head
+
+
+def test_headline_names_measurement_columns_beside_harness_ones() -> None:
+    head = evidence_headline(VerificationClaim(claim="c", quantities=(_echo(), _measurement())))
+    assert "Harness check — NOT parity" in head and "`mi_rescaled`" in head

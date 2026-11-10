@@ -19,8 +19,9 @@ situations:
 | **INDEPENDENT** | Two implementations computed the quantity from the same *recipe*, neither reading the other's output | **Parity.** The only relationship that can produce a genuine disagreement |
 | **ECHO** | One side supplied the quantity; the other returned it | The reference did not reparameterise, rescale or reorder what it was handed |
 | **TRANSPORT** | One side computed it; the other parsed it | Serialisation and packaging work |
+| **MEASUREMENT** | This engine against itself: a rescaled copy, a thread axis, its own criterion (added 2026-11-10, ADR-267) | Stability or invariance of the engine; never correctness. No second producer exists, so the same function may be named on both sides |
 
-All three are worth running. Only the first is parity evidence.
+All of these are worth running. Only the first is parity evidence.
 
 The failure mode is not dishonesty. Twice in the `mgcv` parity epic the prose was
 scrupulously accurate — the docstrings, the session logs and the ledger all said

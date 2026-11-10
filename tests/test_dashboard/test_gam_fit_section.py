@@ -341,9 +341,8 @@ def scale_invariance_claim() -> VerificationClaim:
     """Declared provenance of the amount-vs-count comparison (review P1, ADR-193).
 
     Both operands come from the SAME engine (``gam`` quasipoisson) on rescaled copies of one
-    draw: a Polaris-against-itself MEASUREMENT (own criterion). ``ComparisonProvenance`` has
-    no MEASUREMENT member, so ECHO (harness evidence, never parity) is the conservative label
-    and the claim text says what it really is."""
+    draw: a Polaris-against-itself MEASUREMENT (own criterion), declared as such (the
+    ``MEASUREMENT`` provenance, added to ``core/verification.py`` on maintainer request)."""
     return VerificationClaim(
         claim=(
             "gam quasipoisson computes MI_x(y) on the count-basis copy of a draw; the same "
@@ -355,7 +354,7 @@ def scale_invariance_claim() -> VerificationClaim:
                 quantity="mi_age_year",
                 left_producer="polaris_re.gam.gam quasipoisson, count basis",
                 right_producer="polaris_re.gam.gam quasipoisson, amount basis",
-                provenance=ComparisonProvenance.ECHO,
+                provenance=ComparisonProvenance.MEASUREMENT,
             ),
         ),
     )
