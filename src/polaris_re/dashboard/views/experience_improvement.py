@@ -230,7 +230,7 @@ def _missing_columns_fallback(cells: pl.DataFrame, basis: str, missing: set[str]
     )
     with st.expander("Preview data", expanded=False):
         st.dataframe(cells.head(20).to_pandas(), use_container_width=True)
-    render_gam_section(cells)
+    render_gam_section(cells, basis)
 
 
 def _render_legacy_model(cells: pl.DataFrame, basis: str) -> None:
@@ -480,7 +480,7 @@ def page_experience_improvement() -> None:
 
     from polaris_re.dashboard.views.gam_fit_section import render_gam_section
 
-    render_gam_section(cells)
+    render_gam_section(cells, basis)
 
     with st.expander(
         "Legacy model: older tensor P-spline experience GAM (not the HGAM above)", expanded=False

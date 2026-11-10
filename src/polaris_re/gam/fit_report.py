@@ -39,6 +39,9 @@ __all__ = [
     "term_saturation",
 ]
 
+AMOUNT_EXPOSURE_COLUMN = "amount_exposed"
+"""Exposure column of the ``amount`` basis (ADR-267)."""
+
 MASK_BAND_MULTIPLE: float = 5.0
 """A cell is masked as wide when its band exceeds this multiple of the median band
 (ADR-265 decision 2; fixed before the first run)."""
@@ -145,8 +148,17 @@ class MaskedSurface:
         return base
 
 
-def exposure_vector(data: pl.DataFrame) -> np.ndarray | None:
-    """Row exposure: ``central_exposure``, else ``exp(log_exposure)``, else ``None``."""
+def exposure_vector(data: pl.DataFrame, basis: str = "count") -> np.ndarray | None:
+    """Row exposure: the basis's exposure column, else ``exp(log_exposure)``, else ``None``.
+
+    ``basis="count"`` reads ``central_exposure``; ``basis="amount"`` reads ``amount_exposed``
+    (S3). With neither column present, ``exp(log_exposure)`` is used.
+    """
+    col = AMOUNT_EXPOSURE_COLUMN if basis == "amount" else "central_exposure"
+    if col in data.columns:
+        return data.get_column(col).cast(pl.Float64).to_numpy()
+    if basis == "amount":
+        return None
     if "central_exposure" in data.columns:
         return data.get_column("central_exposure").cast(pl.Float64).to_numpy()
     if "log_exposure" in data.columns:
@@ -159,6 +171,7 @@ def mask_surface(
     data: pl.DataFrame,
     *,
     multiple: float = MASK_BAND_MULTIPLE,
+    basis: str = "count",
 ) -> MaskedSurface:
     """Mask cells with no exposure at ``(x, y)`` or ``(x, y - step)``, or a too-wide band.
 
@@ -167,7 +180,7 @@ def mask_surface(
     """
     shape = surface.mi.shape
     width = surface.mi_upper - surface.mi_lower
-    expo = exposure_vector(data)
+    expo = exposure_vector(data, basis)
     if expo is None:
         no_expo = np.zeros(shape, dtype=bool)
         known = False
@@ -197,17 +210,17 @@ def mask_surface(
     return MaskedSurface(no_expo, wide, median, multiple, known)
 
 
-def nonpositive_exposure(data: pl.DataFrame) -> int:
+def nonpositive_exposure(data: pl.DataFrame, basis: str = "count") -> int:
     """Rows whose exposure is null, NaN or ``<= 0`` (0 when the frame has no exposure column)."""
-    expo = exposure_vector(data)
+    expo = exposure_vector(data, basis)
     if expo is None:
         return 0
     return int((~(np.isfinite(expo) & (expo > 0.0))).sum())
 
 
-def drop_nonpositive_exposure(data: pl.DataFrame) -> pl.DataFrame:
+def drop_nonpositive_exposure(data: pl.DataFrame, basis: str = "count") -> pl.DataFrame:
     """``data`` without the rows :func:`nonpositive_exposure` counts."""
-    expo = exposure_vector(data)
+    expo = exposure_vector(data, basis)
     if expo is None:
         return data
     return data.filter(pl.Series(np.isfinite(expo) & (expo > 0.0)))

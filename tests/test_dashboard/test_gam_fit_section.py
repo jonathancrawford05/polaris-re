@@ -330,3 +330,158 @@ def test_page_names_nonpositive_exposure_and_offers_to_drop_them() -> None:
     assert not at.exception
     assert any("Dropped 3 row(s)" in c.value for c in at.caption)
     assert any(b.key == "gam_run" for b in at.button)
+
+
+# --- S3 (ADR-267): the amount basis and the bam non-PD refusal ---------------------------
+
+
+def _amount_cells() -> pl.DataFrame:
+    """The built-in sample re-expressed on the amount basis (average face 100,000)."""
+    c = _sample_cells()
+    return c.with_columns(
+        (pl.col("central_exposure") * 1.0e5).alias("amount_exposed"),
+        (pl.col("death_count") * 1.0e5).alias("death_amount"),
+    ).drop("central_exposure", "death_count")
+
+
+def test_amount_basis_frame_and_default_formula() -> None:
+    from polaris_re.dashboard.views.gam_fit_section import default_formula
+
+    d = prepare_frame(_amount_cells(), "amount")
+    assert {"log_amount_exposed", "log_expected_amount"} <= set(d.columns)
+    assert "log_exposure" not in d.columns  # count-basis names are not reused
+    f = default_formula(d, "amount")
+    assert f.startswith("death_amount ~") and "offset(log_expected_amount)" in f
+    assert "offset(log_amount_exposed)" in default_formula(d.drop("log_expected_amount"), "amount")
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="ADR-267 finding: pre-registered bound MISSED (max |dMI| 6.55e-5 vs 1e-6). REML sp "
+    "selection with an estimated scale is not exactly scale invariant (mgcv 1.9.1 on tier 1 "
+    "moves edf 3.694 -> 3.725 under the same x1e5 rescale: hypothesis, not a result). The bound "
+    "is kept, not widened.",
+)
+def test_amount_basis_mi_is_scale_invariant_preregistered_bound() -> None:
+    """MEASUREMENT (own criterion; both sides are Polaris, so NOT parity). Closed form: with a
+    constant face F, death_amount = F x death_count and amount_exposed = F x exposure, and a
+    quasi-Poisson fit is scale invariant in the point estimate (score equations are linear in
+    y/mu) at a FIXED smoothing parameter. Pre-registered bound (written before the first run):
+    max |MI_amount - MI_count| <= 1e-6. (A second pre-registered bound, se ratio = sqrt(F), had
+    an algebra error: Var(beta) = phi (X'WX)^-1 with W ~ F and phi ~ F, so se is invariant, not
+    scaled; that bound was dropped, not retuned. Recorded in ADR-267.)
+    (The noise-free sample is NOT used: at y ~ 1e8 with zero deviance the inner IRLS stopping
+    rule fails at the starting point - a degenerate case recorded in ADR-267.)"""
+    import numpy as np
+
+    from polaris_re.gam.effects import improvement_surface
+
+    face, expo, seed = 1.0e5, 5.0e4, 20260301
+    rng = np.random.default_rng(seed)
+    ages = np.repeat(np.arange(40, 71), 16).astype(float)
+    years = np.tile(np.arange(2005, 2021), 31).astype(float)
+    mu = expo * 0.004 * np.exp(0.08 * (ages - 45.0)) * np.exp(-0.02 * (years - 2005.0))
+    counts = rng.poisson(mu).astype(float)
+    base = pl.DataFrame({"attained_age": ages, "calendar_year": years})
+    cnt = base.with_columns(
+        pl.Series("death_count", counts),
+        pl.Series("log_exposure", np.full(ages.size, np.log(expo))),
+    )
+    amt = base.with_columns(
+        pl.Series("death_amount", counts * face),
+        pl.Series("log_amount_exposed", np.full(ages.size, np.log(expo * face))),
+    )
+    rhs = 's(attained_age, bs="cr", k=8) + s(calendar_year, bs="cr", k=5) + offset({o})'
+    r_c = run_gam_request(
+        cnt, "death_count ~ " + rhs.format(o="log_exposure"), "quasipoisson", "gam"
+    )
+    r_a = run_gam_request(
+        amt, "death_amount ~ " + rhs.format(o="log_amount_exposed"), "quasipoisson", "gam"
+    )
+    assert r_c.fit is not None and r_a.fit is not None, (r_c.message, r_a.message)
+    s_c, s_a = improvement_surface(r_c.fit, cnt), improvement_surface(r_a.fit, amt)
+    assert np.max(np.abs(s_a.mi - s_c.mi)) <= 1.0e-6
+
+
+def test_exposure_helpers_read_amount_exposed_on_the_amount_basis() -> None:
+    from polaris_re.gam.fit_report import (
+        drop_nonpositive_exposure,
+        exposure_vector,
+        nonpositive_exposure,
+    )
+
+    d = _amount_cells().with_columns(
+        pl.when(pl.col("attained_age") == 40)
+        .then(0.0)
+        .otherwise(pl.col("amount_exposed"))
+        .alias("amount_exposed")
+    )
+    n40 = int((d.get_column("attained_age") == 40).sum())
+    assert nonpositive_exposure(d, "amount") == n40
+    assert nonpositive_exposure(d.drop("amount_exposed"), "amount") == 0  # nothing to read
+    assert exposure_vector(d.drop("amount_exposed"), "amount") is None
+    assert drop_nonpositive_exposure(d, "amount").height == d.height - n40
+
+
+def test_not_positive_definite_refusal_gets_a_plain_hint_and_no_engine_switch() -> None:
+    from polaris_re.dashboard.views.gam_fit_section import failure_hint
+
+    msg = "bam_fitd: X'WX + S_lambda is not positive definite — the design is not identified"
+    hint = failure_hint(msg)
+    assert hint is not None and "lower `k`" in hint and "never switches engines" in hint
+    assert failure_hint("something else") is None
+
+
+@pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
+def test_page_shows_the_hint_under_a_bam_refusal() -> None:
+    def app() -> None:
+        import streamlit as st
+
+        from polaris_re.dashboard.views.gam_fit_section import GamRunResult, _show
+
+        res = GamRunResult(
+            "bam",
+            None,
+            "bam_fitd: X'WX + S_lambda is not positive definite — the design is not identified",
+            (),
+            0.1,
+        )
+        import polars as pl
+
+        _show(res, pl.DataFrame({"x": [1.0]}), "y ~ s(x)")
+        st.caption("done")
+
+    at = AppTest.from_function(app, default_timeout=60)
+    at.run()
+    assert not at.exception
+    assert any("Refused / failed" in e.value and "positive definite" in e.value for e in at.error)
+    assert any("lower `k`" in i.value for i in at.info)
+
+
+@pytest.mark.skipif(AppTest is None, reason="streamlit.testing.v1 not available")
+def test_page_amount_basis_leads_with_death_amount_and_quasipoisson() -> None:
+    def app() -> None:
+        from polaris_re.dashboard.views.experience_improvement import _sample_cells
+        from polaris_re.dashboard.views.gam_fit_section import render_gam_section
+
+        c = _sample_cells()
+        import polars as pl
+
+        c = c.with_columns(
+            (pl.col("central_exposure") * 1.0e5).alias("amount_exposed"),
+            (pl.col("death_count") * 1.0e5).alias("death_amount"),
+        ).drop("central_exposure", "death_count")
+        render_gam_section(c, "amount")
+
+    at = AppTest.from_function(app, default_timeout=120)
+    at.run()
+    assert not at.exception
+    assert any("Amount basis" in c.value for c in at.caption)
+    formula = next(t for t in at.text_input if t.key.startswith("gam_formula_amount"))
+    assert formula.value.startswith("death_amount ~")
+    fam = next(s for s in at.selectbox if s.key == "gam_family_amount")
+    assert fam.value == "quasipoisson"
+    next(b for b in at.button if b.key == "gam_run").click()
+    at.run()
+    assert not at.exception
+    assert any("Improvement surface MI_x(y)" in s.value for s in at.subheader)
