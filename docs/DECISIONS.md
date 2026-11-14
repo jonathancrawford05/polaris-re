@@ -25774,3 +25774,5 @@ Seeds: 20260101 + i. Nothing is tuned between runs; a failing seed is a result.
 
 ### ADR-267 amendment 2 (2026-11-10, maintainer request): `ComparisonProvenance.MEASUREMENT`
 Added to `polaris_re/core/verification.py`: an engine-against-itself comparison (rescaled copy, thread axis, own criterion). `is_parity_evidence` False, `has_two_producers` False (so the same function may be named on both sides), its own `measurement_quantities` group, and a headline that says "Own-criterion measurement — NOT parity" (or appends the clause beside other kinds). It is not folded into `harness_quantities`, which stays ECHO/TRANSPORT. This supersedes amendment 1's use of ECHO for `scale_invariance_claim()`, which now declares MEASUREMENT. Tests: `tests/test_core/test_verification.py`. Existing claims' headlines are unchanged (no existing producer uses the new member).
+
+*Note (2026-11-14, review round 4):* `docs/ROUTINE_MGCV_PARITY.md` (5b.c and the PR-title rule) and `docs/VERIFICATION_STANDARD.md` (§3.3, §3.4) were updated to list `MEASUREMENT` and `REFERENCE_INTERNAL`.

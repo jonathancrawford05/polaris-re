@@ -311,10 +311,14 @@ target model form, or to characterise precisely why it cannot move.
        supplies `X` and `S`), reading it back is ECHO, not parity.
 
     c. CLASSIFY EVERY COMPARED QUANTITY — provenance is per-column, not per-table:
-         INDEPENDENT — two implementations from the same recipe. The only parity
-                       evidence, and the only kind that can genuinely disagree.
-         ECHO        — we supplied it, the oracle returned it. A no-tampering check.
-         TRANSPORT   — one side computed it, the other parsed it. A round-trip check.
+         INDEPENDENT        — two implementations from the same recipe. The only parity
+                              evidence, and the only kind that can genuinely disagree.
+         REFERENCE_INTERNAL — two real producers, both the reference. About mgcv, not us.
+         ECHO               — we supplied it, the oracle returned it. A no-tampering check.
+         TRANSPORT          — one side computed it, the other parsed it. A round-trip check.
+         MEASUREMENT        — this engine against itself (rescaled copy, thread axis, own
+                              criterion). Stability or invariance, never parity
+                              (ADR-267 amendment 2).
 
     d. DECLARE IT IN THE TYPE: build a `VerificationClaim`
        (`polaris_re.core.verification`) with one `ComparedQuantity` per column, each
@@ -455,7 +459,7 @@ target model form, or to characterise precisely why it cannot move.
    - push to the environment-designated branch and open a DRAFT PR. **Title the PR for
      what it actually establishes:** `feat(mgcv-parity): slice N — …` only when the
      slice lands an INDEPENDENT comparison; `harness(mgcv-parity): …` when it lands
-     plumbing whose columns are ECHO/TRANSPORT. The distinction currently vanishes at
+     plumbing whose columns are ECHO/TRANSPORT, or MEASUREMENT / REFERENCE_INTERNAL only. The distinction currently vanishes at
      the PR-list level, which is where it most needs to be visible.
    - `docs/DEV_SESSION_LOG_{date}_{slug}.md`, with these sections in addition to
      daily-dev's: **Gap Before**, **Gap After**, **Hypotheses Tried** (including the
