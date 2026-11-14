@@ -146,7 +146,8 @@ class ComparedQuantity(PolarisBaseModel):
                 f"ComparedQuantity {self.quantity!r} claims {self.provenance.value} "
                 f"provenance but names the same producer on both sides "
                 f"({self.left_producer!r}). One producer compared against itself is "
-                "TRANSPORT or ECHO, never two-producer evidence."
+                "TRANSPORT, ECHO or (for this engine against itself) MEASUREMENT, never "
+                "two-producer evidence."
             )
         return self
 
@@ -269,7 +270,8 @@ def require_parity_evidence(
             f"for this engine: {detail}. An ECHO or TRANSPORT comparison cannot "
             "demonstrate parity, and neither can a REFERENCE_INTERNAL one — the "
             "latter has two real producers, but both of them are the reference and "
-            "this engine is absent. See docs/VERIFICATION_STANDARD.md."
+            "this engine is absent — nor a MEASUREMENT, which is this engine against "
+            "itself. See docs/VERIFICATION_STANDARD.md."
         )
     return ordered
 
@@ -313,15 +315,23 @@ def evidence_headline(claim: VerificationClaim) -> str:
         # whole thing a "harness check" would be wrong in the other direction —
         # the parity columns are real parity, and the rest are real measurements
         # of the reference. Name both rather than averaging them.
-        extra = "reference-internal" if internal else "own-criterion measurement"
+        extra = " and ".join(
+            kind
+            for kind, present in (
+                ("reference-internal", internal),
+                ("own-criterion measurement", measure),
+            )
+            if present
+        )
         return (
             f"**Parity comparison, with {extra} columns.** Parity "
             f"evidence for this engine: {parity}.{internal_clause}{measure_clause}"
         )
     if not parity and not harness:
         return (
-            "**Reference-internal measurement — NOT parity.** Every column has two "
-            f"real producers, but both of them are the reference: {internal}. This "
+            "**Reference-internal measurement — NOT parity.** "
+            + ("The reference-internal columns have" if measure else "Every column has")
+            + f" two real producers, but both of them are the reference: {internal}. This "
             f"engine is absent, so nothing here is evidence about it.{measure_clause}"
         )
     if not parity:
@@ -356,8 +366,9 @@ def evidence_headline(claim: VerificationClaim) -> str:
     n_all = len(claim.quantities)
     columns = "column" if n_all == 1 else "columns"
     verb = "is" if n_parity == 1 and n_all == 1 else "are"
+    rest = "the rest are not" if (internal or measure) else "the rest are harness-only"
     return (
-        f"**{n_parity} of {n_all} {columns} {verb} parity evidence; the rest are harness-only.** "
+        f"**{n_parity} of {n_all} {columns} {verb} parity evidence; {rest}.** "
         f"Parity evidence: {parity}. Harness only (not parity): {harness}."
         f"{internal_clause}{measure_clause}"
     )

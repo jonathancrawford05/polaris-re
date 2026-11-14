@@ -460,3 +460,32 @@ def test_headline_names_measurement_columns_beside_parity_ones() -> None:
 def test_headline_names_measurement_columns_beside_harness_ones() -> None:
     head = evidence_headline(VerificationClaim(claim="c", quantities=(_echo(), _measurement())))
     assert "Harness check — NOT parity" in head and "`mi_rescaled`" in head
+
+
+def test_mixed_headlines_do_not_contradict_themselves() -> None:
+    three = evidence_headline(
+        VerificationClaim(claim="c", quantities=(_independent(), _echo(), _measurement()))
+    )
+    assert "harness-only" not in three.split("**")[1]  # the lead no longer lumps the measurement in
+    ref_meas = evidence_headline(
+        VerificationClaim(claim="c", quantities=(_reference_internal(), _measurement()))
+    )
+    assert "Every column" not in ref_meas and "reference-internal columns have" in ref_meas
+    both = evidence_headline(
+        VerificationClaim(
+            claim="c", quantities=(_independent(), _reference_internal(), _measurement())
+        )
+    )
+    assert "reference-internal and own-criterion measurement" in both
+
+
+def test_error_messages_name_measurement() -> None:
+    with pytest.raises(PolarisValidationError, match="MEASUREMENT"):
+        ComparedQuantity(
+            quantity="q",
+            left_producer="x",
+            right_producer="x",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        )
+    with pytest.raises(PolarisValidationError, match="against itself"):
+        require_parity_evidence([_measurement()], claim="x")
