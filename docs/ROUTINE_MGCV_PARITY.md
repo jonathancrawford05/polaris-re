@@ -22,7 +22,7 @@
 parent plan and anchors: `docs/PLAN_mgcv_parity_engine.md`
 **Created:** 2026-08-10, from maintainer direction plus the measurements in the parent PLAN §1.
 
-> **ACTIVE EPIC POINTER (maintainer, 2026-11-08, ADR-264 ACCEPTED) — READ THIS FIRST.** The active epic is **`docs/PLAN_gam_dashboard_stabilise_retire.md`** (stabilise the HGAM in the dashboard, then re-wire and deprecate the older experience-GAM; slices S1-S3, R1-R3; its CONTINUATION is `docs/CONTINUATION_gam_dashboard.md`). D2 is merged (PR #279); **D3 is parked**. ADR-264 and the plan were CONFIRMED by the maintainer on 2026-11-08 (PR #282), S1 was IMPLEMENTED 2026-11-09 (ADR-265, awaiting merge): S1 merged (PR #283); **S2 DONE 2026-11-09 as a finding (ADR-266: slogdet warnings not reproduced on synthetic data; maintainer locator run pending)**; the next session takes S3 (R1, docs only, may run in parallel). The 2026-10-21 pointer below is kept as the record.
+> **ACTIVE EPIC POINTER (maintainer, 2026-11-08, ADR-264 ACCEPTED) — READ THIS FIRST.** The active epic is **`docs/PLAN_gam_dashboard_stabilise_retire.md`** (stabilise the HGAM in the dashboard, then re-wire and deprecate the older experience-GAM; slices S1-S3, R1-R3; its CONTINUATION is `docs/CONTINUATION_gam_dashboard.md`). D2 is merged (PR #279); **D3 is parked**. ADR-264 and the plan were CONFIRMED by the maintainer on 2026-11-08 (PR #282), S1 was IMPLEMENTED 2026-11-09 (ADR-265, awaiting merge): S1 merged (PR #283); **S2 DONE 2026-11-09 as a finding (ADR-266: slogdet warnings not reproduced on synthetic data; maintainer locator run pending)**; S3 IMPLEMENTED 2026-11-10 (ADR-267, awaiting merge; its pre-registered sharp-truth property FAILED, a result); the next session takes R1 (docs only) unless the maintainer answers the S3 questions first. The 2026-10-21 pointer below is kept as the record.
 >
 > *Previous pointer follows.*
 
@@ -311,10 +311,14 @@ target model form, or to characterise precisely why it cannot move.
        supplies `X` and `S`), reading it back is ECHO, not parity.
 
     c. CLASSIFY EVERY COMPARED QUANTITY — provenance is per-column, not per-table:
-         INDEPENDENT — two implementations from the same recipe. The only parity
-                       evidence, and the only kind that can genuinely disagree.
-         ECHO        — we supplied it, the oracle returned it. A no-tampering check.
-         TRANSPORT   — one side computed it, the other parsed it. A round-trip check.
+         INDEPENDENT        — two implementations from the same recipe. The only parity
+                              evidence, and the only kind that can genuinely disagree.
+         REFERENCE_INTERNAL — two real producers, both the reference. About mgcv, not us.
+         ECHO               — we supplied it, the oracle returned it. A no-tampering check.
+         TRANSPORT          — one side computed it, the other parsed it. A round-trip check.
+         MEASUREMENT        — this engine against itself (rescaled copy, thread axis, own
+                              criterion). Stability or invariance, never parity
+                              (ADR-267 amendment 2).
 
     d. DECLARE IT IN THE TYPE: build a `VerificationClaim`
        (`polaris_re.core.verification`) with one `ComparedQuantity` per column, each
@@ -455,7 +459,7 @@ target model form, or to characterise precisely why it cannot move.
    - push to the environment-designated branch and open a DRAFT PR. **Title the PR for
      what it actually establishes:** `feat(mgcv-parity): slice N — …` only when the
      slice lands an INDEPENDENT comparison; `harness(mgcv-parity): …` when it lands
-     plumbing whose columns are ECHO/TRANSPORT. The distinction currently vanishes at
+     plumbing whose columns are ECHO/TRANSPORT, or MEASUREMENT / REFERENCE_INTERNAL only. The distinction currently vanishes at
      the PR-list level, which is where it most needs to be visible.
    - `docs/DEV_SESSION_LOG_{date}_{slug}.md`, with these sections in addition to
      daily-dev's: **Gap Before**, **Gap After**, **Hypotheses Tried** (including the

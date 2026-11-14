@@ -19,8 +19,9 @@ situations:
 | **INDEPENDENT** | Two implementations computed the quantity from the same *recipe*, neither reading the other's output | **Parity.** The only relationship that can produce a genuine disagreement |
 | **ECHO** | One side supplied the quantity; the other returned it | The reference did not reparameterise, rescale or reorder what it was handed |
 | **TRANSPORT** | One side computed it; the other parsed it | Serialisation and packaging work |
+| **MEASUREMENT** | This engine against itself: a rescaled copy, a thread axis, its own criterion (added 2026-11-10, ADR-267) | Stability or invariance of the engine; never correctness. No second producer exists, so the same function may be named on both sides |
 
-All three are worth running. Only the first is parity evidence.
+All of these are worth running. Only the first is parity evidence.
 
 The failure mode is not dishonesty. Twice in the `mgcv` parity epic the prose was
 scrupulously accurate — the docstrings, the session logs and the ledger all said
@@ -185,6 +186,7 @@ diffs. The headline is *derived* from the declared provenance:
 - all columns independent → `**Parity comparison** — …`
 - some independent → `**N of M columns are parity evidence; the rest are harness-only.** Parity evidence: …; Harness only (not parity): …` (N, M counted from the claim; reworded twice on 2026-10-09, ADR-254: first from "one parity column" to a count, then to the share)
 - none independent → `**Harness check — NOT parity.** …`
+- only own-criterion measurement columns → `**Own-criterion measurement — NOT parity.** …` (added 2026-11-14, ADR-267 amendment 2). When REFERENCE_INTERNAL or MEASUREMENT columns are present the share form ends "the rest are not" instead of "the rest are harness-only"; the wording is unchanged for all 57 existing claims.
 
 A human writing that line by hand is exactly the step that failed before.
 
@@ -193,8 +195,8 @@ A human writing that line by hand is exactly the step that failed before.
 Wherever a parity claim is *asserted* — an acceptance check, a CI gate, a report
 that prints the word "parity" — pass the cited quantities through
 `require_parity_evidence(...)`. It raises `PolarisValidationError` naming each
-quantity that is not parity evidence for **this engine** — every ECHO, TRANSPORT
-and `REFERENCE_INTERNAL` column, with both its producers. A harness result then
+quantity that is not parity evidence for **this engine** — every ECHO, TRANSPORT,
+`REFERENCE_INTERNAL` and `MEASUREMENT` column, with both its producers. A harness result then
 cannot silently satisfy a parity gate, and neither can a measurement of the
 reference against itself (§2.2).
 

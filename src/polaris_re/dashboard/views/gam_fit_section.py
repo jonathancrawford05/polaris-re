@@ -59,8 +59,28 @@ fitted effects are then A/E multipliers on the static base, as on the older mode
 ``q_base`` the offset is ``log_exposure`` and the effects are on the log mortality rate."""
 
 
-def default_formula(data: pl.DataFrame) -> str:
-    """The starting formula: ``offset(log_expected)`` when ``q_base`` was supplied."""
+AMOUNT_LOG_EXPOSURE = "log_amount_exposed"
+AMOUNT_EXPECTED_OFFSET = "log_expected_amount"
+AMOUNT_DEFAULT_FAMILY = "quasipoisson"
+"""Amount-basis deaths are not Poisson counts (overdispersed, ADR-267), so the page starts
+``quasipoisson``; the user can change it."""
+
+
+def default_formula(data: pl.DataFrame, basis: str = "count") -> str:
+    """The starting formula: ``offset(log_expected)`` when ``q_base`` was supplied.
+
+    ``basis="amount"`` (ADR-267) models ``death_amount`` with the amount-exposed offsets, which
+    carry their own names so a count-basis ``log_exposure`` already in the frame is not reused.
+    """
+    if basis == "amount":
+        offset = (
+            AMOUNT_EXPECTED_OFFSET
+            if AMOUNT_EXPECTED_OFFSET in data.columns
+            else AMOUNT_LOG_EXPOSURE
+        )
+        return DEFAULT_FORMULA.replace("death_count", "death_amount").replace(
+            "offset(log_exposure)", f"offset({offset})"
+        )
     if EXPECTED_OFFSET in data.columns:
         return DEFAULT_FORMULA.replace("offset(log_exposure)", f"offset({EXPECTED_OFFSET})")
     return DEFAULT_FORMULA
@@ -84,10 +104,25 @@ class GamRunResult:
     seconds: float
 
 
-def prepare_frame(cells: pl.DataFrame) -> pl.DataFrame:
+def prepare_frame(cells: pl.DataFrame, basis: str = "count") -> pl.DataFrame:
     """Add ``log_exposure`` (and ``log_expected`` when ``q_base`` is present) from
-    ``central_exposure``, so the default formula runs."""
+    ``central_exposure``, so the default formula runs.
+
+    ``basis="amount"`` adds ``log_amount_exposed`` / ``log_expected_amount`` from
+    ``amount_exposed`` instead (ADR-267)."""
     out = cells
+    if basis == "amount":
+        if AMOUNT_LOG_EXPOSURE not in out.columns and "amount_exposed" in out.columns:
+            out = out.with_columns(pl.col("amount_exposed").log().alias(AMOUNT_LOG_EXPOSURE))
+        if (
+            AMOUNT_EXPECTED_OFFSET not in out.columns
+            and "q_base" in out.columns
+            and "amount_exposed" in out.columns
+        ):
+            out = out.with_columns(
+                (pl.col("amount_exposed") * pl.col("q_base")).log().alias(AMOUNT_EXPECTED_OFFSET)
+            )
+        return out
     if "log_exposure" not in out.columns and "central_exposure" in out.columns:
         out = out.with_columns(pl.col("central_exposure").log().alias("log_exposure"))
     if (
@@ -173,8 +208,9 @@ def _model() -> CostModel:
     return fit_cost_model()
 
 
-def render_gam_section(cells: pl.DataFrame) -> None:
-    """Render the section. ``cells`` is the frame the page already loaded."""
+def render_gam_section(cells: pl.DataFrame, basis: str = "count") -> None:
+    """Render the section. ``cells`` is the frame the page already loaded; ``basis`` is the
+    page's experience basis (``count`` or ``amount``, ADR-267)."""
     st.divider()
     st.header("GAM (HGAM fitter) — read-only")
     st.caption(
@@ -182,29 +218,57 @@ def render_gam_section(cells: pl.DataFrame) -> None:
         "DIFFERENT model from the experience GAM above; numbers here are labelled with their "
         "engine. Nothing on this section feeds pricing."
     )
-    n_bad = nonpositive_exposure(cells)
+    n_bad = nonpositive_exposure(cells, basis)
     if n_bad:
         st.error(nonpositive_exposure_message(n_bad, cells.height))
         if not st.checkbox(f"Drop these rows ({n_bad})", value=False, key="gam_drop_bad_exposure"):
             return
-        cells = drop_nonpositive_exposure(cells)
+        cells = drop_nonpositive_exposure(cells, basis)
         st.caption(f"Dropped {n_bad} row(s) with non-positive exposure; {cells.height} remain.")
         if cells.height == 0:
             st.error("No rows remain after dropping non-positive exposure.")
             return
-    data = prepare_frame(cells)
+    data = prepare_frame(cells, basis)
     n_rows = data.height
-    if "log_exposure" in data.columns and "log_exposure" not in cells.columns:
+    if basis == "amount":
+        missing_amount = [
+            name
+            for name, present in (
+                ("amount_exposed", AMOUNT_LOG_EXPOSURE in data.columns),
+                ("death_amount", "death_amount" in data.columns),
+            )
+            if not present
+        ]
+        if missing_amount:
+            st.error(
+                f"The amount basis needs the column(s) {missing_amount}: `amount_exposed` "
+                "builds the offset and `death_amount` is the response."
+            )
+            return
+        st.caption(
+            "Amount basis: the response is `death_amount`, the offset is ln(`amount_exposed`) "
+            "(`log_amount_exposed`), and the family starts as quasipoisson because amount "
+            "deaths are overdispersed relative to Poisson counts (ADR-267)."
+        )
+    elif "log_exposure" in data.columns and "log_exposure" not in cells.columns:
         st.caption("`log_exposure` = ln(`central_exposure`) was added for the offset.")
-    start = default_formula(data)
+    start = default_formula(data, basis)
     formula = st.text_input(
         "Formula",
         value=start,
         help=HELP,
-        key=f"gam_formula_{'qbase' if start != DEFAULT_FORMULA else 'plain'}",
+        key=(
+            f"gam_formula_{'amount_' if basis == 'amount' else ''}"
+            f"{'qbase' if start != DEFAULT_FORMULA else 'plain'}"
+        ),
     )
     c1, c2 = st.columns(2)
-    family = c1.selectbox("Family", list(FAMILY_CHOICES), key="gam_family")
+    family = c1.selectbox(
+        "Family",
+        list(FAMILY_CHOICES),
+        index=FAMILY_CHOICES.index(AMOUNT_DEFAULT_FAMILY) if basis == "amount" else 0,
+        key="gam_family_amount" if basis == "amount" else "gam_family",
+    )
     dflt = default_engine(n_rows)
     engine = cast(
         Engine,
@@ -249,17 +313,42 @@ def render_gam_section(cells: pl.DataFrame) -> None:
         if cached is not None:
             st.caption("Inputs changed since the last run; press Run again.")
         return
-    _show(cached[1], data, formula)
+    _show(cached[1], data, formula, basis)
+
+
+NOT_PD_MARKER = "not positive definite"
+
+
+def failure_hint(message: str) -> str | None:
+    """Plain-language reading of a known refusal (S3, ADR-267), or ``None``.
+
+    The ``bam`` "X'WX + S_lambda is not positive definite" refusal is data dependent (the same
+    formula fits other draws; ADR-266 side finding): the design is not identified at the
+    working weights. The hint states that and the two options the page offers; it does not
+    claim a cause beyond that. The ``bam`` engine is never replaced by ``gam`` silently.
+    """
+    if NOT_PD_MARKER in message:
+        return (
+            "The `bam` engine could not factor X'WX + S for this data and formula: the design "
+            "is not identified (for example a smooth with more basis functions than the data "
+            "can support, or empty cells). This is data dependent, not a page error. Options: "
+            "lower `k` on the smooths, drop a term, or select the `gam` engine and run again "
+            "(a different, slower solver; the page never switches engines for you)."
+        )
+    return None
 
 
 # Substrings identifying NumPy/SciPy numerical warnings raised during REML optimisation (R-04).
 NUMERICAL_WARNING_PATTERNS = ("slogdet", "divide by zero", "overflow", "invalid value")
 
 
-def _show(res: GamRunResult, data: pl.DataFrame, formula: str) -> None:
+def _show(res: GamRunResult, data: pl.DataFrame, formula: str, basis: str = "count") -> None:
     st.subheader(f"Result — engine: {res.engine}")
     if res.fit is None:
         st.error(f"Refused / failed: {res.message}")
+        hint = failure_hint(res.message or "")
+        if hint:
+            st.info(hint)
         return
     fit = res.fit
     st.caption(f"Fit took {res.seconds:.1f} s (MEASUREMENT on this machine).")
@@ -318,7 +407,7 @@ def _show(res: GamRunResult, data: pl.DataFrame, formula: str) -> None:
             "Review EDF per term in the table above."
         )
     _show_effects(fit, data, res.engine)
-    _show_surface(fit, data, res.engine)
+    _show_surface(fit, data, res.engine, basis)
 
 
 def _show_effects(fit: GamFit, data: pl.DataFrame, engine: Engine) -> None:
@@ -389,7 +478,7 @@ def surface_csv(s: ImprovementSurface, mask: MaskedSurface | None = None) -> str
     return buf.getvalue()
 
 
-def _show_surface(fit: GamFit, data: pl.DataFrame, engine: Engine) -> None:
+def _show_surface(fit: GamFit, data: pl.DataFrame, engine: Engine, basis: str = "count") -> None:
     st.subheader(f"Improvement surface MI_x(y) — engine: {engine}")
     st.warning(
         "MEASUREMENT: not an actuarial recommendation, not fed to pricing. "
@@ -403,7 +492,7 @@ def _show_surface(fit: GamFit, data: pl.DataFrame, engine: Engine) -> None:
     except PolarisValidationError as exc:
         st.info(f"No improvement surface: {exc}")
         return
-    mask = mask_surface(s, data)
+    mask = mask_surface(s, data, basis=basis)
     st.info(
         f"{mask.summary()} Masked cells are not plotted as values and are blank in the "
         "download (MEASUREMENT, ADR-265)."
